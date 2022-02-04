@@ -28,7 +28,7 @@ Preexisting installs of OmpSs-2 and TAMPI are required. The ```mpt``` MPI implem
 To facilitate building against OmpSs-2 and TAMPI, the provided Makefiles are not used. Compiler wrapper ```mpicxx``` is used directly:
 
 ```
-CFLAGS="--ompss-2 -I${TAMPI_HOME}/include -O3 -g -DMPICH_IGNORE_CXX_SEEK -DNOCHUNK -mavx  -UUSE_SIMD -DUSE_TAMPI -DUSE_TASKS -DPRECISION=2"
+CFLAGS="--ompss-2 -I${TAMPI_HOME}/include -O3 -g -DMPICH_IGNORE_CXX_SEEK -DNOCHUNK -mavx  -UUSE_SIMD -DUSE_TAMPI -DPRECISION=2"
 
 SOURCE_FILES="ljs.cpp input.cpp integrate.cpp atom.cpp force_lj.cpp force_eam.cpp neighbor.cpp thermo.cpp comm.cpp timer.cpp output.cpp setup.cpp"
 

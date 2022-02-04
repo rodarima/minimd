@@ -43,7 +43,7 @@ Neighbor::Neighbor(int ntypes_)
   ntypes = ntypes_;
   max_totalneigh = 0;
   numneigh = NULL;
-    neighbors = NULL;
+  neighbors = NULL;
   maxneighs = 100;
   nmax = 0;
   bincount = NULL;
@@ -82,8 +82,6 @@ void Neighbor::build(Atom &atom)
   const int nall = atom.nlocal + atom.nghost;
   /* extend atom arrays if necessary */
 
-  //#pragma omp master
-
   if(nall > nmax) {
     nmax = nall;
 #ifdef ALIGNMALLOC
@@ -102,7 +100,6 @@ void Neighbor::build(Atom &atom)
 #endif
   }
 
-  //#pragma omp barrier
   /* bin local & ghost atoms */
 
   binatoms(atom);
@@ -114,15 +111,11 @@ void Neighbor::build(Atom &atom)
   int ntypes = atom.ntypes;
 
   resize = 1;
-  //#pragma omp barrier
-  // DSM: TODO: Why three barriers? Redundant?
+
   while(resize) {
-    //#pragma omp barrier
     int new_maxneighs = maxneighs;
     resize = 0;
-    //#pragma omp barrier
 
-    OMPFORSCHEDULE
     for(int i = 0; i < nlocal; i++) {
       int* neighptr = &neighbors[i * maxneighs];
       /* if necessary, goto next page and add pages */
@@ -189,10 +182,7 @@ void Neighbor::build(Atom &atom)
       }
     }
 
-    // #pragma omp barrier
-
     if(resize) {
-      //#pragma omp master
       {
         maxneighs = new_maxneighs * 1.2;
 #ifdef ALIGNMALLOC
@@ -203,11 +193,8 @@ void Neighbor::build(Atom &atom)
         neighbors = (int*) malloc(nmax* maxneighs * sizeof(int));
 #endif
       }
-      //#pragma omp barrier
     }
   }
-
-  //#pragma omp barrier
 }
 
 void Neighbor::binatoms(Atom &atom, int count)
@@ -222,47 +209,26 @@ void Neighbor::binatoms(Atom &atom, int count)
 
   resize = 1;
 
-  //#pragma omp barrier
-
   while(resize > 0) {
-    //#pragma omp barrier
     resize = 0;
-    //#pragma omp barrier
-    //#pragma omp for schedule(static)
     for(int i = 0; i < mbins; i++) bincount[i] = 0;
 
-
-    OMPFORSCHEDULE
     for(int i = 0; i < nall; i++) {
       const int ibin = coord2bin(x[i * PAD + 0], x[i * PAD + 1], x[i * PAD + 2]);
 
       if(bincount[ibin] < atoms_per_bin) {
         int ac;
-#ifdef OpenMP31
-        //#pragma omp atomic capture
-        ac = bincount[ibin]++;
-#else
         ac = __sync_fetch_and_add(bincount + ibin, 1);
-#endif
         bins[ibin * atoms_per_bin + ac] = i;
       } else resize = 1;
     }
-
-    // #pragma omp barrier
-
-    //#pragma omp master
 
     if(resize) {
       free(bins);
       atoms_per_bin *= 2;
       bins = (int*) malloc(mbins * atoms_per_bin * sizeof(int));
     }
-
-    // #pragma omp barrier
   }
-
-  //#pragma omp barrier
-
 }
 
 /* convert xyz atom coords into local bin #

@@ -44,7 +44,6 @@ void Integrate::setup()
 
 void Integrate::initialIntegrate(MMD_float* x, MMD_float* v, MMD_float* f, MMD_int nlocal)
 {
-  OMPFORSCHEDULE
   for(MMD_int i = 0; i < nlocal; i++) {
     v[i * PAD + 0] += dtforce * f[i * PAD + 0];
     v[i * PAD + 1] += dtforce * f[i * PAD + 1];
@@ -58,7 +57,6 @@ void Integrate::initialIntegrate(MMD_float* x, MMD_float* v, MMD_float* f, MMD_i
 // DSM Velocity update
 void Integrate::finalIntegrate(MMD_float* v, MMD_float* f, MMD_int nlocal)
 {
-  OMPFORSCHEDULE
   for(MMD_int i = 0; i < nlocal; i++) {
     v[i * PAD + 0] += dtforce * f[i * PAD + 0];
     v[i * PAD + 1] += dtforce * f[i * PAD + 1];
@@ -142,25 +140,14 @@ void Integrate::run(Atom* atoms[], Force* force,
         }
       }
 
-      // Timers broken in tasked version - only used when built with tasking disabled
-#ifndef USE_TASKS
-      timer.stamp();
-#endif
-
       // --- comm.communicate() ---
       // DSM: communicate() almost every timestep. neighbor.every number of timesteps do more expensive exchange().
       if((n + 1) % every) {
         comm.communicate(atoms); // DSM: Multibox
-#ifndef USE_TASKS
-        timer.stamp(TIME_COMM);
-#endif
       }
 
       // --- comm.exchange() ---
       if( !((n + 1) % every) ) {
-#ifndef USE_TASKS
-        timer.stamp_extra_start();
-#endif
         comm.exchange(atoms);
       }
 
@@ -179,10 +166,6 @@ void Integrate::run(Atom* atoms[], Force* force,
       // --- comm.borders() ---
       if( !((n + 1) % every) ) {
         comm.borders(atoms);
-#ifndef USE_TASKS
-        timer.stamp_extra_stop(TIME_TEST);
-        timer.stamp(TIME_COMM);
-#endif
       }
 
       // Only perform neighbour rebuild "every" iterations
@@ -204,15 +187,9 @@ void Integrate::run(Atom* atoms[], Force* force,
                            firstprivate(box_index, n)
           {
             atoms[box_index]->neighbor->build(*atoms[box_index]);
-#ifndef USE_TASKS
-            timer.stamp(TIME_NEIGH);
-#endif
             // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
             force->evflag[box_index] = (n + 1) % thermo.nstat == 0; // Controls whether eng_vdwl and virial are set this compute call or not
             force->compute(*atoms[box_index], *atoms[box_index]->neighbor, *(Comm*)0, NULL); // last 2 arguments (comm & comm.me) are not used in force_lj implementation. Replace with nulls
-#ifndef USE_TASKS
-            timer.stamp(TIME_FORCE);
-#endif
             finalIntegrate(atoms[box_index]->v, atoms[box_index]->f, atoms[box_index]->nlocal);
           }
         }
@@ -230,9 +207,6 @@ void Integrate::run(Atom* atoms[], Force* force,
             // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
             force->evflag[box_index] = (n + 1) % thermo.nstat == 0; // Controls whether eng_vdwl and virial are set this compute call or not
             force->compute(*atoms[box_index], *atoms[box_index]->neighbor, *(Comm*)0, NULL); // last 2 arguments (comm & comm.me) are not used in force_lj implementation. Replace with nulls
-#ifndef USE_TASKS
-            timer.stamp(TIME_FORCE);
-#endif
             finalIntegrate(atoms[box_index]->v, atoms[box_index]->f, atoms[box_index]->nlocal);
           }
         }

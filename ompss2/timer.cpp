@@ -33,10 +33,6 @@
 #include "mpi.h"
 #include "timer.h"
 
-#ifdef USE_TAMPI
-#include <TAMPI.h>
-#endif
-
 Timer::Timer()
 {
   array = (double*) malloc(TIME_N * sizeof(double));

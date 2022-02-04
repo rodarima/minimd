@@ -38,13 +38,8 @@
 #include "integrate.h"
 #include "neighbor.h"
 
-#ifdef USE_TAMPI
-#include <TAMPI.h>
-#endif
-
 #include <cstring>
 #include <cstdio>
-#include <cstdlib>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
@@ -321,8 +316,9 @@ void create_box(Atom &atom, int nx, int ny, int nz, double rho)
 int create_atoms(Atom &atom, int nx, int ny, int nz, double rho)
 {
   /* total # of atoms */
-
-  atom.natoms = 4 * nx * ny * nz; // DSM TODO: Why 4*? Is this related to crystal latice structure?
+  // DSM: Why 4*? Is this related to crystal latice structure?
+  // RAM: There are 4 species of atoms (types)
+  atom.natoms = 4 * nx * ny * nz;
   atom.nlocal = 0;
 
   /* determine loop bounds of lattice subsection that overlaps my sub-box

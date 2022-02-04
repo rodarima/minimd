@@ -311,7 +311,6 @@ void ForceEAM::file2array() {}
 //  // rho = density at each atom
 //  // loop over neighbors of my atoms
 //
-//  OMPFORSCHEDULE
 //  for(MMD_int i = 0; i < nlocal; i++) {
 //    int* neighs = &neighbor.neighbors[i * neighbor.maxneighs];
 //    const int jnum = neighbor.numneigh[i];
@@ -375,7 +374,6 @@ void ForceEAM::file2array() {}
 //  // compute forces on each atom
 //  // loop over neighbors of my atoms
 //
-//  OMPFORSCHEDULE
 //  for(MMD_int i = 0; i < nlocal; i++) {
 //    int* neighs = &neighbor.neighbors[i * neighbor.maxneighs];
 //    const int numneigh = neighbor.numneigh[i];

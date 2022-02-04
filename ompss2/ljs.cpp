@@ -33,10 +33,6 @@
 #include "stdlib.h"
 #include "mpi.h"
 
-#ifdef USE_TAMPI
-#include <TAMPI.h>
-#endif
-
 #include "variant.h"
 #include "ljs.h"
 #include "atom.h"
@@ -95,16 +91,12 @@ int main(int argc, char** argv)
     }
   }
 
-#ifdef USE_TASKS
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_TASK_MULTIPLE, &provided);
   if (provided != MPI_TASK_MULTIPLE) {
     fprintf(stderr, "Error: MPI_TASK_MULTIPLE not supported!");
     return 1;
   }
-#else
-  MPI_Init(&argc, &argv);
-#endif
 
   MPI_Comm_rank(MPI_COMM_WORLD, &me);
   MPI_Comm_size(MPI_COMM_WORLD, &nprocs);

@@ -43,10 +43,6 @@
 #include <time.h>
 #include "variant.h"
 
-#ifdef USE_TAMPI
-#include <TAMPI.h>
-#endif
-
 void stats(int, double*, double*, double*, double*, int, int*);
 
 void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,

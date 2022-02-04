@@ -36,10 +36,6 @@
 #include "integrate.h"
 #include "thermo.h"
 
-#ifdef USE_TAMPI
-#include <TAMPI.h>
-#endif
-
 Thermo::Thermo() {}
 Thermo::~Thermo() {}
 
@@ -87,9 +83,7 @@ void Thermo::compute(MMD_int iflag, Atom* atoms[], Force* force, Timer &timer)
   t_act = 0;
   e_act = 0;
   p_act = 0;
-  //#pragma omp barrier
   t = temperature(atoms); // DSM Multibox change
-  //#pragma omp master
   {
     eng = energy(atoms, force);
 
@@ -167,7 +161,6 @@ MMD_float Thermo::temperature(Atom* atoms[])
     MMD_float* v = atom.v;
     t = 0.0;
 
-    OMPFORSCHEDULE
     for (i = 0; i < atom.nlocal; i++) {
       vx = v[i * PAD + 0];
       vy = v[i * PAD + 1];
@@ -175,14 +168,10 @@ MMD_float Thermo::temperature(Atom* atoms[])
       t += (vx * vx + vy * vy + vz * vz) * atom.mass;
     }
 
-    //#pragma omp atomic
     t_act += t;
   }
 
-  //#pragma omp barrier
-
   MMD_float t1;
-  //#pragma omp master
   {
     if(sizeof(MMD_float) == 4)
       MPI_Allreduce(&t_act, &t1, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);

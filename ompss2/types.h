@@ -52,16 +52,6 @@ struct float4 {
 #define CHUNKSIZE 64
 #endif
 
-/*
-#ifdef NOCHUNK
-#define OMPFORSCHEDULE  _Pragma("omp for schedule(static)")
-#else
-#define OMPFORSCHEDULE  _Pragma("omp for schedule(static,CHUNKSIZE)")
-#endif
-*/
-// Remove all OpenMP references for OmpSs-2 tasked build
-#define OMPFORSCHEDULE
-
 #ifndef PRECISION
 #define PRECISION 2
 #endif
