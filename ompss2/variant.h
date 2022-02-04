@@ -31,4 +31,3 @@
 
 #define VARIANT_REFERENCE
 #define VARIANT_STRING "miniMD-ompss 2.0 (MPI+OmpSs-2+TAMPI)"
-

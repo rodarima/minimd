@@ -37,23 +37,23 @@
 
 class Neighbor;
 struct Box {
-  double xprd, yprd, zprd;
-  double xlo, xhi;
-  double ylo, yhi;
-  double zlo, zhi;
+    double xprd, yprd, zprd;
+    double xlo, xhi;
+    double ylo, yhi;
+    double zlo, zhi;
 
-  // DSM 26-way communication change: Replace comm's slablo/slabhi arrays with these constants (set in comm.setup())
-  // The comm.borders() function uses these to determine whether atoms are in the slab region before updating positions.
-  // Corner calculations use constants from multiple dimensions, e.g. communication with "top-left" neighbour process
-  // is all atoms in region boxed by (xneg_slab_lo to xneg_slab_hi) and (zneg_slab_lo to zneg_slab_hi).
-  double xneg_slab_lo, xneg_slab_hi, xpos_slab_lo, xpos_slab_hi;
-  double yneg_slab_lo, yneg_slab_hi, ypos_slab_lo, ypos_slab_hi;
-  double zneg_slab_lo, zneg_slab_hi, zpos_slab_lo, zpos_slab_hi;
+    // DSM 26-way communication change: Replace comm's slablo/slabhi arrays with these constants (set in comm.setup())
+    // The comm.borders() function uses these to determine whether atoms are in the slab region before updating
+    // positions. Corner calculations use constants from multiple dimensions, e.g. communication with "top-left"
+    // neighbour process is all atoms in region boxed by (xneg_slab_lo to xneg_slab_hi) and (zneg_slab_lo to
+    // zneg_slab_hi).
+    double xneg_slab_lo, xneg_slab_hi, xpos_slab_lo, xpos_slab_hi;
+    double yneg_slab_lo, yneg_slab_hi, ypos_slab_lo, ypos_slab_hi;
+    double zneg_slab_lo, zneg_slab_hi, zpos_slab_lo, zpos_slab_hi;
 };
 
-class Atom
-{
-  public:
+class Atom {
+public:
     int natoms;
     int nlocal, nghost;
     int nmax;
@@ -64,18 +64,18 @@ class Atom
     // i.e. box_id (we send to other boxes on our own layer (but different procs) at first), box_id-1 & box_id+1.
     // Box IDs are in range 0->boxes_per_process-1 and are periodic
     int boxneigh_negative, boxneigh_positive;
-    Neighbor* neighbor; // DSM: Multibox change - need one neighborlist per box rather than per process
+    Neighbor *neighbor; // DSM: Multibox change - need one neighborlist per box rather than per process
 
-    double* x;
-    double* v;
-    double* f;
+    double *x;
+    double *v;
+    double *f;
 
     int ntypes;
-    int* type;
+    int *type;
 
-    double* xold;
+    double *xold;
 
-    ThreadData* threads;
+    ThreadData *threads;
     double virial, mass;
 
     int comm_size, reverse_size, border_size;
@@ -90,34 +90,34 @@ class Atom
 
     void copy(int, int);
 
-    void pack_comm(int, int*, double*, int, double, double, double);
-    void unpack_comm(int, int, double*);
-    void pack_reverse(int, int, double*);
-    void unpack_reverse(int, int*, double*);
+    void pack_comm(int, int *, double *, int, double, double, double);
+    void unpack_comm(int, int, double *);
+    void pack_reverse(int, int, double *);
+    void unpack_reverse(int, int *, double *);
 
-    int pack_border(int, double*, int*);
-    int unpack_border(int, double*);
-    int pack_exchange(int, double*);
-    int unpack_exchange(int, double*);
-    int skip_exchange(double*);
+    int pack_border(int, double *, int *);
+    int unpack_border(int, double *);
+    int pack_exchange(int, double *);
+    int unpack_exchange(int, double *);
+    int skip_exchange(double *);
 
-    double* realloc_2d_double_array(double*, int, int, int);
-    double* create_2d_double_array(int, int);
-    void destroy_2d_double_array(double*);
+    double *realloc_2d_double_array(double *, int, int, int);
+    double *create_2d_double_array(int, int);
+    void destroy_2d_double_array(double *);
 
-    int* realloc_1d_int_array(int*, int, int);
-    int* create_1d_int_array(int);
-    void destroy_1d_int_array(int*);
+    int *realloc_1d_int_array(int *, int, int);
+    int *create_1d_int_array(int);
+    void destroy_1d_int_array(int *);
 
-    void sort(Neighbor & neighbor);
-    void sort_ghosts(Neighbor & neighbor);
+    void sort(Neighbor &neighbor);
+    void sort_ghosts(Neighbor &neighbor);
 
-  private:
-    int* binpos;
-    int* bins;
-    double* x_copy;
-    double* v_copy;
-    int* type_copy;
+private:
+    int *binpos;
+    int *bins;
+    double *x_copy;
+    double *v_copy;
+    int *type_copy;
     int copy_size;
 };
 

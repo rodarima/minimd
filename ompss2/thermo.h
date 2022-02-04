@@ -32,42 +32,42 @@
 #ifndef THERMO_H
 #define THERMO_H
 
-enum units {LJ, METAL};
+enum units { LJ, METAL };
 #include "atom.h"
-#include "neighbor.h"
-#include "force.h"
-#include "timer.h"
 #include "comm.h"
+#include "force.h"
+#include "neighbor.h"
 #include "threadData.h"
+#include "timer.h"
 #include "types.h"
 
 class Integrate;
 
-class Thermo
-{
-  public:
+class Thermo {
+public:
     int nstat;
     int mstat;
     int ntimes;
-    int* steparr;
-    double* tmparr;
-    double* engarr;
-    double* prsarr;
+    int *steparr;
+    double *tmparr;
+    double *engarr;
+    double *prsarr;
 
     Thermo();
     ~Thermo();
     void setup(double, Integrate &integrate, Atom &atom, int);
-    double temperature(Atom**); // DSM Multibox change
-    double energy(Atom**, Force*); // DSM Multibox change
-    double pressure(double, Force*);
+    double temperature(Atom **); // DSM Multibox change
+    double energy(Atom **, Force *); // DSM Multibox change
+    double pressure(double, Force *);
     // DSM Multibox change: now takes atom array and no longer takes comm (was unused)
-    void compute(int, Atom**, Force*, Timer &);
+    void compute(int, Atom **, Force *, Timer &);
 
     double t_act, p_act, e_act;
     double t_scale, e_scale, p_scale, mvv2e, dof_boltz;
 
-    ThreadData* threads;
-  private:
+    ThreadData *threads;
+
+private:
     double rho;
 };
 

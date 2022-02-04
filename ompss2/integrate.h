@@ -30,16 +30,15 @@
 ---------------------------------------------------------------------- */
 
 #include "atom.h"
+#include "comm.h"
 #include "force.h"
 #include "neighbor.h"
-#include "comm.h"
 #include "thermo.h"
-#include "timer.h"
 #include "threadData.h"
+#include "timer.h"
 
-class Integrate
-{
-  public:
+class Integrate {
+public:
     double dt;
     double dtforce;
     int ntimes;
@@ -54,10 +53,10 @@ class Integrate
     ~Integrate();
     void setup();
     // DSM Multibox: These functions signatures changes as x, v, f and xold are no longer class attributes
-    void initialIntegrate(double* x, double* v, double* f, int nlocal);
-    void finalIntegrate(double* v, double* f, int nlocal);
+    void initialIntegrate(double *x, double *v, double *f, int nlocal);
+    void finalIntegrate(double *v, double *f, int nlocal);
     // DSM Multibox change: Atom now an array of atoms[] and Neighbor now an attribute of atoms
-    void run(Atom* atoms[], Force*, Comm &, Thermo &, Timer &);
+    void run(Atom *atoms[], Force *, Comm &, Thermo &, Timer &);
 
-    ThreadData* threads;
+    ThreadData *threads;
 };

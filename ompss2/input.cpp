@@ -29,121 +29,126 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
 #include "mpi.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
-#include "ljs.h"
 #include "atom.h"
 #include "force.h"
-#include "neighbor.h"
 #include "integrate.h"
+#include "ljs.h"
+#include "neighbor.h"
 #include "thermo.h"
 #include "types.h"
 
-
 #define MAXLINE 256
 
-static void
-safe_fgets(char *restrict s, int size, FILE *restrict stream)
+static void safe_fgets(char *restrict s, int size, FILE *restrict stream)
 {
-  if(fgets(s, size, stream) == NULL) {
-	fprintf(stderr, "fgets() failed\n");
-    MPI_Finalize();
-	exit(1);
-  }
+    if (fgets(s, size, stream) == NULL) {
+        fprintf(stderr, "fgets() failed\n");
+        MPI_Finalize();
+        exit(1);
+    }
 }
 
-int input(In &in, const char* filename)
+int input(In &in, const char *filename)
 {
-  FILE* fp;
-  int flag;
-  char line[MAXLINE];
+    FILE *fp;
+    int flag;
+    char line[MAXLINE];
 
-  int me;
-  MPI_Comm_rank(MPI_COMM_WORLD, &me);
+    int me;
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
 
-  fp = fopen(filename, "r");
+    fp = fopen(filename, "r");
 
-  if(fp == NULL) flag = 0;
-  else flag = 1;
+    if (fp == NULL)
+        flag = 0;
+    else
+        flag = 1;
 
-  if(flag == 0) {
-    if(me == 0) printf("ERROR: Cannot open %s\n", filename);
+    if (flag == 0) {
+        if (me == 0)
+            printf("ERROR: Cannot open %s\n", filename);
 
-    return 1;
-  }
+        return 1;
+    }
 
-  safe_fgets(line, MAXLINE, fp);
-  safe_fgets(line, MAXLINE, fp);
-  safe_fgets(line, MAXLINE, fp);
+    safe_fgets(line, MAXLINE, fp);
+    safe_fgets(line, MAXLINE, fp);
+    safe_fgets(line, MAXLINE, fp);
 
-  if(strcmp(strtok(line, " \t\n"), "lj") == 0) in.units = 0;
-  else if(strcmp(line, "metal") == 0) in.units = 1;
-  else {
-    printf("Unknown units option in file at line 3 ('%s'). Expecting either 'lj' or 'metal'.\n", line);
-    MPI_Finalize();
-    exit(1);
-  }
+    if (strcmp(strtok(line, " \t\n"), "lj") == 0)
+        in.units = 0;
+    else if (strcmp(line, "metal") == 0)
+        in.units = 1;
+    else {
+        printf("Unknown units option in file at line 3 ('%s'). Expecting either 'lj' or 'metal'.\n", line);
+        MPI_Finalize();
+        exit(1);
+    }
 
-  safe_fgets(line, MAXLINE, fp);
+    safe_fgets(line, MAXLINE, fp);
 
-  if(strcmp(strtok(line, " \t\n"), "none") == 0) in.datafile = NULL;
-  else {
-    in.datafile = new char[1000];
-    char* ptr = strtok(line, " \t");
+    if (strcmp(strtok(line, " \t\n"), "none") == 0)
+        in.datafile = NULL;
+    else {
+        in.datafile = new char[1000];
+        char *ptr = strtok(line, " \t");
 
-    if(ptr == NULL) ptr = line;
+        if (ptr == NULL)
+            ptr = line;
 
-    strcpy(in.datafile, ptr);
-  }
+        strcpy(in.datafile, ptr);
+    }
 
-  safe_fgets(line, MAXLINE, fp);
+    safe_fgets(line, MAXLINE, fp);
 
-  // DSM: Why an enum here but in.units is 0 or 1?
-  if(strcmp(strtok(line, " \t\n"), "lj") == 0) {
-    in.forcetype = FORCELJ;
-  } else {
-    fprintf(stderr, "Only 'lj' force type supported\n");
-    MPI_Finalize();
-    exit(1);
-  }
+    // DSM: Why an enum here but in.units is 0 or 1?
+    if (strcmp(strtok(line, " \t\n"), "lj") == 0) {
+        in.forcetype = FORCELJ;
+    } else {
+        fprintf(stderr, "Only 'lj' force type supported\n");
+        MPI_Finalize();
+        exit(1);
+    }
 
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%le %le", &in.epsilon, &in.sigma);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d %d %d", &in.nx, &in.ny, &in.nz);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.ntimes);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%le", &in.dt);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%le", &in.t_request);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%le", &in.rho);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.neigh_every);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%le %le", &in.force_cut, &in.neigh_cut);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.thermo_nstat);
-  // DSM Multibox changes
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.boxes_per_process);
-  // DSM Require user to manually specify the procgrid in the input file for now. TODO Fix factorisation
-  // nprocsx*nprocsz must equal nprocs (nprocsy is hardcoded to 1)
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.nprocsx);
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.nprocsz);
-  // Enables non-blocking communication mode
-  safe_fgets(line, MAXLINE, fp);
-  sscanf(line, "%d", &in.nonblocking_enabled);
-  fclose(fp);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%le %le", &in.epsilon, &in.sigma);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d %d %d", &in.nx, &in.ny, &in.nz);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.ntimes);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%le", &in.dt);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%le", &in.t_request);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%le", &in.rho);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.neigh_every);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%le %le", &in.force_cut, &in.neigh_cut);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.thermo_nstat);
+    // DSM Multibox changes
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.boxes_per_process);
+    // DSM Require user to manually specify the procgrid in the input file for now. TODO Fix factorisation
+    // nprocsx*nprocsz must equal nprocs (nprocsy is hardcoded to 1)
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.nprocsx);
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.nprocsz);
+    // Enables non-blocking communication mode
+    safe_fgets(line, MAXLINE, fp);
+    sscanf(line, "%d", &in.nonblocking_enabled);
+    fclose(fp);
 
-  in.neigh_cut += in.force_cut;
-  MPI_Barrier(MPI_COMM_WORLD);
+    in.neigh_cut += in.force_cut;
+    MPI_Barrier(MPI_COMM_WORLD);
 
-  return 0;
+    return 0;
 }

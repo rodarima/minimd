@@ -32,7 +32,7 @@
 #ifndef TYPES_H
 #define TYPES_H
 
-enum ForceStyle {FORCELJ, FORCEEAM};
+enum ForceStyle { FORCELJ, FORCEEAM };
 
 #ifndef PAD4
 #define PAD 3
@@ -46,7 +46,6 @@ enum ForceStyle {FORCELJ, FORCEEAM};
 #endif
 #define RESTRICT __restrict
 #endif
-
 
 #ifndef RESTRICT
 #define RESTRICT

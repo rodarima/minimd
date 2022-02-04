@@ -29,182 +29,184 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "stdio.h"
-#include "stdlib.h"
-#include "mpi.h"
+#include "thermo.h"
 #include "force_lj.h"
 #include "integrate.h"
-#include "thermo.h"
+#include "mpi.h"
+#include "stdio.h"
+#include "stdlib.h"
 
-Thermo::Thermo() {}
-Thermo::~Thermo() {}
+Thermo::Thermo() { }
+Thermo::~Thermo() { }
 
 void Thermo::setup(double rho_in, Integrate &integrate, Atom &atom, int units)
 {
-  rho = rho_in;
-  ntimes = integrate.ntimes;
+    rho = rho_in;
+    ntimes = integrate.ntimes;
 
-  int maxstat;
+    int maxstat;
 
-  if(nstat == 0) maxstat = 2;
-  else maxstat = ntimes / nstat + 2;
+    if (nstat == 0)
+        maxstat = 2;
+    else
+        maxstat = ntimes / nstat + 2;
 
-  steparr = (int*) malloc(maxstat * sizeof(int));
-  tmparr = (double*) malloc(maxstat * sizeof(double));
-  engarr = (double*) malloc(maxstat * sizeof(double));
-  prsarr = (double*) malloc(maxstat * sizeof(double));
+    steparr = (int *) malloc(maxstat * sizeof(int));
+    tmparr = (double *) malloc(maxstat * sizeof(double));
+    engarr = (double *) malloc(maxstat * sizeof(double));
+    prsarr = (double *) malloc(maxstat * sizeof(double));
 
-  if(units == LJ) {
-    mvv2e = 1.0;
-    dof_boltz = (atom.natoms * 3 - 3);
-    t_scale = mvv2e / dof_boltz;
-    p_scale = 1.0 / 3 / atom.box.xprd / atom.box.yprd / atom.box.zprd;
-    e_scale = 0.5;
-  } else if(units == METAL) {
-    mvv2e = 1.036427e-04;
-    dof_boltz = (atom.natoms * 3 - 3) * 8.617343e-05;
-    t_scale = mvv2e / dof_boltz;
-    p_scale = 1.602176e+06 / 3 / atom.box.xprd / atom.box.yprd / atom.box.zprd;
-    e_scale = 524287.985533;//16.0;
-    integrate.dtforce /= mvv2e;
-
-  }
+    if (units == LJ) {
+        mvv2e = 1.0;
+        dof_boltz = (atom.natoms * 3 - 3);
+        t_scale = mvv2e / dof_boltz;
+        p_scale = 1.0 / 3 / atom.box.xprd / atom.box.yprd / atom.box.zprd;
+        e_scale = 0.5;
+    } else if (units == METAL) {
+        mvv2e = 1.036427e-04;
+        dof_boltz = (atom.natoms * 3 - 3) * 8.617343e-05;
+        t_scale = mvv2e / dof_boltz;
+        p_scale = 1.602176e+06 / 3 / atom.box.xprd / atom.box.yprd / atom.box.zprd;
+        e_scale = 524287.985533; // 16.0;
+        integrate.dtforce /= mvv2e;
+    }
 }
 
-void Thermo::compute(int iflag, Atom* atoms[], Force* force, Timer &timer)
+void Thermo::compute(int iflag, Atom *atoms[], Force *force, Timer &timer)
 {
-  double t, eng, p;
+    double t, eng, p;
 
-  // DSM: nstat is an input file parameter, description: "thermo calculation every this many steps"
-  if(iflag > 0 && iflag % nstat) return;
+    // DSM: nstat is an input file parameter, description: "thermo calculation every this many steps"
+    if (iflag > 0 && iflag % nstat)
+        return;
 
-  if(iflag == -1 && nstat > 0 && ntimes % nstat == 0) return;
+    if (iflag == -1 && nstat > 0 && ntimes % nstat == 0)
+        return;
 
-  t_act = 0;
-  e_act = 0;
-  p_act = 0;
-  t = temperature(atoms); // DSM Multibox change
-  {
-    eng = energy(atoms, force);
+    t_act = 0;
+    e_act = 0;
+    p_act = 0;
+    t = temperature(atoms); // DSM Multibox change
+    {
+        eng = energy(atoms, force);
 
-    p = pressure(t, force);
+        p = pressure(t, force);
 
-    int istep = iflag;
+        int istep = iflag;
 
-    if(iflag == -1) istep = ntimes;
+        if (iflag == -1)
+            istep = ntimes;
 
-    if(iflag == 0) mstat = 0;
+        if (iflag == 0)
+            mstat = 0;
 
-    steparr[mstat] = istep;
-    tmparr[mstat] = t;
-    engarr[mstat] = eng;
-    prsarr[mstat] = p;
+        steparr[mstat] = istep;
+        tmparr[mstat] = t;
+        engarr[mstat] = eng;
+        prsarr[mstat] = p;
 
-    mstat++;
+        mstat++;
 
-    double oldtime = timer.array[TIME_TOTAL];
-    timer.barrier_stop(TIME_TOTAL);
+        double oldtime = timer.array[TIME_TOTAL];
+        timer.barrier_stop(TIME_TOTAL);
 
-    if(threads->mpi_me == 0) {
-      fprintf(stdout, "%i %e %e %e %6.3lf\n", istep, t, eng, p, istep == 0 ? 0.0 : timer.array[TIME_TOTAL]);
+        if (threads->mpi_me == 0) {
+            fprintf(stdout, "%i %e %e %e %6.3lf\n", istep, t, eng, p, istep == 0 ? 0.0 : timer.array[TIME_TOTAL]);
+        }
+
+        timer.array[TIME_TOTAL] = oldtime;
     }
-
-    timer.array[TIME_TOTAL] = oldtime;
-  }
 }
 
 /* reduced potential energy */
 
-double Thermo::energy(Atom* atoms[], Force* force)
+double Thermo::energy(Atom *atoms[], Force *force)
 {
 
-  double eng, eng_local_sum = 0;
+    double eng, eng_local_sum = 0;
 
-  // DSM Multibox: loop over all boxes on this process to compute local sum then contribute that to the AllReduce
-  for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+    // DSM Multibox: loop over all boxes on this process to compute local sum then contribute that to the AllReduce
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
 
-    Neighbor& neighbor = *atoms[box_index]->neighbor;
-    e_act = force->eng_vdwl[box_index];
+        Neighbor &neighbor = *atoms[box_index]->neighbor;
+        e_act = force->eng_vdwl[box_index];
 
-    if (neighbor.halfneigh) {
-      e_act *= 2.0;
+        if (neighbor.halfneigh) {
+            e_act *= 2.0;
+        }
+
+        e_act *= e_scale;
+        eng_local_sum += e_act;
     }
 
-    e_act *= e_scale;
-    eng_local_sum += e_act;
-  }
+    if (sizeof(double) == 4)
+        MPI_Allreduce(&eng_local_sum, &eng, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    else
+        MPI_Allreduce(&eng_local_sum, &eng, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-  if(sizeof(double) == 4)
-    MPI_Allreduce(&eng_local_sum, &eng, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-  else
-    MPI_Allreduce(&eng_local_sum, &eng, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-  // DSM: natoms is a constant == all atoms in the simulation. Not to be confused with nlocal == atoms in this box
-  return eng / atoms[0]->natoms;
+    // DSM: natoms is a constant == all atoms in the simulation. Not to be confused with nlocal == atoms in this box
+    return eng / atoms[0]->natoms;
 }
 
 /*  reduced temperature */
 
 // DSM Multibox implementation
-double Thermo::temperature(Atom* atoms[])
+double Thermo::temperature(Atom *atoms[])
 {
-  int i;
-  double vx, vy, vz;
+    int i;
+    double vx, vy, vz;
 
-  double t;
-  t_act = 0;
-  //#pragma omp barrier
+    double t;
+    t_act = 0;
+    //#pragma omp barrier
 
-  // DSM Calculate local sum over all boxes on this process for contribution to the Allreduce.
-  for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-    Atom& atom = *atoms[box_index];
-    double* v = atom.v;
-    t = 0.0;
+    // DSM Calculate local sum over all boxes on this process for contribution to the Allreduce.
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        Atom &atom = *atoms[box_index];
+        double *v = atom.v;
+        t = 0.0;
 
-    for (i = 0; i < atom.nlocal; i++) {
-      vx = v[i * PAD + 0];
-      vy = v[i * PAD + 1];
-      vz = v[i * PAD + 2];
-      t += (vx * vx + vy * vy + vz * vz) * atom.mass;
+        for (i = 0; i < atom.nlocal; i++) {
+            vx = v[i * PAD + 0];
+            vy = v[i * PAD + 1];
+            vz = v[i * PAD + 2];
+            t += (vx * vx + vy * vy + vz * vz) * atom.mass;
+        }
+
+        t_act += t;
     }
 
-    t_act += t;
-  }
+    double t1;
+    {
+        if (sizeof(double) == 4)
+            MPI_Allreduce(&t_act, &t1, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        else
+            MPI_Allreduce(&t_act, &t1, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    }
 
-  double t1;
-  {
-    if(sizeof(double) == 4)
-      MPI_Allreduce(&t_act, &t1, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    else
-      MPI_Allreduce(&t_act, &t1, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-  }
-
-  return t1 * t_scale; // DSM t_scale is a constant calculated in thermo:setup.
+    return t1 * t_scale; // DSM t_scale is a constant calculated in thermo:setup.
 }
-
 
 /* reduced pressure from virial
    virial = Fi dot Ri summed over own and ghost atoms, since PBC info is
    stored correctly in force array before reverse_communicate is performed */
 
-double Thermo::pressure(double t, Force* force)
+double Thermo::pressure(double t, Force *force)
 {
-  // DSM Multibox: calculate local sum over all boxes and contribute that to the Allreduce
-  for (int box_index = 0; box_index < force->boxes_per_process; ++box_index) {
-    // DSM p_act is set to 0 in Thermo.compute(). No need to do it here unless pressure() is called from elsewhere.
-    p_act += force->virial[box_index];
-  }
+    // DSM Multibox: calculate local sum over all boxes and contribute that to the Allreduce
+    for (int box_index = 0; box_index < force->boxes_per_process; ++box_index) {
+        // DSM p_act is set to 0 in Thermo.compute(). No need to do it here unless pressure() is called from elsewhere.
+        p_act += force->virial[box_index];
+    }
 
-  double virial = 0;
+    double virial = 0;
 
-  if(sizeof(double) == 4)
-    MPI_Allreduce(&p_act, &virial, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-  else
-    MPI_Allreduce(&p_act, &virial, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    if (sizeof(double) == 4)
+        MPI_Allreduce(&p_act, &virial, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    else
+        MPI_Allreduce(&p_act, &virial, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-  //printf("Pres: %e %e %e %e\n",t,dof_boltz,virial,p_scale);
-  return (t * dof_boltz + virial) * p_scale; // DSM: Other than virial & t, these are all constants calculated at setup
+    // printf("Pres: %e %e %e %e\n",t,dof_boltz,virial,p_scale);
+    return (t * dof_boltz + virial)
+        * p_scale; // DSM: Other than virial & t, these are all constants calculated at setup
 }
-
-

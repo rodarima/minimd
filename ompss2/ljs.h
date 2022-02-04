@@ -35,24 +35,24 @@
 #include "types.h"
 
 struct In {
-  int nx, ny, nz;
-  double t_request;
-  double rho;
-  int units;
-  ForceStyle forcetype;
-  double epsilon, sigma;
-  char* datafile;
-  int ntimes;
-  double dt;
-  int neigh_every;
-  double force_cut;
-  double neigh_cut;
-  int thermo_nstat;
-  // DSM Multibox changes
-  int boxes_per_process;
-  int nprocsx;
-  int nprocsz;
-  int nonblocking_enabled;
+    int nx, ny, nz;
+    double t_request;
+    double rho;
+    int units;
+    ForceStyle forcetype;
+    double epsilon, sigma;
+    char *datafile;
+    int ntimes;
+    double dt;
+    int neigh_every;
+    double force_cut;
+    double neigh_cut;
+    int thermo_nstat;
+    // DSM Multibox changes
+    int boxes_per_process;
+    int nprocsx;
+    int nprocsz;
+    int nonblocking_enabled;
 };
 
 #endif
