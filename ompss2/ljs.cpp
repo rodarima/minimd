@@ -475,7 +475,7 @@ int main(int argc, char** argv)
     // DSM Multibox: Called per Atom instance (removed MPI_Allreduce calls in this function)
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
       Atom* atoms_ptr = atoms[box_index]; // HACK: Mercurium compiler fails if variable length array used in task
-      #pragma oss task label(create_atoms) firstprivate(atoms_ptr)
+      #pragma oss task label("create_atoms") firstprivate(atoms_ptr)
       create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho); // DSM: addatom() calls done here
     }
     #pragma oss taskwait

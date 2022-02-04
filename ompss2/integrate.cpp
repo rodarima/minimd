@@ -128,7 +128,7 @@ void Integrate::run(Atom* atoms[], Force* force,
         // Packs do not need to complete until this point; force calculation and finalIntegrate can be done before or
         // after sends are posted.
         // Recvs from neighbours must have completed, however.
-        #pragma oss task label(initialIntegrate) \
+        #pragma oss task label("initialIntegrate") \
                          in(forceComputeSentinels[box_index]) \
                          in(communicatePackSentinels[box_index][0:30]) \
                          in(communicateInternalPackSentinels[box_index]) \
@@ -155,7 +155,7 @@ void Integrate::run(Atom* atoms[], Force* force,
       for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
         if( !((n + 1) % every) ) {
           if(n+1>=next_sort[box_index]) {
-            #pragma oss task label(atom->sort) in(exchangePBCSentinels[box_index]) out(sortSentinels[box_index]) firstprivate(box_index)
+            #pragma oss task label("atom->sort") in(exchangePBCSentinels[box_index]) out(sortSentinels[box_index]) firstprivate(box_index)
             atoms[box_index]->sort(*atoms[box_index]->neighbor);
 
             next_sort[box_index] +=  sort_every;

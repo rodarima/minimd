@@ -822,7 +822,7 @@ void Comm::communicate(Atom* atoms[]) {
   } else {
     // Call once per box instance
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-      //#pragma oss task label(communicate_blocking) in(initialIntegrateSentinels[box_index]) out(communicateSentinels[box_index]) firstprivate(box_index)
+      //#pragma oss task label("communicate_blocking") in(initialIntegrateSentinels[box_index]) out(communicateSentinels[box_index]) firstprivate(box_index)
       //communicate_blocking_isend(*atoms[box_index], box_index);
 
       // Tasks created within this functions
@@ -838,7 +838,7 @@ void Comm::communicate(Atom* atoms[]) {
       if (boxBufs[box_index].sendnum[0][2] > 0 && boxBufs[box_index].sendnum[0][3] > 0) {
         // 2 sets of tasks here: the pushing of data to both of this box's neighbours (i.e. "sends") and the unpacking of
         // data done in loop following (i.e. "recvs")
-        #pragma oss task label(communicate_internal_pack) \
+        #pragma oss task label("communicate_internal_pack") \
                        in(initialIntegrateSentinels[box_index]) \
                        out(communicateInternalPackSentinels[box_index]) firstprivate(box_index)
         {
@@ -864,7 +864,7 @@ void Comm::communicate(Atom* atoms[]) {
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
       // Wait for both of my neighbours' pack tasks to finish before unpacking (if there is data to unpack)
       if (boxBufs[box_index].recvnum[0][2] > 0 && boxBufs[box_index].recvnum[0][3] > 0) {
-        #pragma oss task label(communicate_internal_unpack) \
+        #pragma oss task label("communicate_internal_unpack") \
                      in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_positive]) \
                      in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_negative]) \
                      out(communicateInternalUnpackSentinels[box_index]) firstprivate(box_index)
@@ -1396,7 +1396,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
 
       // swapnum as index to communicate sentinels as depend on individual iterations of this loop
       // No longer have 1:1 relationship between boxes and tasks in this implementation
-      #pragma oss task label (communicate_pack) \
+      #pragma oss task label("communicate_pack") \
                              in(initialIntegrateSentinels[box_id]) \
                              out(communicatePackSentinels[box_id][swapnum]) \
                              firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1428,7 +1428,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
         // Skip MPI communication to myself
         // This unpack task has dependencies on the packing task as we unpack our own send buffer.
         // Unpack task in other branch depends only on recv tasks
-        #pragma oss task label (communicate_unpack_self) \
+        #pragma oss task label("communicate_unpack_self") \
                          in(communicatePackSentinels[box_id][swapnum]) \
                          out(communicateSentinels[box_id]) \
                          firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1441,7 +1441,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
         }
 
       } else {
-        #pragma oss task label (communicate_send) \
+        #pragma oss task label("communicate_send") \
                          in(communicatePackSentinels[box_id][swapnum]) \
                          out(communicateSendSentinel[box_id][swapnum]) \
                          firstprivate(box_id, box_layer_index, iswap, sendtag, send_target_box_id)
@@ -1460,7 +1460,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
         }
 
         // No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-        #pragma oss task label (communicate_recv) \
+        #pragma oss task label("communicate_recv") \
                          in(initialIntegrateSentinels[box_id]) \
                          out(communicateRecvSentinels[box_id][swapnum]) \
                          firstprivate(atom, box_id, box_layer_index, iswap, recvtag)
@@ -1486,7 +1486,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
         // Now do unpacks
         // We only depend on corresponding recvs here; no dependencies on send tasks.
         // Sends don't need to complete until after force/before initialIntegrate calculations
-        #pragma oss task label (communicate_unpack) \
+        #pragma oss task label("communicate_unpack") \
                          in(communicateRecvSentinels[box_id][swapnum]) \
                          out(communicateSentinels[box_id]) \
                          firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1535,7 +1535,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
 
       // Only generate recv if not sending to self
       if (!(boxBufs[box_id].sendproc[iswap] == me && send_target_box_id == atom->box_id)) {
-        #pragma oss task label (communicate_recv) \
+        #pragma oss task label("communicate_recv") \
                          in(initialIntegrateSentinels[box_id]) \
                          out(communicateRecvSentinels[box_id][swapnum]) \
                          firstprivate(atom, box_id, box_layer_index, iswap, recvtag)
@@ -1583,7 +1583,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
 
       // swapnum as index to communicate sentinels as depend on individual iterations of this loop
       // No longer have 1:1 relationship between boxes and tasks in this implementation
-      #pragma oss task label (communicate_pack) \
+      #pragma oss task label("communicate_pack") \
                              in(initialIntegrateSentinels[box_id]) \
                              out(communicatePackSentinels[box_id][swapnum]) \
                              firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1614,7 +1614,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
         // Skip MPI communication to myself
         // This unpack task has dependencies on the packing task as we unpack our own send buffer.
         // Unpack task in other branch depends only on recv tasks
-        #pragma oss task label (communicate_unpack_self) \
+        #pragma oss task label("communicate_unpack_self") \
                          in(communicatePackSentinels[box_id][swapnum]) \
                          out(communicateSentinels[box_id]) \
                          firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1627,7 +1627,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
         }
 
       } else {
-        #pragma oss task label (communicate_send) \
+        #pragma oss task label("communicate_send") \
                          in(communicatePackSentinels[box_id][swapnum]) \
                          out(communicateSendSentinel[box_id][swapnum]) \
                          firstprivate(box_id, box_layer_index, iswap, sendtag, send_target_box_id)
@@ -1650,7 +1650,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
         // Now do unpacks
         // We only depend on corresponding recvs here; no dependencies on send tasks.
         // Sends don't need to complete until after force/before initialIntegrate calculations
-        #pragma oss task label (communicate_unpack) \
+        #pragma oss task label("communicate_unpack") \
                          in(communicateRecvSentinels[box_id][swapnum]) \
                          out(communicateSentinels[box_id]) \
                          firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1697,7 +1697,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
 
       // swapnum as index to communicate sentinels as depend on individual iterations of this loop
       // No longer have 1:1 relationship between boxes and tasks in this implementation
-      #pragma oss task label (communicate_pack) \
+      #pragma oss task label("communicate_pack") \
                              in(initialIntegrateSentinels[box_id]) \
                              out(communicatePackSentinels[box_id][swapnum]) \
                              firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1729,7 +1729,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
         // Skip MPI communication to myself
         // This unpack task has dependencies on the packing task as we unpack our own send buffer.
         // Unpack task in other branch depends only on recv tasks
-        #pragma oss task label (communicate_unpack_self) \
+        #pragma oss task label("communicate_unpack_self") \
                          in(communicatePackSentinels[box_id][swapnum]) \
                          out(communicateSentinels[box_id]) \
                          firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1742,7 +1742,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
         }
 
       } else {
-        #pragma oss task label (communicate_send) \
+        #pragma oss task label("communicate_send") \
                          in(communicatePackSentinels[box_id][swapnum]) \
                          out(communicateSendSentinel[box_id][swapnum]) \
                          firstprivate(box_id, box_layer_index, iswap, sendtag, send_target_box_id)
@@ -1765,7 +1765,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
         }
 
         // No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-        #pragma oss task label (communicate_recv) \
+        #pragma oss task label("communicate_recv") \
                          in(initialIntegrateSentinels[box_id]) \
                          out(communicateRecvSentinels[box_id][swapnum]) \
                          firstprivate(atom, box_id, box_layer_index, iswap, recvtag)
@@ -1794,7 +1794,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
         // Now do unpacks
         // We only depend on corresponding recvs here; no dependencies on send tasks.
         // Sends don't need to complete until after force/before initialIntegrate calculations
-        #pragma oss task label (communicate_unpack) \
+        #pragma oss task label("communicate_unpack") \
                          in(communicateRecvSentinels[box_id][swapnum]) \
                          out(communicateSentinels[box_id]) \
                          firstprivate(atom, box_id, box_layer_index, iswap)
@@ -1839,7 +1839,7 @@ void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
 
     // swapnum as index to communicate sentinels as depend on individual iterations of this loop
     // No longer have 1:1 relationship between boxes and tasks in this implementation
-    #pragma oss task label (communicate_pack) \
+    #pragma oss task label("communicate_pack") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(communicatePackSentinels[box_id][iswap]) \
                      firstprivate(atom, box_id, iswap)
@@ -1864,7 +1864,7 @@ void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
     /* exchange with another proc
        if self, set recv buffer to send buffer */
 
-    #pragma oss task label (communicate_send) \
+    #pragma oss task label("communicate_send") \
                      in(communicatePackSentinels[box_id][iswap]) \
                      out(communicateSendSentinel[box_id][iswap]) \
                      firstprivate(box_id, iswap)
@@ -1891,7 +1891,7 @@ void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
     }
 
     // No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-    #pragma oss task label (communicate_recv) \
+    #pragma oss task label("communicate_recv") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(communicateRecvSentinels[box_id][iswap]) \
                      firstprivate(atom, box_id, iswap)
@@ -1923,7 +1923,7 @@ void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
     }
 
     // Now do unpacks
-    #pragma oss task label (communicate_unpack) \
+    #pragma oss task label("communicate_unpack") \
                      in(communicateRecvSentinels[box_id][iswap]) \
                      out(communicateSentinels[box_id]) \
                      firstprivate(atom, box_id, iswap)
@@ -2101,7 +2101,7 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
 
     // swapnum as index to communicate sentinels as depend on individual iterations of this loop
     // No longer have 1:1 relationship between boxes and tasks in this implementation
-    #pragma oss task label (communicate_pack) \
+    #pragma oss task label("communicate_pack") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(communicatePackSentinels[box_id][iswap]) \
                      firstprivate(atom, box_id, iswap)
@@ -2126,7 +2126,7 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
     /* exchange with another proc
        if self, set recv buffer to send buffer */
 
-    #pragma oss task label (communicate_send) \
+    #pragma oss task label("communicate_send") \
                      in(communicatePackSentinels[box_id][iswap]) \
                      out(communicateSendSentinel[box_id][iswap]) \
                      firstprivate(box_id, iswap)
@@ -2214,7 +2214,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 
     // swapnum as index to communicate sentinels as depend on individual iterations of this loop
     // No longer have 1:1 relationship between boxes and tasks in this implementation
-    #pragma oss task label (communicate_pack) \
+    #pragma oss task label("communicate_pack") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(communicatePackSentinels[box_id][iswap]) \
                      firstprivate(atom, box_id, iswap)
@@ -2238,7 +2238,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 
     // Always use MPI to send in this implementation, even in case where sending to self
     // Simplifies dependencies, e.g. unpack task does not have to depend on pack task
-    #pragma oss task label (communicate_send) \
+    #pragma oss task label("communicate_send") \
                      in(communicatePackSentinels[box_id][iswap]) \
                      out(communicateSendSentinel[box_id][iswap]) \
                      firstprivate(box_id, iswap)
@@ -2262,7 +2262,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
     }
 
     // No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-    #pragma oss task label (communicate_recv) \
+    #pragma oss task label("communicate_recv") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(communicateRecvSentinels[box_id][iswap]) \
                      firstprivate(atom, box_id, iswap)
@@ -2297,7 +2297,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
     // Every unpack also uses an independent section (calculated in borders), hence unpack can be merged with recv
     // task, no need for separate commutative tasks
     // TODO: Merging greatly reduces performance. Why?
-    #pragma oss task label (communicate_unpack) \
+    #pragma oss task label("communicate_unpack") \
                      in(communicateRecvSentinels[box_id][iswap]) \
                      out(communicateSentinels[box_id]) \
                      firstprivate(atom, box_id, iswap)
@@ -2342,7 +2342,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 //
 //    // swapnum as index to communicate sentinels as depend on individual iterations of this loop
 //    // No longer have 1:1 relationship between boxes and tasks in this implementation
-//    #pragma oss task label (communicate_pack) \
+//    #pragma oss task label("communicate_pack") \
 //                     in(initialIntegrateSentinels[box_id]) \
 //                     out(communicatePackSentinels[box_id][iswap]) \
 //                     firstprivate(atom, box_id, iswap)
@@ -2366,7 +2366,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 //
 //    // Memory copy atoms from all box layers into a single large send buffer.
 //    // Only 1 MPI_send call per task rather than 3
-//    #pragma oss task label (communicate_send) \
+//    #pragma oss task label("communicate_send") \
 //                     in(communicatePackSentinels[box_id][iswap]) \
 //                     out(communicateSendSentinel[box_id][iswap]) \
 //                     firstprivate(box_id, iswap)
@@ -2405,7 +2405,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 //    }
 //
 //    // No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-//    #pragma oss task label (communicate_recv) \
+//    #pragma oss task label("communicate_recv") \
 //                     in(initialIntegrateSentinels[box_id]) \
 //                     out(communicateRecvSentinels[box_id][iswap]) \
 //                     firstprivate(atom, box_id, iswap)
@@ -2455,7 +2455,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 //    // Every unpack also uses an independent section (calculated in borders), hence unpack can be merged with recv
 //    // task, no need for separate commutative tasks
 //    // TODO: Merging greatly reduces performance. Why?
-//    #pragma oss task label (communicate_unpack) \
+//    #pragma oss task label("communicate_unpack") \
 //                     in(communicateRecvSentinels[box_id][iswap]) \
 //                     out(communicateSentinels[box_id]) \
 //                     firstprivate(atom, box_id, iswap)
@@ -2690,7 +2690,7 @@ void Comm::exchange(Atom* atoms[]) {
     // Call once per box instance
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
       // Pack all atoms into relevant buffers to be sent to new owners and update local atom count
-      #pragma oss task label(exchange_pack) in(initialIntegrateSentinels[box_index]) out(exchangePackSentinels[box_index]) firstprivate(box_index)
+      #pragma oss task label("exchange_pack") in(initialIntegrateSentinels[box_index]) out(exchangePackSentinels[box_index]) firstprivate(box_index)
       exchange_pack(atoms[box_index],
                     boxBufs[box_index].bufs_send[EXCHANGE_FUNCTION],
                     &boxBufs[box_index].internal_buf_send_up[EXCHANGE_FUNCTION],
@@ -2699,7 +2699,7 @@ void Comm::exchange(Atom* atoms[]) {
 
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
 
-        //#pragma oss task label(exchange_blocking) in(exchangePackSentinels[box_index]) out(exchangeSentinels[box_index]) firstprivate(box_index)
+        //#pragma oss task label("exchange_blocking") in(exchangePackSentinels[box_index]) out(exchangeSentinels[box_index]) firstprivate(box_index)
         //exchange_blocking(*atoms[box_index], box_index);
 
         // Tasks created within these functions
@@ -2711,7 +2711,7 @@ void Comm::exchange(Atom* atoms[]) {
       // Generate tasks for internal swaps between boxes
       // Represent the pushing of data to both of this box's neighbours (i.e. "sends")
       // Unpacking of data done in separate loop following (i.e. "recvs")
-      #pragma oss task label(exchange_internal_send) \
+      #pragma oss task label("exchange_internal_send") \
                      in(exchangePackSentinels[box_index]) \
                      out(exchangeInternalSendSentinels[box_index]) firstprivate(box_index)
       {
@@ -2735,7 +2735,7 @@ void Comm::exchange(Atom* atoms[]) {
       // TODO: Break depedencies on non-internal sends
       // Is dependency on pack needed? Yes, what if unpack tries to grow array while a pack task is running
       // commutative with other unpack tasks to avoid concurrent unpacks into the same buffer
-      #pragma oss task label(exchange_internal_recv) commutative(atoms[box_index]->nlocal) \
+      #pragma oss task label("exchange_internal_recv") commutative(atoms[box_index]->nlocal) \
                      in(exchangePackSentinels[box_index]) \
                      in(exchangeInternalSendSentinels[atoms[box_index]->boxneigh_positive]) \
                      in(exchangeInternalSendSentinels[atoms[box_index]->boxneigh_negative]) \
@@ -2753,7 +2753,7 @@ void Comm::exchange(Atom* atoms[]) {
     // e.g. An x coordinate of -1 would get corrected to +ve box length and erroneously be sent *RIGHT* instead of *LEFT*
     // Correcting after all atoms have been received and unpacked addresses this
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-      #pragma oss task label(atom->pbc) \
+      #pragma oss task label("atom->pbc") \
                        in(exchangeSentinels[box_index]) \
                        in(exchangeInternalRecvSentinels[box_index]) \
                        out(exchangePBCSentinels[box_index]) \
@@ -3437,7 +3437,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
     if (idim == 1) { continue; }
 
     // Perform send with first neighbour
-    #pragma oss task label (exchange_send_1) \
+    #pragma oss task label("exchange_send_1") \
                      in(exchangePackSentinels[box_id]) \
                      out(exchangeSend1Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum, send_target_box_id)
@@ -3470,7 +3470,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
 
     // Perform recv with first neighbour
     // Recvs can be started even before packing tasks are finished
-    #pragma oss task label (exchange_recv_1) \
+    #pragma oss task label("exchange_recv_1") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(exchangeRecv1Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum)
@@ -3513,7 +3513,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
     swapnum+=3;
 
     // Perform second set of exchanges
-    #pragma oss task label (exchange_send_2) \
+    #pragma oss task label("exchange_send_2") \
                      in(exchangePackSentinels[box_id]) \
                      out(exchangeSend2Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum, send_target_box_id)
@@ -3544,7 +3544,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
 
     }
 
-    #pragma oss task label (exchange_recv_2) \
+    #pragma oss task label("exchange_recv_2") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(exchangeRecv2Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum)
@@ -3585,7 +3585,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
     // Unpack both neighbours' buffers. Commutative so multiple unpack tasks for same box do not
     // overwrite the x array concurrently
     // Is dependency on pack needed? Yes, what if unpack tries to grow array while a pack task is running
-    #pragma oss task label (exchange_unpack) commutative(atom->nlocal) \
+    #pragma oss task label("exchange_unpack") commutative(atom->nlocal) \
                      in(exchangePackSentinels[box_id]) \
                      in(exchangeRecv1Sentinels[box_id][idim]) \
                      in(exchangeRecv2Sentinels[box_id][idim]) \
@@ -3646,7 +3646,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
     if (idim == 1) { continue; }
 
     // Perform send with first neighbour
-    #pragma oss task label (exchange_send_1) \
+    #pragma oss task label("exchange_send_1") \
                      in(exchangePackSentinels[box_id]) \
                      out(exchangeSend1Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum, send_target_box_id)
@@ -3684,7 +3684,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
 
     // Perform recv with first neighbour
     // Recvs can be started even before packing tasks are finished
-    #pragma oss task label (exchange_recv_1) \
+    #pragma oss task label("exchange_recv_1") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(exchangeRecv1Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum)
@@ -3732,7 +3732,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
     swapnum+=3;
 
     // Perform second set of exchanges
-    #pragma oss task label (exchange_send_2) \
+    #pragma oss task label("exchange_send_2") \
                      in(exchangePackSentinels[box_id]) \
                      out(exchangeSend2Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum, send_target_box_id)
@@ -3768,7 +3768,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
       }
     }
 
-    #pragma oss task label (exchange_recv_2) \
+    #pragma oss task label("exchange_recv_2") \
                      in(initialIntegrateSentinels[box_id]) \
                      out(exchangeRecv2Sentinels[box_id][idim]) \
                      firstprivate(atom, box_id, idim, swapnum)
@@ -3814,7 +3814,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
     // Unpack both neighbours' buffers. Commutative so multiple unpack tasks for same box do not
     // overwrite the x array concurrently
     // Is dependency on pack needed? Yes, what if unpack tries to grow array while a pack task is running
-    #pragma oss task label (exchange_unpack) commutative(atom->nlocal) \
+    #pragma oss task label("exchange_unpack") commutative(atom->nlocal) \
                      in(exchangePackSentinels[box_id]) \
                      in(exchangeRecv1Sentinels[box_id][idim]) \
                      in(exchangeRecv2Sentinels[box_id][idim]) \
@@ -4085,7 +4085,7 @@ void Comm::borders(Atom* atoms[]) {
   } else {
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
       // Dependencies on both sort and exchange completing as sort operation may be skipped
-      #pragma oss task label(borders_pack) \
+      #pragma oss task label("borders_pack") \
                        in(sortSentinels[box_index]) \
                        in(exchangePBCSentinels[box_index]) \
                        out(bordersPackSentinels[box_index]) \
@@ -4094,7 +4094,7 @@ void Comm::borders(Atom* atoms[]) {
     }
 
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-      //#pragma oss task label(borders_blocking) in(bordersPackSentinels[box_index]) out(bordersSentinels[box_index]) firstprivate(box_index)
+      //#pragma oss task label("borders_blocking") in(bordersPackSentinels[box_index]) out(bordersSentinels[box_index]) firstprivate(box_index)
       //borders_blocking(*atoms[box_index], box_index);
 
       // Tasks created within this function
@@ -4104,7 +4104,7 @@ void Comm::borders(Atom* atoms[]) {
 
     for(int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
       // Internal swaps between boxes
-      #pragma oss task label(borders_internal_send) in(bordersPackSentinels[box_index]) out(bordersInternalSendSentinels[box_index]) firstprivate(box_index)
+      #pragma oss task label("borders_internal_send") in(bordersPackSentinels[box_index]) out(bordersInternalSendSentinels[box_index]) firstprivate(box_index)
       borders_internal_send(atoms[box_index]);
     }
   } // End of blocking/nonblocking branch
@@ -4114,7 +4114,7 @@ void Comm::borders(Atom* atoms[]) {
     // perform internal exchanges with all boxes on this process.
     // Commutative on other unpack tasks on this box to avoid multiple concurrent attempts to write into x array
     // TODO: Why does this need to depend on send? Crashes if only depends on pack
-    #pragma oss task label(borders_internal_recv) commutative(atoms[box_index]->nghost) \
+    #pragma oss task label("borders_internal_recv") commutative(atoms[box_index]->nghost) \
                        in(bordersInternalSendSentinels[atoms[box_index]->boxneigh_positive]) \
                        in(bordersInternalSendSentinels[atoms[box_index]->boxneigh_negative]) \
                        in(bordersSentinels[box_index]) \
@@ -4483,7 +4483,7 @@ void Comm::borders_blocking_neighbourtasks(Atom* atom, int box_id)
       put incoming ghosts at end of my atom arrays
       if swapping with self, simply copy, no messages */
 
-      #pragma oss task label(borders_send) \
+      #pragma oss task label("borders_send") \
                        in(bordersPackSentinels[box_id]) \
                        out(bordersSendSentinels[box_id]) \
                        firstprivate(atom, box_id, iswap, swapnum)
@@ -4522,7 +4522,7 @@ void Comm::borders_blocking_neighbourtasks(Atom* atom, int box_id)
 
       // in-dependency on first operation in iteration (initialIntegrate).
       // Do not need to wait for packs or sends, recvs can be posted immediately.
-      #pragma oss task label(borders_recv) \
+      #pragma oss task label("borders_recv") \
                        in(initialIntegrateSentinels[box_id]) \
                        out(bordersRecvSentinels[box_id][idim][iswap]) \
                        firstprivate(atom, box_id, iswap, swapnum, idim, ineed)
@@ -4562,7 +4562,7 @@ void Comm::borders_blocking_neighbourtasks(Atom* atom, int box_id)
       // Commutative to avoid multiple tasks unpacking into same box's x array concurrently
       // Similarly, depends on pack having completed TODO: Could this be removed? Unlikely, what if unpack_border reallocs array as pack is occurring?
       // Additionally depends on this iteration's recv task having finished, rather than all recvs for this box
-      #pragma oss task label(borders_unpack) commutative(atom->nghost) \
+      #pragma oss task label("borders_unpack") commutative(atom->nghost) \
                        in(bordersRecvSentinels[box_id][idim][iswap]) \
                        in(bordersPackSentinels[box_id]) \
                        out(bordersUnpackSentinels[box_id]) \
@@ -4628,7 +4628,7 @@ void Comm::blocking_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
       put incoming ghosts at end of my atom arrays
       if swapping with self, simply copy, no messages */
 
-      #pragma oss task label(borders_send) \
+      #pragma oss task label("borders_send") \
                        in(bordersPackSentinels[box_id]) \
                        out(bordersSendSentinels[box_id]) \
                        firstprivate(atom, box_id, iswap, swapnum)
@@ -4674,7 +4674,7 @@ void Comm::blocking_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
 
       // in-dependency on first operation in iteration (initialIntegrate).
       // Do not need to wait for packs or sends, recvs can be posted immediately.
-      #pragma oss task label(borders_recv) \
+      #pragma oss task label("borders_recv") \
                        in(initialIntegrateSentinels[box_id]) \
                        out(bordersRecvSentinels[box_id][idim][iswap]) \
                        firstprivate(atom, box_id, iswap, swapnum, idim, ineed)
@@ -4721,7 +4721,7 @@ void Comm::blocking_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
       // Commutative to avoid multiple tasks unpacking into same box's x array concurrently
       // Similarly, depends on pack having completed TODO: Could this be removed? Unlikely, what if unpack_border reallocs array as pack is occurring?
       // Additionally depends on this iteration's recv task having finished, rather than all recvs for this box
-      #pragma oss task label(borders_unpack) commutative(atom->nghost) \
+      #pragma oss task label("borders_unpack") commutative(atom->nghost) \
                        in(bordersRecvSentinels[box_id][idim][iswap]) \
                        in(bordersPackSentinels[box_id]) \
                        out(bordersUnpackSentinels[box_id]) \
