@@ -46,29 +46,29 @@ class Integrate;
 class Thermo
 {
   public:
-    MMD_int nstat;
-    MMD_int mstat;
-    MMD_int ntimes;
-    MMD_int* steparr;
-    MMD_float* tmparr;
-    MMD_float* engarr;
-    MMD_float* prsarr;
+    int nstat;
+    int mstat;
+    int ntimes;
+    int* steparr;
+    double* tmparr;
+    double* engarr;
+    double* prsarr;
 
     Thermo();
     ~Thermo();
-    void setup(MMD_float, Integrate &integrate, Atom &atom, MMD_int);
-    MMD_float temperature(Atom**); // DSM Multibox change
-    MMD_float energy(Atom**, Force*); // DSM Multibox change
-    MMD_float pressure(MMD_float, Force*);
+    void setup(double, Integrate &integrate, Atom &atom, int);
+    double temperature(Atom**); // DSM Multibox change
+    double energy(Atom**, Force*); // DSM Multibox change
+    double pressure(double, Force*);
     // DSM Multibox change: now takes atom array and no longer takes comm (was unused)
-    void compute(MMD_int, Atom**, Force*, Timer &);
+    void compute(int, Atom**, Force*, Timer &);
 
-    MMD_float t_act, p_act, e_act;
-    MMD_float t_scale, e_scale, p_scale, mvv2e, dof_boltz;
+    double t_act, p_act, e_act;
+    double t_scale, e_scale, p_scale, mvv2e, dof_boltz;
 
     ThreadData* threads;
   private:
-    MMD_float rho;
+    double rho;
 };
 
 #endif

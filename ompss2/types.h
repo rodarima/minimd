@@ -52,22 +52,6 @@ struct float4 {
 #define CHUNKSIZE 64
 #endif
 
-#ifndef PRECISION
-#define PRECISION 2
-#endif
-#if PRECISION==1
-typedef float MMD_float;
-typedef float2 MMD_float2;
-typedef float4 MMD_float4;
-#else
-typedef double MMD_float;
-typedef double2 MMD_float2;
-typedef double4 MMD_float4;
-#endif
-typedef int MMD_int;
-typedef int MMD_bigint;
-
-
 #ifndef PAD4
 #define PAD 3
 #else

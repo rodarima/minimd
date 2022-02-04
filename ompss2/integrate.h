@@ -40,22 +40,22 @@
 class Integrate
 {
   public:
-    MMD_float dt;
-    MMD_float dtforce;
-    MMD_int ntimes;
+    double dt;
+    double dtforce;
+    int ntimes;
     // DSM Multibox: These converted to local variables in the functions where they are used.
-    /*MMD_int nlocal, nmax;
-    MMD_float* x, *v, *f, *xold;*/
-    MMD_float mass;
+    /*int nlocal, nmax;
+    double* x, *v, *f, *xold;*/
+    double mass;
 
-    MMD_int sort_every;
+    int sort_every;
 
     Integrate();
     ~Integrate();
     void setup();
     // DSM Multibox: These functions signatures changes as x, v, f and xold are no longer class attributes
-    void initialIntegrate(MMD_float* x, MMD_float* v, MMD_float* f, MMD_int nlocal);
-    void finalIntegrate(MMD_float* v, MMD_float* f, MMD_int nlocal);
+    void initialIntegrate(double* x, double* v, double* f, int nlocal);
+    void finalIntegrate(double* v, double* f, int nlocal);
     // DSM Multibox change: Atom now an array of atoms[] and Neighbor now an attribute of atoms
     void run(Atom* atoms[], Force*, Comm &, Thermo &, Timer &);
 

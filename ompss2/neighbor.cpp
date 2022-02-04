@@ -53,7 +53,7 @@ Neighbor::Neighbor(int ntypes_)
   threads = NULL;
   halfneigh = 0;
   ghost_newton = 1;
-  cutneighsq = new MMD_float[ntypes*ntypes];
+  cutneighsq = new double[ntypes*ntypes];
 }
 
 Neighbor::~Neighbor()
@@ -106,7 +106,7 @@ void Neighbor::build(Atom &atom)
   count = 0;
   /* loop over each atom, storing neighbors */
 
-  const MMD_float* const x = atom.x;
+  const double* const x = atom.x;
   const int* const type = atom.type;
   int ntypes = atom.ntypes;
 
@@ -122,9 +122,9 @@ void Neighbor::build(Atom &atom)
 
       int n = 0;
 
-      const MMD_float xtmp = x[i * PAD + 0];
-      const MMD_float ytmp = x[i * PAD + 1];
-      const MMD_float ztmp = x[i * PAD + 2];
+      const double xtmp = x[i * PAD + 0];
+      const double ytmp = x[i * PAD + 1];
+      const double ztmp = x[i * PAD + 2];
 
       const int type_i = type[i];
 
@@ -148,11 +148,11 @@ void Neighbor::build(Atom &atom)
                                                ((x[j * PAD + 2] < ztmp) || (x[j * PAD + 2] == ztmp && x[j * PAD + 1] < ytmp) ||
                                                 (x[j * PAD + 2] == ztmp && x[j * PAD + 1]  == ytmp && x[j * PAD + 0] < xtmp))))))) continue;
 
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             if((rsq <= cutneighsq[type_i*ntypes+type_j])) neighptr[n++] = j;
           }
@@ -162,11 +162,11 @@ void Neighbor::build(Atom &atom)
 
             if(halfneigh && !ghost_newton && (j < i)) continue;
 
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             if((rsq <= cutneighsq[type_i*ntypes+type_j])) neighptr[n++] = j;
           }
@@ -201,7 +201,7 @@ void Neighbor::binatoms(Atom &atom, int count)
 {
   const int nlocal = atom.nlocal;
   const int nall = count<0?atom.nlocal + atom.nghost:count;
-  const MMD_float* const x = atom.x;
+  const double* const x = atom.x;
 
   xprd = atom.box.xprd;
   yprd = atom.box.yprd;
@@ -235,7 +235,7 @@ void Neighbor::binatoms(Atom &atom, int count)
    take special care to insure ghost atoms with
    coord >= prd or coord < 0.0 are put in correct bins */
 
-inline int Neighbor::coord2bin(MMD_float x, MMD_float y, MMD_float z)
+inline int Neighbor::coord2bin(double x, double y, double z)
 {
   int ix, iy, iz;
 
@@ -282,7 +282,7 @@ stencil() = bin offsets in 1-d sense for stencil of surrounding bins
 int Neighbor::setup(Atom &atom)
 {
   int i, j, k, nmax;
-  MMD_float coord;
+  double coord;
   int mbinxhi, mbinyhi, mbinzhi;
   int nextx, nexty, nextz;
   int num_omp_threads = threads->omp_num_threads;
@@ -419,9 +419,9 @@ int Neighbor::setup(Atom &atom)
 
 /* compute closest distance between central bin (0,0,0) and bin (i,j,k) */
 
-MMD_float Neighbor::bindist(int i, int j, int k)
+double Neighbor::bindist(int i, int j, int k)
 {
-  MMD_float delx, dely, delz;
+  double delx, dely, delz;
 
   if(i > 0)
     delx = (i - 1) * binsizex;

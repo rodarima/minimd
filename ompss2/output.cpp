@@ -87,9 +87,9 @@ void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,
   /* long-range energy and pressure corrections Whats this???*/
 
   double engcorr = 8.0 * 3.1415926 * in.rho *
-                   (1.0 / (9.0 * pow(force->cutforce, MMD_float(9.0))) - 1.0 / (3.0 * pow(force->cutforce, MMD_float(3.0))));
+                   (1.0 / (9.0 * pow(force->cutforce, double(9.0))) - 1.0 / (3.0 * pow(force->cutforce, double(3.0))));
   double prscorr = 8.0 * 3.1415926 * in.rho * in.rho *
-                   (4.0 / (9.0 * pow(force->cutforce, MMD_float(9.0))) - 2.0 / (3.0 * pow(force->cutforce, MMD_float(3.0))));
+                   (4.0 / (9.0 * pow(force->cutforce, double(9.0))) - 2.0 / (3.0 * pow(force->cutforce, double(3.0))));
 
   /* thermo output */
 
@@ -123,7 +123,7 @@ void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,
       fprintf(stdout, "  density: %lf\n", in.rho);
       fprintf(stdout, "  force_type: %s\n", in.forcetype == FORCELJ ? "LJ" : "EAM");
       fprintf(stdout, "  force_cutoff: %lf\n", force->cutforce);
-      fprintf(stdout, "  force_params: %2.2lf %2.2lf\n",force->epsilon,force->sigma);
+      fprintf(stdout, "  force_params: %2.2lf %2.2lf\n",in.epsilon,in.sigma);
       fprintf(stdout, "  neighbor_cutoff: %lf\n", neighbor.cutneigh);
       fprintf(stdout, "  neighbor_type: %i\n", neighbor.halfneigh);
       fprintf(stdout, "  neighbor_bins: %i %i %i\n", neighbor.nbinx, neighbor.nbiny, neighbor.nbinz);
@@ -134,7 +134,7 @@ void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,
       fprintf(stdout, "  ghost_newton: %i\n", neighbor.ghost_newton);
       fprintf(stdout, "  use_intrinsics: %i\n", force->use_sse);
       fprintf(stdout, "  safe_exchange: %i\n", comm.do_safeexchange);
-      fprintf(stdout, "  float_size: %i\n\n", (int) sizeof(MMD_float));
+      fprintf(stdout, "  float_size: %i\n\n", (int) sizeof(double));
     }
 
     fprintf(fp, "run_configuration: \n");
@@ -151,7 +151,7 @@ void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,
     fprintf(fp, "  density: %lf\n", in.rho);
     fprintf(fp, "  force_type: %s\n", in.forcetype == FORCELJ ? "LJ" : "EAM");
     fprintf(fp, "  force_cutoff: %lf\n", force->cutforce);
-    fprintf(fp, "  force_params: %2.2lf %2.2lf\n",force->epsilon,force->sigma);
+    fprintf(fp, "  force_params: %2.2lf %2.2lf\n",in.epsilon, in.sigma);
     fprintf(fp, "  neighbor_cutoff: %lf\n", neighbor.cutneigh);
     fprintf(fp, "  neighbor_type: %i\n", neighbor.halfneigh);
     fprintf(fp, "  neighbor_bins: %i %i %i\n", neighbor.nbinx, neighbor.nbiny, neighbor.nbinz);
@@ -162,7 +162,7 @@ void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,
     fprintf(fp, "  ghost_newton: %i\n", neighbor.ghost_newton);
     fprintf(fp, "  use_intrinsics: %i\n", force->use_sse);
     fprintf(fp, "  safe_exchange: %i\n", comm.do_safeexchange);
-    fprintf(fp, "  float_size: %i\n\n", (int) sizeof(MMD_float));
+    fprintf(fp, "  float_size: %i\n\n", (int) sizeof(double));
 
     if(screen_yaml)
       fprintf(stdout, "\n\nthermodynamic_output:\n");
@@ -204,7 +204,7 @@ void output(In &in, Atom &atom, Force* force, Neighbor &neighbor, Comm &comm,
   MPI_Allreduce(&time_total, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   time_total = tmp / nprocs;
   double mflops = 4.0 / 3.0 * 3.1415926 *
-                  pow(force->cutforce, MMD_float(3.0)) * in.rho * 0.5 *
+                  pow(force->cutforce, double(3.0)) * in.rho * 0.5 *
                   23 * natoms * integrate.ntimes / time_total / 1000000.0;
 
   if(me == 0) {

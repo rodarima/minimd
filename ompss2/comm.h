@@ -41,21 +41,21 @@
 #include <TAMPI.h>
 #endif
 
-// DSM: Holds pointer to memory buffer of MMD_floats and its maximum size
+// DSM: Holds pointer to memory buffer of doubles and its maximum size
 class AtomBuffer {
   public:
-    int maxsize;        // maximum number of MMD_floats that can be sent by/received into corresponding buffer
+    int maxsize;        // maximum number of doubles that can be sent by/received into corresponding buffer
     int natoms;         // number of atoms within this buffer
-    MMD_float* buf;     // buffer for all comms
+    double* buf;     // buffer for all comms
 
     // PBC flags moved here - one set per (send) buffer rather than one per swap
     // Remove separate pbc_flagx, pbc_flagy, pbc_flagz variables and replaced with value to correct by in each
     // dimension. e.g. pbc_x will be one of -box.xprd, 0, box.xprd. Saves having to compute the product every time in
     // packing routines. pbc_any kept TODO: is pbc_any necessary?
     int pbc_any;        // whether any PBC on this buffer
-    MMD_float pbc_x;    // PBC correction in x for this swap
-    MMD_float pbc_y;    // same in y
-    MMD_float pbc_z;    // same in z
+    double pbc_x;    // PBC correction in x for this swap
+    double pbc_y;    // same in y
+    double pbc_z;    // same in z
 
     // Used for internal buffers only. Required to know where to unpack 1st atom to outside the communicate() function
     int internal_firstrecv;
@@ -64,7 +64,7 @@ class AtomBuffer {
     void growrecv(int); // As above but different factor for size increase. More suited to recieve buffer pattern
 
     // Pack this buffer for border communication. Replaces equivalent atom.pack_border()
-    int pack_border(int, MMD_float, MMD_float, MMD_float, int, int**, int&);
+    int pack_border(int, double, double, double, int, int**, int&);
 };
 
 // DSM Multibox: Move majority of Comm attributes into a struct to duplicate per box. Better solution would be to
@@ -87,7 +87,7 @@ struct BoxBufs {
     MPI_Request request;              // outstanding MPI request for this box
     MPI_Comm comm[3];                 // communicator for this box, 3 as 1 per communication function (as bufs below)
 
-    //MMD_float* buf;
+    //double* buf;
     // DSM Replaced with 3*24 buffers,
     //       one for each exchange between neighbours
     //   and one for each function that performs communication: communicate(), exchange(), borders()
@@ -130,7 +130,7 @@ struct BoxBufs {
     AtomBuffer buf_recv_single;
 
     // DSM Replaced these with xneg_slab_lo, etc. constants in atom.box struct
-    //MMD_float* slablo, *slabhi;          // bounds of slabs to send to other procs
+    //double* slablo, *slabhi;          // bounds of slabs to send to other procs
 
     int copy_size;
     int* nsend_thread;
@@ -150,7 +150,7 @@ class Comm
     Comm(int); // DSM Multibox: constructor now takes boxes_per_process as an argument
     ~Comm();
     //void free_box_comms(); // DSM Multibox: for freeing box communicators
-    int setup(MMD_float, int, int, Atom* [], int); // DSM Multibox: Array, two process grid int and nonblocking flag arguments
+    int setup(double, int, int, Atom* [], int); // DSM Multibox: Array, two process grid int and nonblocking flag arguments
     // Communicate
     void communicate(Atom**); // DSM Multibox: Now takes array of Atom** structs, one per box
     void communicate_nonblocking(Atom**); // Nonblocking implementation

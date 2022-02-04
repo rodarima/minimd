@@ -43,7 +43,6 @@
 #include "timer.h"
 #include "threadData.h"
 #include "string.h"
-#include "force_eam.h"
 #include "force.h"
 #include "force_lj.h"
 
@@ -293,19 +292,13 @@ int main(int argc, char** argv)
 
   Force* force = NULL;                     // DSM: LJ/EAM force calculation. force.compute() is application hotspot.
 
-  // DSM: miniMD supports only EAM or Lennard-Jones pair interactions TODO: EAM broken for multibox
-  if(in.forcetype == FORCEEAM) {
-    force = (Force*) new ForceEAM(ntypes);
-
-    if(ghost_newton == 1) {
-      if(me == 0)
-        printf("# EAM currently requires '--ghost_newton 0'; Changing setting now.\n");
-
-      ghost_newton = 0;
-    }
+  if(in.forcetype == FORCELJ) {
+    force = (Force*) new ForceLJ(ntypes, in.boxes_per_process);
+  } else {
+    fprintf(stderr, "Only FJ force supported\n");
+    MPI_Finalize();
+    exit(1);
   }
-
-  if(in.forcetype == FORCELJ) force = (Force*) new ForceLJ(ntypes, in.boxes_per_process);
 
   // DSM: threads object only used to hold MPI/OpenMP details - effectively a struct
   threads.mpi_me = me;
@@ -354,7 +347,7 @@ int main(int argc, char** argv)
   if(use_sse) {
 #ifdef VARIANT_REFERENCE
 
-    if(me == 0) printf("ERROR: Trying to run with -sse with miniMD reference version. Use SSE variant instead. Exiting.\n");
+    if(me == 0) printf("error: trying to run with -sse with minimd reference version. use sse variant instead. exiting.\n");
 
     MPI_Finalize();
     exit(0);
@@ -392,8 +385,14 @@ int main(int argc, char** argv)
     }
   }
 
+  if(in.datafile) {
+    fprintf(stderr, "datafile not supported\n");
+    MPI_Finalize();
+    exit(1);
+  }
+
   if(neighbor_size < 0 && in.datafile == NULL) {
-    MMD_float neighscale = 5.0 / 6.0;
+    double neighscale = 5.0 / 6.0;
     // DSM: Multibox change - various neighbor attributes now set per box
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
       atoms[box_index]->neighbor->nbinx = neighscale * in.nx;
@@ -431,63 +430,54 @@ int main(int argc, char** argv)
   if(me == 0)
     printf("# Create System:\n");
 
-  if(in.datafile) {
-    // DSM TODO: multibox change has broken this branch
-    /*read_lammps_data(atom, comm, neighbor, integrate, thermo, in.datafile, in.units);
-    MMD_float volume = atom.box.xprd * atom.box.yprd * atom.box.zprd;
-    in.rho = 1.0 * atom.natoms / volume;
-    force->setup();
-
-    if(in.forcetype == FORCEEAM) atom.mass = force->mass;*/
-  } else {
-    // DSM: Multibox change. Needs to be called per Atom instance
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-      // DSM: No MPI calls made in this function; it's just [nx/ny/nz] * lattice. Every rank has the same box.
-      create_box(*atoms[box_index], in.nx, in.ny, in.nz, in.rho);
-    }
-
-    // DSM: Spatial decomposition done in this function, i.e. atom.box.xhi/xlo/yhi/ylo/zhi/zlo set here.
-    comm.setup(atoms[0]->neighbor->cutneigh, in.nprocsx, in.nprocsz, atoms, in.nonblocking_enabled); // DSM: Multibox change: cutneigh is constant over all neighbors.
-
-    // DSM: Multibox change. Needs to be called per Atom instance
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-      // DSM: TODO: Look at this in detail - bins vs boxes?
-      // DSM: Multibox TODO: Fix this chain of references
-      atoms[box_index]->neighbor->setup(*atoms[box_index]);
-    }
-
-    // DSM: This entire function is just "dtforce = 0.5 * dt;"
-    integrate.setup();
-
-    // DSM: Only caring about default LJ force for now. This function is just setting the cutoff distance for all
-    // atoms in neighbour list:
-    // for(int i = 0; i<ntypes*ntypes; i++)
-    //    cutforcesq[i] = cutforce * cutforce;
-    force->setup();
-
-    if(in.forcetype == FORCEEAM) {
-      // DSM: Multibox change. Needs to be called per Atom instance
-      for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        atoms[box_index]->mass = force->mass;
-      }
-    }
-
-    // DSM Multibox: Called per Atom instance (removed MPI_Allreduce calls in this function)
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-      Atom* atoms_ptr = atoms[box_index]; // HACK: Mercurium compiler fails if variable length array used in task
-      #pragma oss task label("create_atoms") firstprivate(atoms_ptr)
-      create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho); // DSM: addatom() calls done here
-    }
-    #pragma oss taskwait
-
-    // DSM Multibox: Should be fine passing any atom object here. All function does is read natoms and xprd, yprd and
-    // zprd, which are identical on all instances.
-    thermo.setup(in.rho, integrate, *atoms[0], in.units);
-
-    // DSM Multibox: Reasonable changes to this function due to three Allreduces. Solution to do local sum across boxes
-    // then contribute that to the collective.
-    create_velocity(in.t_request, atoms, thermo);
+  // DSM: Multibox change. Needs to be called per Atom instance
+  for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
+    // DSM: No MPI calls made in this function; it's just [nx/ny/nz] * lattice. Every rank has the same box.
+    create_box(*atoms[box_index], in.nx, in.ny, in.nz, in.rho);
   }
+
+  // DSM: Spatial decomposition done in this function, i.e. atom.box.xhi/xlo/yhi/ylo/zhi/zlo set here.
+  comm.setup(atoms[0]->neighbor->cutneigh, in.nprocsx, in.nprocsz, atoms, in.nonblocking_enabled); // DSM: Multibox change: cutneigh is constant over all neighbors.
+
+  // DSM: Multibox change. Needs to be called per Atom instance
+  for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
+    // DSM: TODO: Look at this in detail - bins vs boxes?
+    // DSM: Multibox TODO: Fix this chain of references
+    atoms[box_index]->neighbor->setup(*atoms[box_index]);
+  }
+
+  // DSM: This entire function is just "dtforce = 0.5 * dt;"
+  integrate.setup();
+
+  // DSM: Only caring about default LJ force for now. This function is just setting the cutoff distance for all
+  // atoms in neighbour list:
+  // for(int i = 0; i<ntypes*ntypes; i++)
+  //    cutforcesq[i] = cutforce * cutforce;
+  force->setup();
+
+  if(in.forcetype == FORCEEAM) {
+    // DSM: Multibox change. Needs to be called per Atom instance
+    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
+      atoms[box_index]->mass = force->mass;
+    }
+  }
+
+  // DSM Multibox: Called per Atom instance (removed MPI_Allreduce calls in this function)
+  for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
+    Atom* atoms_ptr = atoms[box_index]; // HACK: Mercurium compiler fails if variable length array used in task
+    #pragma oss task label("create_atoms") firstprivate(atoms_ptr)
+    create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho); // DSM: addatom() calls done here
+  }
+  #pragma oss taskwait
+
+  // DSM Multibox: Should be fine passing any atom object here. All function does is read natoms and xprd, yprd and
+  // zprd, which are identical on all instances.
+  thermo.setup(in.rho, integrate, *atoms[0], in.units);
+
+  // DSM Multibox: Reasonable changes to this function due to three Allreduces. Solution to do local sum across boxes
+  // then contribute that to the collective.
+  create_velocity(in.t_request, atoms, thermo);
+
 
   if(me == 0)
     printf("# Done .... \n");
@@ -522,7 +512,7 @@ int main(int argc, char** argv)
     fprintf(stdout, "\t# Ghost Newton: %i\n", ghost_newton);
     fprintf(stdout, "\t# Use intrinsics: %i\n", force->use_sse);
     fprintf(stdout, "\t# Do safe exchange: %i\n", comm.do_safeexchange);
-    fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(MMD_float));
+    fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(double));
   }
 
   /*if (me == 0 && !in.nonblocking_enabled && in.boxes_per_process > 1) {

@@ -91,7 +91,7 @@ Comm::Comm(int boxes_per_process_)
     // 3 sets of buffers per function that performs communication
     for (int function_index = 0; function_index < 3; ++function_index) {
       // Internal buffers for communication between boxes on this process
-      boxBufs[i].internal_buf_send_up[function_index].buf = (MMD_float *) malloc((BUFMIN + BUFMIN) * sizeof(MMD_float));
+      boxBufs[i].internal_buf_send_up[function_index].buf = (double *) malloc((BUFMIN + BUFMIN) * sizeof(double));
       boxBufs[i].internal_buf_send_up[function_index].maxsize = BUFMIN;
       boxBufs[i].internal_buf_send_up[function_index].natoms = 0;
       boxBufs[i].internal_buf_send_up[function_index].pbc_any = 0;
@@ -99,7 +99,7 @@ Comm::Comm(int boxes_per_process_)
       boxBufs[i].internal_buf_send_up[function_index].pbc_y = 0.0;
       boxBufs[i].internal_buf_send_up[function_index].pbc_z = 0.0;
 
-      boxBufs[i].internal_buf_send_down[function_index].buf = (MMD_float *) malloc((BUFMIN + BUFMIN) * sizeof(MMD_float));
+      boxBufs[i].internal_buf_send_down[function_index].buf = (double *) malloc((BUFMIN + BUFMIN) * sizeof(double));
       boxBufs[i].internal_buf_send_down[function_index].maxsize = BUFMIN;
       boxBufs[i].internal_buf_send_down[function_index].natoms = 0;
       boxBufs[i].internal_buf_send_down[function_index].pbc_any = 0;
@@ -107,7 +107,7 @@ Comm::Comm(int boxes_per_process_)
       boxBufs[i].internal_buf_send_down[function_index].pbc_y = 0.0;
       boxBufs[i].internal_buf_send_down[function_index].pbc_z = 0.0;
 
-      boxBufs[i].internal_buf_recv_up[function_index].buf = (MMD_float *) malloc((BUFMIN + BUFMIN) * sizeof(MMD_float));
+      boxBufs[i].internal_buf_recv_up[function_index].buf = (double *) malloc((BUFMIN + BUFMIN) * sizeof(double));
       boxBufs[i].internal_buf_recv_up[function_index].maxsize = BUFMIN;
       boxBufs[i].internal_buf_recv_up[function_index].natoms = 0;
       boxBufs[i].internal_buf_recv_up[function_index].pbc_any = 0;
@@ -115,7 +115,7 @@ Comm::Comm(int boxes_per_process_)
       boxBufs[i].internal_buf_recv_up[function_index].pbc_y = 0.0;
       boxBufs[i].internal_buf_recv_up[function_index].pbc_z = 0.0;
 
-      boxBufs[i].internal_buf_recv_down[function_index].buf = (MMD_float *) malloc((BUFMIN + BUFMIN) * sizeof(MMD_float));
+      boxBufs[i].internal_buf_recv_down[function_index].buf = (double *) malloc((BUFMIN + BUFMIN) * sizeof(double));
       boxBufs[i].internal_buf_recv_down[function_index].maxsize = BUFMIN;
       boxBufs[i].internal_buf_recv_down[function_index].natoms = 0;
       boxBufs[i].internal_buf_recv_down[function_index].pbc_any = 0;
@@ -126,8 +126,8 @@ Comm::Comm(int boxes_per_process_)
       // 3 layers of boxes * 8 neighbours per layer
       for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
         for (int box_neigh_index = 0; box_neigh_index < 8; ++box_neigh_index) {
-          boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].buf = (MMD_float *) malloc(
-                  (BUFMIN + BUFMIN) * sizeof(MMD_float));
+          boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].buf = (double *) malloc(
+                  (BUFMIN + BUFMIN) * sizeof(double));
           boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].maxsize = BUFMIN;
           boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].natoms = 0;
           boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].pbc_any = 0;
@@ -135,7 +135,7 @@ Comm::Comm(int boxes_per_process_)
           boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].pbc_y = 0.0;
           boxBufs[i].bufs_send[function_index][box_layer_index][box_neigh_index].pbc_z = 0.0;
 
-          boxBufs[i].bufs_recv[function_index][box_layer_index][box_neigh_index].buf = (MMD_float *) malloc(BUFMIN * sizeof(MMD_float));
+          boxBufs[i].bufs_recv[function_index][box_layer_index][box_neigh_index].buf = (double *) malloc(BUFMIN * sizeof(double));
           boxBufs[i].bufs_recv[function_index][box_layer_index][box_neigh_index].maxsize = BUFMIN;
           boxBufs[i].bufs_recv[function_index][box_layer_index][box_neigh_index].natoms = 0;
           boxBufs[i].bufs_recv[function_index][box_layer_index][box_neigh_index].pbc_any = 0;
@@ -148,7 +148,7 @@ Comm::Comm(int boxes_per_process_)
 
     // Buffers used exclusively in communicate meighbour tasks implmentation using a single message per neighbour
     // Send
-    boxBufs[i].buf_send_single.buf = (MMD_float *) malloc((BUFMIN + BUFMIN) * sizeof(MMD_float));
+    boxBufs[i].buf_send_single.buf = (double *) malloc((BUFMIN + BUFMIN) * sizeof(double));
     boxBufs[i].buf_send_single.maxsize = BUFMIN;
     boxBufs[i].buf_send_single.natoms = 0;
     boxBufs[i].buf_send_single.pbc_any = 0;
@@ -156,7 +156,7 @@ Comm::Comm(int boxes_per_process_)
     boxBufs[i].buf_send_single.pbc_y = 0.0;
     boxBufs[i].buf_send_single.pbc_z = 0.0;
     // Recv
-    boxBufs[i].buf_recv_single.buf = (MMD_float *) malloc((BUFMIN + BUFMIN) * sizeof(MMD_float));
+    boxBufs[i].buf_recv_single.buf = (double *) malloc((BUFMIN + BUFMIN) * sizeof(double));
     boxBufs[i].buf_recv_single.maxsize = BUFMIN;
     boxBufs[i].buf_recv_single.natoms = 0;
     boxBufs[i].buf_recv_single.pbc_any = 0;
@@ -294,12 +294,12 @@ void layer_to_targets(Atom* atom, int box_layer_index, int* send_target_box_id, 
   }
 }
 
-int Comm::setup(MMD_float cutneigh, int nprocsx, int nprocsz, Atom* atoms[], int nonblocking_enabled)
+int Comm::setup(double cutneigh, int nprocsx, int nprocsz, Atom* atoms[], int nonblocking_enabled)
 {
   int i;
   int nprocs;
   int periods[3];
-  MMD_float prd[3];
+  double prd[3];
   int myloc[3];
   MPI_Comm cartesian;
   int ineed, idim, nbox;
@@ -369,21 +369,21 @@ int Comm::setup(MMD_float cutneigh, int nprocsx, int nprocsz, Atom* atoms[], int
   MPI_Comm_rank(MPI_COMM_WORLD, &me);
   MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-  MMD_float area[3];
+  double area[3];
 
   // DSM: entire simulation box dimensions: x*y, x*z, y*z
   area[0] = prd[0] * prd[1];
   area[1] = prd[0] * prd[2];
   area[2] = prd[1] * prd[2];
 
-  MMD_float bestsurf = 2.0 * (area[0] + area[1] + area[2]);
+  double bestsurf = 2.0 * (area[0] + area[1] + area[2]);
 
   // loop thru all possible factorizations of nprocs
   // surf = surface area of a proc sub-domain
   // for 2d, insure ipz = 1
 
   int ipx, ipy, ipz, nremain;
-  MMD_float surf;
+  double surf;
 
   ipx = 1;
 
@@ -464,7 +464,7 @@ int Comm::setup(MMD_float cutneigh, int nprocsx, int nprocsz, Atom* atoms[], int
   /* lo/hi = my local box bounds */
   // DSM: Decomposing the experiment box across processes
   // DSM: Multibox change. Different lo/hi entries for each box on this process
-  MMD_float perprocess_lo, perprocess_hi;
+  double perprocess_lo, perprocess_hi;
   for (i=0; i < boxes_per_process; ++i) {
     // DSM: We're only splitting the y-dimension into boxes. In x and z, we keep the dimensions of the current process
     atoms[i]->box.xlo = myloc[0] * prd[0] / procgrid[0];
@@ -549,8 +549,8 @@ int Comm::setup(MMD_float cutneigh, int nprocsx, int nprocsz, Atom* atoms[], int
     // DSM TODO: These don't appear to be free()-ed at any point. Add to destructor?
 
     // Slab arrays replaced by xneg_slab_lo, etc. constants in atom.box
-    //boxBufs[i].slablo = (MMD_float*) malloc(maxswap * sizeof(MMD_float));  // bounds of slabs to send to other procs
-    //boxBufs[i].slabhi = (MMD_float*) malloc(maxswap * sizeof(MMD_float));  // as above
+    //boxBufs[i].slablo = (double*) malloc(maxswap * sizeof(double));  // bounds of slabs to send to other procs
+    //boxBufs[i].slabhi = (double*) malloc(maxswap * sizeof(double));  // as above
 
     // PBC arrays replaced by per buffer flags
     //boxBufs[i].pbc_any = (int*) malloc(maxswap * sizeof(int));             // whether any PBC on this swap (Periodic Boundary Condition)
@@ -981,7 +981,7 @@ void Comm::communicate_nonblocking(Atom* atoms[])
           atom.pack_comm(sendnum[box_layer_index][iswap], sendlist, buf_send->buf, buf_send->pbc_any, buf_send->pbc_x,
                          buf_send->pbc_y, buf_send->pbc_z);
           // Push to neighbour.
-          memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+          memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
           continue;
         } else if (iswap == 3) {  // iswap=3 guaranteed to be swap in y +ve direction
           if (box_layer_index > 0) { continue; }
@@ -999,7 +999,7 @@ void Comm::communicate_nonblocking(Atom* atoms[])
           }
           atom.pack_comm(sendnum[box_layer_index][iswap], sendlist, buf_send->buf, buf_send->pbc_any, buf_send->pbc_x,
                          buf_send->pbc_y, buf_send->pbc_z);
-          memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+          memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
           continue;
         }
 
@@ -1040,7 +1040,7 @@ void Comm::communicate_nonblocking(Atom* atoms[])
         } else {
         //#pragma omp master
           {
-            if (sizeof(MMD_float) == 4) {
+            if (sizeof(double) == 4) {
               MPI_Irecv(buf_recv->buf, comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                         recvproc[iswap], recvtag, *recv_comm, &recv_requests[recv_req_i]);
               MPI_Isend(buf_send->buf, comm_send_size[box_layer_index][iswap], MPI_FLOAT,
@@ -1204,7 +1204,7 @@ void Comm::communicate_blocking(Atom &atom, int box_id)
       } else {
         //#pragma omp master
         {
-          if(sizeof(MMD_float) == 4) {
+          if(sizeof(double) == 4) {
             MPI_Irecv(buf_recv->buf, comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                       recvproc[iswap], recvtag, *recv_comm, &request);
             MPI_Send(buf_send->buf, comm_send_size[box_layer_index][iswap], MPI_FLOAT,
@@ -1323,7 +1323,7 @@ void Comm::communicate_blocking_isend(Atom &atom, int box_id)
       } else {
         //#pragma omp master
         {
-          if(sizeof(MMD_float) == 4) {
+          if(sizeof(double) == 4) {
             MPI_Irecv(buf_recv->buf, comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                       recvproc[iswap], recvtag, *recv_comm, &requests[reqi++]);
             MPI_Isend(buf_send->buf, comm_send_size[box_layer_index][iswap], MPI_FLOAT,
@@ -1450,7 +1450,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
           AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
           MPI_Comm *send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
                      boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
           } else {
@@ -1474,7 +1474,7 @@ void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
             buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
           }
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                      boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
           } else {
@@ -1549,7 +1549,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
             buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
           }
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                      boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
           } else {
@@ -1636,7 +1636,7 @@ void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
           AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
           MPI_Comm *send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
                      boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
           } else {
@@ -1752,7 +1752,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
           AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
           MPI_Comm *send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
                      boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &request);
           } else {
@@ -1780,7 +1780,7 @@ void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
             buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
           }
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Irecv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                      boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, &request);
           } else {
@@ -1878,7 +1878,7 @@ void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
         // Calculate send tag. In range 0 to 29, equivalent to sendnum from other implementations
         int sendtag = box_layer_index * 10 + iswap;
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
                    boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
         } else {
@@ -1910,7 +1910,7 @@ void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
           buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
         }
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           MPI_Irecv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                    boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm,&requests[box_layer_index]);
         } else {
@@ -2021,7 +2021,7 @@ void Comm::communicate_blocking_single_message_neighbourtasks(Atom *atom, int bo
       MPI_Comm *send_comm = &boxBufs[send_target_box_id[0]].comm[COMMUNICATE_FUNCTION];
 
       // Perform the (single) send for this neighbour
-      if (sizeof(MMD_float) == 4) {
+      if (sizeof(double) == 4) {
         MPI_Send(buf_send->buf, totalSend, MPI_FLOAT, boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
       } else {
         MPI_Send(buf_send->buf, totalSend, MPI_DOUBLE, boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
@@ -2054,7 +2054,7 @@ void Comm::communicate_blocking_single_message_neighbourtasks(Atom *atom, int bo
       }
 
       // Perform the (single) receive
-      if (sizeof(MMD_float) == 4) {
+      if (sizeof(double) == 4) {
         MPI_Recv(buf_recv->buf, totalRecv, MPI_FLOAT, boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
       } else {
         MPI_Recv(buf_recv->buf, totalRecv, MPI_DOUBLE, boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
@@ -2140,7 +2140,7 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
         // Calculate send tag. In range 0 to 29, equivalent to sendnum from other implementations
         int sendtag = box_layer_index * 10 + iswap;
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
                     boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
         } else {
@@ -2172,7 +2172,7 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
           buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
         }
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                     boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
         } else {
@@ -2251,7 +2251,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
         // Calculate send tag. In range 0 to 29, equivalent to sendnum from other implementations
         int sendtag = box_layer_index * 10 + iswap;
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
                     boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
         } else {
@@ -2280,7 +2280,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
           buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
         }
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
                     boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
         } else {
@@ -2395,7 +2395,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 //      MPI_Comm *send_comm = &boxBufs[0].comm[COMMUNICATE_FUNCTION];
 //      int sendtag = iswap; // Only single send/recv pair, do not need to include box_layer_index in calculation
 //
-//      if (sizeof(MMD_float) == 4) {
+//      if (sizeof(double) == 4) {
 //        MPI_Send(boxBufs[box_id].buf_send_single.buf, total_send_size, MPI_FLOAT,
 //                 boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
 //      } else {
@@ -2425,7 +2425,7 @@ void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
 //        boxBufs[box_id].buf_recv_single.growrecv(total_recv_size);
 //      }
 //
-//      if (sizeof(MMD_float) == 4) {
+//      if (sizeof(double) == 4) {
 //        MPI_Recv(boxBufs[box_id].buf_recv_single.buf, total_recv_size, MPI_FLOAT,
 //                 boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
 //      } else {
@@ -2480,7 +2480,7 @@ void Comm::reverse_communicate(Atom &atom)
   MPI_Abort(MPI_COMM_WORLD, 1);
 
 //  int iswap;
-//  MMD_float* buf;
+//  double* buf;
 //  MPI_Request request;
 //  MPI_Status status;
 //
@@ -2499,7 +2499,7 @@ void Comm::reverse_communicate(Atom &atom)
 //
 //      #pragma omp master
 //      {
-//        if(sizeof(MMD_float) == 4) {
+//        if(sizeof(double) == 4) {
 //          MPI_Irecv(buf_recv, reverse_recv_size[iswap], MPI_FLOAT,
 //          sendproc[iswap], 0, MPI_COMM_WORLD, &request);
 //          MPI_Send(buf_send, reverse_send_size[iswap], MPI_FLOAT,
@@ -2538,7 +2538,7 @@ void Comm::exchange_pack(Atom* atom, AtomBuffer bufs_send[3][8], AtomBuffer* int
   }
 
   // DSM: This is the atom position array
-  MMD_float* x = atom->x;
+  double* x = atom->x;
 
   // DSM: Do single loop over all atoms placing each in the appropriate send buffer. Replaces existing code's approach
   // of multiple loops over all atoms (one per dimension/direction)
@@ -2551,7 +2551,7 @@ void Comm::exchange_pack(Atom* atom, AtomBuffer bufs_send[3][8], AtomBuffer* int
   int i = 0, send_flag = 0;
   while (i < nlocal) {
     // Get atom's current coordinates
-    MMD_float xcoord, ycoord, zcoord;
+    double xcoord, ycoord, zcoord;
     xcoord = x[i * PAD];
     ycoord = x[i * PAD + 1];
     zcoord = x[i * PAD + 2];
@@ -2799,7 +2799,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
       return exchange_all(atom);
 
     int i, idim, nlocal, send_flag;
-    MMD_float *x;
+    double *x;
     AtomBuffer *buf_send = NULL, *buf_recv1 = NULL, *buf_recv2 = NULL;
     int swapnum = 200; // to ensure tag is unique accross communicate, borders and exchange
 
@@ -2832,7 +2832,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
     i = 0;
     while (i < nlocal) {
       // Get atom's current coordinates
-      MMD_float xcoord, ycoord, zcoord;
+      double xcoord, ycoord, zcoord;
       xcoord = x[i * PAD];
       ycoord = x[i * PAD + 1];
       zcoord = x[i * PAD + 2];
@@ -2971,13 +2971,13 @@ void Comm::exchange_nonblocking(Atom* atoms[])
             int box_neighbour = atom.boxneigh_negative;
             buf_send = &internal_buf_send_down;
             buf_recv1 = &(boxBufs[box_neighbour].internal_buf_recv_down[EXCHANGE_FUNCTION]);
-            int nsend = buf_send->natoms * 7; // *7 as 7 MMD_floats per atom
+            int nsend = buf_send->natoms * 7; // *7 as 7 doubles per atom
             // Increase size of receive buffers if receiving more than can be held
             if (nsend > buf_recv1->maxsize) {
               buf_recv1->growrecv(nsend);
             }
             // Push to neighbour.
-            memcpy(buf_recv1->buf, buf_send->buf, nsend * sizeof(MMD_float));
+            memcpy(buf_recv1->buf, buf_send->buf, nsend * sizeof(double));
             // Set receiving buffer sizes
             buf_recv1->natoms = buf_send->natoms;
             // Reset atom counter for next use of this buffer
@@ -2991,7 +2991,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
             if (nsend > buf_recv2->maxsize) {
               buf_recv2->growrecv(nsend);
             }
-            memcpy(buf_recv2->buf, buf_send->buf, nsend * sizeof(MMD_float));
+            memcpy(buf_recv2->buf, buf_send->buf, nsend * sizeof(double));
             buf_recv2->natoms = buf_send->natoms;
             buf_send->natoms = 0;
 
@@ -3016,7 +3016,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
           // Map from idim to UP, TOP_RIGHT, etc. neighbour ID
           sendDirection = dim_to_neigh(idim, 0);
           buf_send = &bufs_send[box_layer_index][sendDirection];
-          nsends1[req_i] = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+          nsends1[req_i] = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
           buf_send->natoms = 0; // Reset atom counter for next use of this buffer
           send_comm = &boxBufs[send_target_box_id].comm[EXCHANGE_FUNCTION];
           recv_comm = &boxBufs[atom.box_id].comm[EXCHANGE_FUNCTION];
@@ -3040,7 +3040,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
           // Determine which buffers we are using in second communication
           sendDirection = dim_to_neigh(idim, 1);
           buf_send = &bufs_send[box_layer_index][sendDirection];
-          nsends2[req_i] = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+          nsends2[req_i] = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
           buf_send->natoms = 0; // Reset atom counter for next use of this buffer
           sendtag = swapnum;
           recvtag = sendtag;
@@ -3108,7 +3108,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
 
         // Perform exchange with first neighbour
         // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           if (nrecvs1[req_i] != 0) {
             MPI_Irecv(buf_recv1->buf, nrecvs1[req_i], MPI_FLOAT, procneigh[idim][1], recvtag,
                       *recv_comm, &recv1_requests[recv1_req_i]);
@@ -3148,7 +3148,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
           buf_recv2->growrecv(nrecvs2[req_i]);
         }
 
-        if (sizeof(MMD_float) == 4) {
+        if (sizeof(double) == 4) {
           if (nrecvs2[req_i] != 0) {
             MPI_Irecv(buf_recv2->buf, nrecvs2[req_i], MPI_FLOAT, procneigh[idim][0], recvtag,
                       *recv_comm, &recv2_requests[recv2_req_i]);
@@ -3201,7 +3201,7 @@ void Comm::exchange_nonblocking(Atom* atoms[])
         if (idim == 1) { continue; }
         //if (idim < 3 && procgrid[idim] == 1) { continue; }
 
-        // Again, /7 as 7 MMD_floats per atom received (position, velocity and type)
+        // Again, /7 as 7 doubles per atom received (position, velocity and type)
         nrecvs1[req_i] /= 7;
         nrecvs2[req_i] /= 7;
 
@@ -3240,7 +3240,7 @@ void Comm::exchange_blocking(Atom &atom, int box_id)
     return exchange_all(atom);
 
   int i, idim, nlocal, nsend, nrecv1, nrecv2;
-  MMD_float* x;
+  double* x;
   AtomBuffer *buf_send = NULL, *buf_recv1 = NULL, *buf_recv2 = NULL;
 
   MPI_Request request;
@@ -3288,7 +3288,7 @@ void Comm::exchange_blocking(Atom &atom, int box_id)
         sendtag = swapnum;
         recvtag = sendtag;
         ++swapnum;
-        nsend = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+        nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
         buf_send->natoms = 0; // Reset atom counter for next use of this buffer
 
         /* send/recv atoms in both directions
@@ -3309,7 +3309,7 @@ void Comm::exchange_blocking(Atom &atom, int box_id)
 
         // Perform exchange with first neighbour
         // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
-        if(sizeof(MMD_float) == 4) {
+        if(sizeof(double) == 4) {
           if (nrecv1 != 0) {
             MPI_Irecv(buf_recv1->buf, nrecv1, MPI_FLOAT, procneigh[idim][1], recvtag, *recv_comm, &request);
           }
@@ -3340,7 +3340,7 @@ void Comm::exchange_blocking(Atom &atom, int box_id)
         recvtag = sendtag;
         ++swapnum;
         // TODO: Do we need to reverse send/recv target IDs and comms here?
-        nsend = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+        nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
         buf_send->natoms = 0; // Reset atom counter for next use of this buffer
 
         // DSM: This branch is checking procgrid[idim]!=2. Can't ==1 as that is checked at start of loop (continue if
@@ -3360,7 +3360,7 @@ void Comm::exchange_blocking(Atom &atom, int box_id)
         }
 
         // DSM: The second exchange,
-        if(sizeof(MMD_float) == 4) {
+        if(sizeof(double) == 4) {
           if (nrecv2 != 0) {
             MPI_Irecv(buf_recv2->buf, nrecv2, MPI_FLOAT, procneigh[idim][0], recvtag, *recv_comm, &request);
           }
@@ -3387,7 +3387,7 @@ void Comm::exchange_blocking(Atom &atom, int box_id)
          if they are, add to my list */
       // DSM: Removed this check as all atoms received now must be in my box (otherwise they would not have been sent)
 
-      // Again, /7 as 7 MMD_floats per atom received (position, velocity and type)
+      // Again, /7 as 7 doubles per atom received (position, velocity and type)
       nrecv1 /= 7;
       nrecv2 /= 7;
 
@@ -3451,14 +3451,14 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
         MPI_Comm *send_comm = &boxBufs[send_target_box_id[box_layer_index]].comm[EXCHANGE_FUNCTION];
         int sendtag = swapnum;
         ++swapnum;
-        int nsend = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+        int nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
         buf_send->natoms = 0; // Reset atom counter for next use of this buffer
 
         MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][0], sendtag, *send_comm);
 
         // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
         if (nsend != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Send(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][0], sendtag, *send_comm);
           } else {
             MPI_Send(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][0], sendtag, *send_comm);
@@ -3496,7 +3496,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
         // Perform exchange with first neighbour
         // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
         if (boxBufs[box_id].nrecvs1[box_layer_index][idim] != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Recv(buf_recv1->buf, boxBufs[box_id].nrecvs1[box_layer_index][idim], MPI_FLOAT, procneigh[idim][1], recvtag, *recv_comm, MPI_STATUS_IGNORE);
           } else {
             MPI_Recv(buf_recv1->buf, boxBufs[box_id].nrecvs1[box_layer_index][idim], MPI_DOUBLE, procneigh[idim][1], recvtag, *recv_comm, MPI_STATUS_IGNORE);
@@ -3527,14 +3527,14 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
         int sendtag = swapnum;
         ++swapnum;
         // TODO: Do we need to reverse send/recv target IDs and comms here?
-        int nsend = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+        int nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
         buf_send->natoms = 0; // Reset atom counter for next use of this buffer
 
         MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][1], sendtag, *send_comm);
 
         // DSM: The second exchange,
         if (nsend != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Send(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][1], sendtag, *send_comm);
           } else {
             MPI_Send(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][1], sendtag, *send_comm);
@@ -3567,7 +3567,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
         }
 
         if (boxBufs[box_id].nrecvs2[box_layer_index][idim] != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Recv(buf_recv2->buf, boxBufs[box_id].nrecvs2[box_layer_index][idim], MPI_FLOAT, procneigh[idim][0], recvtag, *recv_comm, MPI_STATUS_IGNORE);
           } else {
             MPI_Recv(buf_recv2->buf, boxBufs[box_id].nrecvs2[box_layer_index][idim], MPI_DOUBLE, procneigh[idim][0], recvtag, *recv_comm, MPI_STATUS_IGNORE);
@@ -3598,7 +3598,7 @@ void Comm::exchange_blocking_neighbourtasks(Atom* atom, int box_id)
         AtomBuffer *buf_recv2 = boxBufs[box_id].buf_recvs2[box_layer_index][idim];
         int nrecv2 = boxBufs[box_id].nrecvs2[box_layer_index][idim];
 
-        // Again, /7 as 7 MMD_floats per atom received (position, velocity and type)
+        // Again, /7 as 7 doubles per atom received (position, velocity and type)
         nrecv1 /= 7;
         nrecv2 /= 7;
 
@@ -3661,14 +3661,14 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
         MPI_Comm *send_comm = &boxBufs[send_target_box_id[box_layer_index]].comm[EXCHANGE_FUNCTION];
         int sendtag = swapnum;
         ++swapnum;
-        int nsend = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+        int nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
         buf_send->natoms = 0; // Reset atom counter for next use of this buffer
 
         MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][0], sendtag, *send_comm);
 
         // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
         if (nsend != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Isend(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][0], sendtag, *send_comm, &requests[req_counter]);
           } else {
             MPI_Isend(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][0], sendtag, *send_comm, &requests[req_counter]);
@@ -3711,7 +3711,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
         // Perform exchange with first neighbour
         // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
         if (boxBufs[box_id].nrecvs1[box_layer_index][idim] != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Irecv(buf_recv1->buf, boxBufs[box_id].nrecvs1[box_layer_index][idim], MPI_FLOAT, procneigh[idim][1], recvtag, *recv_comm, &requests[req_counter]);
           } else {
             MPI_Irecv(buf_recv1->buf, boxBufs[box_id].nrecvs1[box_layer_index][idim], MPI_DOUBLE, procneigh[idim][1], recvtag, *recv_comm, &requests[req_counter]);
@@ -3747,14 +3747,14 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
         int sendtag = swapnum;
         ++swapnum;
         // TODO: Do we need to reverse send/recv target IDs and comms here?
-        int nsend = buf_send->natoms * 7; // *7 to represent how many MMD_floats are due to be sent
+        int nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
         buf_send->natoms = 0; // Reset atom counter for next use of this buffer
 
         MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][1], sendtag, *send_comm);
 
         // DSM: The second exchange,
         if (nsend != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Isend(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][1], sendtag, *send_comm, &requests[req_counter]);
           } else {
             MPI_Isend(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][1], sendtag, *send_comm, &requests[req_counter]);
@@ -3792,7 +3792,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
         }
 
         if (boxBufs[box_id].nrecvs2[box_layer_index][idim] != 0) {
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Irecv(buf_recv2->buf, boxBufs[box_id].nrecvs2[box_layer_index][idim], MPI_FLOAT, procneigh[idim][0], recvtag, *recv_comm, &requests[req_counter]);
           } else {
             MPI_Irecv(buf_recv2->buf, boxBufs[box_id].nrecvs2[box_layer_index][idim], MPI_DOUBLE, procneigh[idim][0], recvtag, *recv_comm, &requests[req_counter]);
@@ -3827,7 +3827,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
         AtomBuffer *buf_recv2 = boxBufs[box_id].buf_recvs2[box_layer_index][idim];
         int nrecv2 = boxBufs[box_id].nrecvs2[box_layer_index][idim];
 
-        // Again, /7 as 7 MMD_floats per atom received (position, velocity and type)
+        // Again, /7 as 7 doubles per atom received (position, velocity and type)
         nrecv1 /= 7;
         nrecv2 /= 7;
 
@@ -3880,13 +3880,13 @@ void Comm::exchange_internal_send(AtomBuffer* buf_send, AtomBuffer* buf_recv) {
 
   // Perform memory copy into neighbouring box on this proc's recv buffer
   // Send buffers have already been packed as part of main exchange() function
-  int nsend = buf_send->natoms*7; // *7 as 7 MMD_floats per atom
+  int nsend = buf_send->natoms*7; // *7 as 7 doubles per atom
   // Increase size of receive buffers if receiving more than can be held
   if(nsend > buf_recv->maxsize) {
     buf_recv->growrecv(nsend);
   }
   // Push to neighbour.
-  memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+  memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
   // Set receiving buffer sizes
   buf_recv->natoms = buf_send->natoms;
   // Reset atom counter for next use of this buffer
@@ -3969,8 +3969,8 @@ void Comm::exchange_all(Atom &atom)
 {
   // DSM Removed for multibox (doesn't build)
 //  int i, m, n, idim, nsend, nrecv, nrecv1, nrecv2, nlocal;
-//  MMD_float lo, hi, value;
-//  MMD_float* x;
+//  double lo, hi, value;
+//  double* x;
 //
 //  MPI_Request request;
 //  MPI_Status status;
@@ -4032,7 +4032,7 @@ void Comm::exchange_all(Atom &atom)
 //
 //        if(nrecv > maxrecv) growrecv(nrecv);
 //
-//        if(sizeof(MMD_float) == 4) {
+//        if(sizeof(double) == 4) {
 //          MPI_Irecv(buf_recv, nrecv, MPI_FLOAT, recvproc_exc[iswap], 0,
 //                    MPI_COMM_WORLD, &request);
 //          MPI_Send(buf_send, nsend, MPI_FLOAT, sendproc_exc[iswap], 0, MPI_COMM_WORLD);
@@ -4153,7 +4153,7 @@ void Comm::borders_pack(Atom* atom) {
   // 26 exchanges = 8 process neighbours * 3 box layers + 2 internal exchanges between boxes on same process
   int nfirst = 0;
   int nlast = atom->nlocal+atom->nghost; // DSM: nghost will always be 0 here, we sort all local atoms in a single pass now
-  MMD_float xcoord, ycoord, zcoord;
+  double xcoord, ycoord, zcoord;
   int type;
   for(int i = nfirst; i < nlast; i++) { // DSM: From 0 to atom.nlocal+atom.nghost
     // Get atom's current coordinates and type (needed for packing)
@@ -4268,13 +4268,13 @@ void Comm::borders_internal_send(Atom* atom) {
   int box_neighbour = atom->boxneigh_negative;
   AtomBuffer* buf_send = &internal_buf_send_down;
   AtomBuffer* buf_recv = &(boxBufs[box_neighbour].internal_buf_recv_down[BORDERS_FUNCTION]);
-  int nsend = buf_send->natoms * atom->border_size; // natoms * num MMD_floats per atom (e.g. 4: x,y,z,type)
+  int nsend = buf_send->natoms * atom->border_size; // natoms * num doubles per atom (e.g. 4: x,y,z,type)
   // Increase size of receive buffers if receiving more than can be held
   if(nsend > buf_recv->maxsize) {
     buf_recv->growrecv(nsend);
   }
   // Push to neighbour.
-  memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+  memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
   // Update relevant pointers and counters for this swap
   // Recv side done in seperate internal swaps function
   // Always box layer 0. box layers 1 and 2 are completely skipped for y dimension
@@ -4294,7 +4294,7 @@ void Comm::borders_internal_send(Atom* atom) {
   if(nsend > buf_recv->maxsize) {
     buf_recv->growrecv(nsend);
   }
-  memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+  memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
   sendnum[0][3] = buf_send->natoms;
   comm_send_size[0][3] = buf_send->natoms * atom->comm_size;
   buf_recv->natoms = buf_send->natoms;
@@ -4306,7 +4306,7 @@ void Comm::borders_blocking(Atom &atom, int box_id)
   int i, m, n, iswap, idim, ineed, nsend, nrecv, nall, sendtag, recvtag;
   int swapnum = 0;
   AtomBuffer *buf = NULL, *buf_send = NULL, *buf_recv = NULL;
-  MMD_float* x;
+  double* x;
   MPI_Request request;
   MPI_Status status;
   MPI_Comm *send_comm, *recv_comm;
@@ -4384,7 +4384,7 @@ void Comm::borders_blocking(Atom &atom, int box_id)
             // Increase receiving buffer size if needed
             if(nrecv * atom.border_size > buf_recv->maxsize) buf_recv->growrecv(nrecv * atom.border_size);
 
-            if(sizeof(MMD_float) == 4) {
+            if(sizeof(double) == 4) {
               MPI_Irecv(buf_recv->buf, nrecv * atom.border_size, MPI_FLOAT,
                         recvproc[iswap], recvtag, *recv_comm, &request);
               MPI_Send(buf_send->buf, nsend * atom.border_size, MPI_FLOAT,
@@ -4501,7 +4501,7 @@ void Comm::borders_blocking_neighbourtasks(Atom* atom, int box_id)
 
           // Skip a send/recv pair if our nsend/nrecv == 0
           if (nsend > 0) {
-            if (sizeof(MMD_float) == 4) {
+            if (sizeof(double) == 4) {
               MPI_Send(buf_send->buf, nsend * atom->border_size, MPI_FLOAT,
                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
             } else {
@@ -4544,7 +4544,7 @@ void Comm::borders_blocking_neighbourtasks(Atom* atom, int box_id)
             // Increase receiving buffer size if needed
             if (nrecv * atom->border_size > buf_recv->maxsize) buf_recv->growrecv(nrecv * atom->border_size);
 
-            if (sizeof(MMD_float) == 4) {
+            if (sizeof(double) == 4) {
               MPI_Recv(buf_recv->buf, nrecv * atom->border_size, MPI_FLOAT,
                        boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
             } else {
@@ -4648,7 +4648,7 @@ void Comm::blocking_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
 
           // Skip a send/recv pair if our nsend/nrecv == 0
           if (nsend > 0) {
-            if (sizeof(MMD_float) == 4) {
+            if (sizeof(double) == 4) {
               MPI_Isend(buf_send->buf, nsend * atom->border_size, MPI_FLOAT,
                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[req_counter]);
             } else {
@@ -4698,7 +4698,7 @@ void Comm::blocking_nonblocking_neighbourtasks_tampi_iwaitall(Atom* atom, int bo
             // Increase receiving buffer size if needed
             if (nrecv * atom->border_size > buf_recv->maxsize) buf_recv->growrecv(nrecv * atom->border_size);
 
-            if (sizeof(MMD_float) == 4) {
+            if (sizeof(double) == 4) {
               MPI_Irecv(buf_recv->buf, nrecv * atom->border_size, MPI_FLOAT,
                        boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, &requests[req_counter]);
             } else {
@@ -4781,8 +4781,8 @@ void Comm::borders_nonblocking(Atom* atoms[])
 
     int i, m, n, iswap, idim, ineed, nall, nfirst, nlast, type;
     AtomBuffer *buf_send = NULL, *buf_recv = NULL;
-    MMD_float* x;
-    MMD_float xcoord, ycoord, zcoord;
+    double* x;
+    double xcoord, ycoord, zcoord;
     // Swap counter for this box
     int swapnum = 200; // to ensure tag is unique accross communicate, borders and exchange
 
@@ -4834,13 +4834,13 @@ void Comm::borders_nonblocking(Atom* atoms[])
             int box_neighbour = atom.boxneigh_negative;
             buf_send = &internal_buf_send_down;
             buf_recv = &(boxBufs[box_neighbour].internal_buf_recv_down[BORDERS_FUNCTION]);
-            int nsend = buf_send->natoms * atom.border_size; // natoms * num MMD_floats per atom (e.g. 4: x,y,z,type)
+            int nsend = buf_send->natoms * atom.border_size; // natoms * num doubles per atom (e.g. 4: x,y,z,type)
             // Increase size of receive buffers if receiving more than can be held
             if(nsend > buf_recv->maxsize) {
               buf_recv->growrecv(nsend);
             }
             // Push to neighbour.
-            memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+            memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
             // Update relevant pointers and counters for this swap
             // Recv side done in seperate internal swaps function
             sendnum[box_layer_index][iswap] = buf_send->natoms;
@@ -4859,7 +4859,7 @@ void Comm::borders_nonblocking(Atom* atoms[])
             if(nsend > buf_recv->maxsize) {
               buf_recv->growrecv(nsend);
             }
-            memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(MMD_float));
+            memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
             sendnum[box_layer_index][iswap] = buf_send->natoms;
             comm_send_size[box_layer_index][iswap] = buf_send->natoms * atom.comm_size;
             buf_recv->natoms = buf_send->natoms;
@@ -4974,7 +4974,7 @@ void Comm::borders_nonblocking(Atom* atoms[])
           // Increase receiving buffer size if needed
           if (nrecv * atom.border_size > buf_recv->maxsize) buf_recv->growrecv(nrecv * atom.border_size);
 
-          if (sizeof(MMD_float) == 4) {
+          if (sizeof(double) == 4) {
             MPI_Irecv(buf_recv->buf, nrecv * atom.border_size, MPI_FLOAT,
                       recvproc[iswap], recvtag, *recv_comm, &recv_requests[req_i]);
             MPI_Isend(buf_send->buf, nsend * atom.border_size, MPI_FLOAT,
@@ -5078,7 +5078,7 @@ void Comm::borders_nonblocking(Atom* atoms[])
 
 void AtomBuffer::growsend(int n) {
   maxsize = static_cast<int>(BUFFACTOR * n);
-  buf = (MMD_float*) realloc(buf, (maxsize + BUFEXTRA) * sizeof(MMD_float));
+  buf = (double*) realloc(buf, (maxsize + BUFEXTRA) * sizeof(double));
 
   /*
   if (!buf) {
@@ -5093,14 +5093,14 @@ void AtomBuffer::growsend(int n) {
 void AtomBuffer::growrecv(int n) {
   maxsize = static_cast<int>(BUFFACTOR * n);
   free(buf);
-  buf = (MMD_float*) malloc(maxsize * sizeof(MMD_float));
+  buf = (double*) malloc(maxsize * sizeof(double));
 }
 
 // Replaces equivalent in atom.pack_border()
 // Moved to an AtomBuffer method to facilitate PBC correction and updating this buffer's sendlist
 // Takes atom x, y, z coordinates and type as arguments rather then indexing into atom.x[] and atom.type[]
 // Still takes index i to record in the sendlist
-int AtomBuffer::pack_border(int i, MMD_float x, MMD_float y, MMD_float z, int type, int** sendlist, int& maxsendlist)
+int AtomBuffer::pack_border(int i, double x, double y, double z, int type, int** sendlist, int& maxsendlist)
 {
   int m = natoms*4; // Add new atom to end of buffer
 

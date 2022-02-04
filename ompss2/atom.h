@@ -37,18 +37,18 @@
 
 class Neighbor;
 struct Box {
-  MMD_float xprd, yprd, zprd;
-  MMD_float xlo, xhi;
-  MMD_float ylo, yhi;
-  MMD_float zlo, zhi;
+  double xprd, yprd, zprd;
+  double xlo, xhi;
+  double ylo, yhi;
+  double zlo, zhi;
 
   // DSM 26-way communication change: Replace comm's slablo/slabhi arrays with these constants (set in comm.setup())
   // The comm.borders() function uses these to determine whether atoms are in the slab region before updating positions.
   // Corner calculations use constants from multiple dimensions, e.g. communication with "top-left" neighbour process
   // is all atoms in region boxed by (xneg_slab_lo to xneg_slab_hi) and (zneg_slab_lo to zneg_slab_hi).
-  MMD_float xneg_slab_lo, xneg_slab_hi, xpos_slab_lo, xpos_slab_hi;
-  MMD_float yneg_slab_lo, yneg_slab_hi, ypos_slab_lo, ypos_slab_hi;
-  MMD_float zneg_slab_lo, zneg_slab_hi, zpos_slab_lo, zpos_slab_hi;
+  double xneg_slab_lo, xneg_slab_hi, xpos_slab_lo, xpos_slab_hi;
+  double yneg_slab_lo, yneg_slab_hi, ypos_slab_lo, ypos_slab_hi;
+  double zneg_slab_lo, zneg_slab_hi, zpos_slab_lo, zpos_slab_hi;
 };
 
 class Atom
@@ -66,17 +66,17 @@ class Atom
     int boxneigh_negative, boxneigh_positive;
     Neighbor* neighbor; // DSM: Multibox change - need one neighborlist per box rather than per process
 
-    MMD_float* x;
-    MMD_float* v;
-    MMD_float* f;
+    double* x;
+    double* v;
+    double* f;
 
     int ntypes;
     int* type;
 
-    MMD_float* xold;
+    double* xold;
 
     ThreadData* threads;
-    MMD_float virial, mass;
+    double virial, mass;
 
     int comm_size, reverse_size, border_size;
 
@@ -84,26 +84,26 @@ class Atom
 
     Atom(int ntypes_, int boxes_per_process_);
     ~Atom();
-    void addatom(MMD_float, MMD_float, MMD_float, MMD_float, MMD_float, MMD_float);
+    void addatom(double, double, double, double, double, double);
     void pbc();
     void growarray();
 
     void copy(int, int);
 
-    void pack_comm(int, int*, MMD_float*, int, MMD_float, MMD_float, MMD_float);
-    void unpack_comm(int, int, MMD_float*);
-    void pack_reverse(int, int, MMD_float*);
-    void unpack_reverse(int, int*, MMD_float*);
+    void pack_comm(int, int*, double*, int, double, double, double);
+    void unpack_comm(int, int, double*);
+    void pack_reverse(int, int, double*);
+    void unpack_reverse(int, int*, double*);
 
-    int pack_border(int, MMD_float*, int*);
-    int unpack_border(int, MMD_float*);
-    int pack_exchange(int, MMD_float*);
-    int unpack_exchange(int, MMD_float*);
-    int skip_exchange(MMD_float*);
+    int pack_border(int, double*, int*);
+    int unpack_border(int, double*);
+    int pack_exchange(int, double*);
+    int unpack_exchange(int, double*);
+    int skip_exchange(double*);
 
-    MMD_float* realloc_2d_MMD_float_array(MMD_float*, int, int, int);
-    MMD_float* create_2d_MMD_float_array(int, int);
-    void destroy_2d_MMD_float_array(MMD_float*);
+    double* realloc_2d_double_array(double*, int, int, int);
+    double* create_2d_double_array(int, int);
+    void destroy_2d_double_array(double*);
 
     int* realloc_1d_int_array(int*, int, int);
     int* create_1d_int_array(int);
@@ -115,8 +115,8 @@ class Atom
   private:
     int* binpos;
     int* bins;
-    MMD_float* x_copy;
-    MMD_float* v_copy;
+    double* x_copy;
+    double* v_copy;
     int* type_copy;
     int copy_size;
 };

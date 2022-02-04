@@ -36,10 +36,6 @@
 #include "atom.h"
 #include "neighbor.h"
 
-#ifdef USE_TAMPI
-#include <TAMPI.h>
-#endif
-
 #define DELTA 20000
 
 Atom::Atom(int ntypes_, int boxes_per_process_)
@@ -69,10 +65,10 @@ Atom::Atom(int ntypes_, int boxes_per_process_)
 Atom::~Atom()
 {
   if(nmax) {
-    destroy_2d_MMD_float_array(x);
-    destroy_2d_MMD_float_array(v);
-    destroy_2d_MMD_float_array(f);
-    destroy_2d_MMD_float_array(xold);
+    destroy_2d_double_array(x);
+    destroy_2d_double_array(v);
+    destroy_2d_double_array(f);
+    destroy_2d_double_array(xold);
     destroy_1d_int_array(type);
   }
 }
@@ -81,11 +77,11 @@ void Atom::growarray()
 {
   int nold = nmax;
   nmax += DELTA;
-  x = (MMD_float*) realloc_2d_MMD_float_array(x, nmax, PAD, PAD * nold);
-  v = (MMD_float*) realloc_2d_MMD_float_array(v, nmax, PAD, PAD * nold);
-  f = (MMD_float*) realloc_2d_MMD_float_array(f, nmax, PAD, PAD * nold);
+  x = (double*) realloc_2d_double_array(x, nmax, PAD, PAD * nold);
+  v = (double*) realloc_2d_double_array(v, nmax, PAD, PAD * nold);
+  f = (double*) realloc_2d_double_array(f, nmax, PAD, PAD * nold);
   type = realloc_1d_int_array(type, nmax, nold);
-  xold = (MMD_float*) realloc_2d_MMD_float_array(xold, nmax, PAD, PAD * nold);
+  xold = (double*) realloc_2d_double_array(xold, nmax, PAD, PAD * nold);
 
   if(x == NULL || v == NULL || f == NULL || xold == NULL) {
     printf("ERROR: No memory for atoms\n");
@@ -94,8 +90,8 @@ void Atom::growarray()
 
 // DSM: Called in loop at initial setup from setup.cpp's create_atoms()
 // DSM: x_in, y_in, z_in are atom coordinates. vx_in, vy_in, vz_in are atom velocities
-void Atom::addatom(MMD_float x_in, MMD_float y_in, MMD_float z_in,
-                   MMD_float vx_in, MMD_float vy_in, MMD_float vz_in)
+void Atom::addatom(double x_in, double y_in, double z_in,
+                   double vx_in, double vy_in, double vz_in)
 {
   // DSM: If we're out of memory for new atoms, allocate arrays that are "DELTA" elements larger, copy existing contents
   // over and free the originals. On first call, nlocal and nmax are 0 - initial allocation is done without any copies.
@@ -152,7 +148,7 @@ void Atom::copy(int i, int j)
 //   - list       array of indices/atom IDs into the x/atom position array. These are the atoms to be sent.
 //   - buf        buffer atoms are packed into
 //   - pbc_flags  periodic boundary conditions array
-void Atom::pack_comm(int n, int* list, MMD_float* buf, int pbc_any, MMD_float pbc_x, MMD_float pbc_y, MMD_float pbc_z)
+void Atom::pack_comm(int n, int* list, double* buf, int pbc_any, double pbc_x, double pbc_y, double pbc_z)
 {
   int i, j;
 
@@ -180,7 +176,7 @@ void Atom::pack_comm(int n, int* list, MMD_float* buf, int pbc_any, MMD_float pb
   }
 }
 
-void Atom::unpack_comm(int n, int first, MMD_float* buf)
+void Atom::unpack_comm(int n, int first, double* buf)
 {
   int i;
 
@@ -192,7 +188,7 @@ void Atom::unpack_comm(int n, int first, MMD_float* buf)
   }
 }
 
-void Atom::pack_reverse(int n, int first, MMD_float* buf)
+void Atom::pack_reverse(int n, int first, double* buf)
 {
   int i;
 
@@ -204,7 +200,7 @@ void Atom::pack_reverse(int n, int first, MMD_float* buf)
   }
 }
 
-void Atom::unpack_reverse(int n, int* list, MMD_float* buf)
+void Atom::unpack_reverse(int n, int* list, double* buf)
 {
   int i, j;
 
@@ -217,7 +213,7 @@ void Atom::unpack_reverse(int n, int* list, MMD_float* buf)
   }
 }
 
-int Atom::pack_border(int i, MMD_float* buf, int* pbc_flags)
+int Atom::pack_border(int i, double* buf, int* pbc_flags)
 {
   int m = 0;
 
@@ -237,7 +233,7 @@ int Atom::pack_border(int i, MMD_float* buf, int* pbc_flags)
   return m;
 }
 
-int Atom::unpack_border(int i, MMD_float* buf)
+int Atom::unpack_border(int i, double* buf)
 {
   if(i == nmax) growarray(); // DSM: No change needed for multibox, this grows this box's x,v,f arrays
 
@@ -249,7 +245,7 @@ int Atom::unpack_border(int i, MMD_float* buf)
   return m;
 }
 
-int Atom::pack_exchange(int i, MMD_float* buf)
+int Atom::pack_exchange(int i, double* buf)
 {
   int m = 0;
   buf[m++] = x[i * PAD + 0];
@@ -262,7 +258,7 @@ int Atom::pack_exchange(int i, MMD_float* buf)
   return m;
 }
 
-int Atom::unpack_exchange(int i, MMD_float* buf)
+int Atom::unpack_exchange(int i, double* buf)
 {
   if(i == nmax) growarray();
 
@@ -277,48 +273,48 @@ int Atom::unpack_exchange(int i, MMD_float* buf)
   return m;
 }
 
-int Atom::skip_exchange(MMD_float* buf)
+int Atom::skip_exchange(double* buf)
 {
   return 7;
 }
 
-/* realloc a 2-d MMD_float array */
+/* realloc a 2-d double array */
 
-MMD_float* Atom::realloc_2d_MMD_float_array(MMD_float* array,
+double* Atom::realloc_2d_double_array(double* array,
     int n1, int n2, int nold)
 
 {
-  MMD_float* newarray;
+  double* newarray;
 
-  newarray = create_2d_MMD_float_array(n1, n2);
+  newarray = create_2d_double_array(n1, n2);
 
-  if(nold) memcpy(newarray, array, nold * sizeof(MMD_float));
+  if(nold) memcpy(newarray, array, nold * sizeof(double));
 
-  destroy_2d_MMD_float_array(array);
+  destroy_2d_double_array(array);
 
   return newarray;
 }
 
-/* create a 2-d MMD_float array */
+/* create a 2-d double array */
 
-MMD_float* Atom::create_2d_MMD_float_array(int n1, int n2)
+double* Atom::create_2d_double_array(int n1, int n2)
 {
-  MMD_float* array;
+  double* array;
 
   if(n1 * n2 == 0) return NULL;
 
   #ifdef ALIGNMALLOC
-    array = (MMD_float*) _mm_malloc((n1 * n2 + 1024 + 1) * sizeof(MMD_float), ALIGNMALLOC);
+    array = (double*) _mm_malloc((n1 * n2 + 1024 + 1) * sizeof(double), ALIGNMALLOC);
   #else
-    array = (MMD_float*) malloc((n1 * n2 + 1024 + 1) * sizeof(MMD_float));
+    array = (double*) malloc((n1 * n2 + 1024 + 1) * sizeof(double));
   #endif
 
   return array;
 }
 
-/* free memory of a 2-d MMD_float array */
+/* free memory of a 2-d double array */
 
-void Atom::destroy_2d_MMD_float_array(MMD_float* array)
+void Atom::destroy_2d_double_array(double* array)
 {
   if(array != NULL) {
   #ifdef ALIGNMALLOC
@@ -344,7 +340,7 @@ int * Atom::realloc_1d_int_array(int* array,
   return newarray;
 }
 
-/* create a 2-d MMD_float array */
+/* create a 2-d double array */
 
 int * Atom::create_1d_int_array(int n1)
 {
@@ -363,7 +359,7 @@ int * Atom::create_1d_int_array(int n1)
   return data;
 }
 
-/* free memory of a 2-d MMD_float array */
+/* free memory of a 2-d double array */
 
 void Atom::destroy_1d_int_array(int* array)
 {
@@ -392,22 +388,22 @@ void Atom::sort(Neighbor &neighbor)
     for(int i=1; i<mbins; i++)
 	  binpos[i] += binpos[i-1];
     if(copy_size<nmax) {
-	    destroy_2d_MMD_float_array(x_copy);
-	    destroy_2d_MMD_float_array(v_copy);
+	    destroy_2d_double_array(x_copy);
+	    destroy_2d_double_array(v_copy);
 	    destroy_1d_int_array(type_copy);
-      x_copy = (MMD_float*) create_2d_MMD_float_array(nmax, PAD);
-      v_copy = (MMD_float*) create_2d_MMD_float_array(nmax, PAD);
+      x_copy = (double*) create_2d_double_array(nmax, PAD);
+      v_copy = (double*) create_2d_double_array(nmax, PAD);
       type_copy = create_1d_int_array(nmax);
       copy_size = nmax;
     }
   }
 
   //#pragma omp barrier
-  MMD_float* new_x = x_copy;
-  MMD_float* new_v = v_copy;
+  double* new_x = x_copy;
+  double* new_v = v_copy;
   int* new_type = type_copy;
-  MMD_float* old_x = x;
-  MMD_float* old_v = v;
+  double* old_x = x;
+  double* old_v = v;
   int* old_type = type;
 
   //#pragma omp for
@@ -430,8 +426,8 @@ void Atom::sort(Neighbor &neighbor)
 
   //#pragma omp master
   {
-    MMD_float* x_tmp = x;
-    MMD_float* v_tmp = v;
+    double* x_tmp = x;
+    double* v_tmp = v;
     int* type_tmp = type;
 
     x = x_copy;
