@@ -34,24 +34,6 @@
 
 enum ForceStyle {FORCELJ, FORCEEAM};
 
-
-struct double2 {
-  double x, y;
-};
-struct float2 {
-  float x, y;
-};
-struct double4 {
-  double x, y, z, w;
-};
-struct float4 {
-  float x, y, z, w;
-};
-
-#ifndef CHUNKSIZE
-#define CHUNKSIZE 64
-#endif
-
 #ifndef PAD4
 #define PAD 3
 #else
