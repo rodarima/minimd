@@ -46,7 +46,6 @@ Comm::Comm()
     buf_send = (double *) malloc((maxsend + BUFMIN) * sizeof(double));
     maxrecv = BUFMIN;
     buf_recv = (double *) malloc(maxrecv * sizeof(double));
-    check_safeexchange = 0;
     do_safeexchange = 0;
     maxthreads = 0;
     maxnlocal = 0;
@@ -91,43 +90,42 @@ int Comm::setup(double cutneigh, Atom &atom)
     int ipx = 1, ipy = 1, ipz = 1, nremain;
     double surf;
 
-	if (nprocs != 1) {
-		while (ipx <= nprocs) {
-			if (nprocs % ipx == 0) {
-				nremain = nprocs / ipx;
-				ipy = 1;
+    if (nprocs != 1) {
+        while (ipx <= nprocs) {
+            if (nprocs % ipx == 0) {
+                nremain = nprocs / ipx;
+                ipy = 1;
 
-				while (ipy <= nremain) {
-					if (nremain % ipy == 0) {
-						ipz = nremain / ipy;
-						surf = area[0] / ipx / ipy + area[1] / ipx / ipz + area[2] / ipy / ipz;
+                while (ipy <= nremain) {
+                    if (nremain % ipy == 0) {
+                        ipz = nremain / ipy;
+                        surf = area[0] / ipx / ipy + area[1] / ipx / ipz + area[2] / ipy / ipz;
 
-						if (surf < bestsurf) {
-							bestsurf = surf;
-							procgrid[0] = ipx;
-							procgrid[1] = ipy;
-							procgrid[2] = ipz;
-						}
-					}
+                        if (surf < bestsurf) {
+                            bestsurf = surf;
+                            procgrid[0] = ipx;
+                            procgrid[1] = ipy;
+                            procgrid[2] = ipz;
+                        }
+                    }
 
-					ipy++;
-				}
-			}
+                    ipy++;
+                }
+            }
 
-			ipx++;
-		}
-	} else {
-		procgrid[0] = 1;
-		procgrid[1] = 1;
-		procgrid[2] = 1;
-	}
+            ipx++;
+        }
+    } else {
+        procgrid[0] = 1;
+        procgrid[1] = 1;
+        procgrid[2] = 1;
+    }
 
     if (procgrid[0] * procgrid[1] * procgrid[2] != nprocs) {
         if (me == 0) {
-			fprintf(stderr,
-					"mismatch procs grid (%d %d %d) and total procs %d\n",
-					procgrid[0], procgrid[1], procgrid[2], nprocs);
-		}
+            fprintf(stderr, "mismatch procs grid (%d %d %d) and total procs %d\n", procgrid[0], procgrid[1],
+                procgrid[2], nprocs);
+        }
 
         return 1;
     }

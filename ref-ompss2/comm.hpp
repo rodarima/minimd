@@ -82,7 +82,6 @@ public:
 
     ThreadData *threads; //
 
-    int check_safeexchange; // if sets give warnings if an atom moves further than subdomain size
     int do_safeexchange; // exchange atoms with all subdomains within neighbor cutoff
     Timer *timer;
 

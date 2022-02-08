@@ -54,6 +54,8 @@ public:
     void initialIntegrate();
     void finalIntegrate();
     void run(Atom &, Force *, Neighbor &, Comm &, Thermo &, Timer &);
+    void recordAtomPositions(Atom &atom);
+    void checkAtomPositions(Atom &atom);
 
     ThreadData *threads;
 };

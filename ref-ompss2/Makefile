@@ -9,6 +9,8 @@ LDFLAGS+=-fsanitize=address
 
 CXXFLAGS+=-Wno-attributes
 
+CXXFLAGS+=-DDONT_CHECK_DELTAX
+
 SRC=$(wildcard *.cpp)
 OBJ=$(SRC:.cpp=.o)
 EXE=miniMD

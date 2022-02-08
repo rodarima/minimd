@@ -69,7 +69,6 @@ int main(int argc, char **argv)
     int nx = -1;
     int ny = -1;
     int nz = -1;
-    int check_safeexchange = 0; // if 1 complain if atom moves further than 1 subdomain length between exchanges
     int do_safeexchange = 0; // if 1 use safe exchange mode [allows exchange over multiple subdomains]
     int use_sse = 0; // setting for SSE variant of miniMD only
     int screen_yaml = 0; // print yaml output to screen also
@@ -165,11 +164,6 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if ((strcmp(argv[i], "--check_exchange") == 0)) {
-            check_safeexchange = 1;
-            continue;
-        }
-
         if ((strcmp(argv[i], "--sort") == 0)) {
             sort = atoi(argv[++i]);
             continue;
@@ -250,7 +244,6 @@ int main(int argc, char **argv)
             printf("\t-f / --data_file <string>:    read configuration from LAMMPS data file\n");
 
             printf("\n  Miscelaneous:\n");
-            printf("\t--check_exchange:             check whether atoms moved further than subdomain width\n");
             printf("\t--safe_exchange:              perform exchange communication with all MPI processes\n"
                    "\t                                within rcut_neighbor (outer force cutoff)\n");
             printf("\t--sort <n>:                   resort atoms (simple bins) every <n> steps (default: use reneigh "
@@ -312,7 +305,6 @@ int main(int argc, char **argv)
 
     neighbor.timer = &timer;
     force->timer = &timer;
-    comm.check_safeexchange = check_safeexchange;
     comm.do_safeexchange = do_safeexchange;
     force->use_sse = use_sse;
     neighbor.halfneigh = halfneigh;
