@@ -33,32 +33,25 @@
 #define FORCELJ_H
 
 #include "atom.hpp"
+#include "comm.hpp"
+#include "force.hpp"
 #include "neighbor.hpp"
 #include "threadData.hpp"
 #include "types.hpp"
-#include "force.hpp"
-#include "comm.hpp"
 
-class ForceLJ : Force
-{
-  public:
-
+class ForceLJ : Force {
+public:
     ForceLJ(int ntypes_);
     virtual ~ForceLJ();
     void setup();
     void compute(Atom &, Neighbor &, Comm &, int);
 
-  protected:
-    template<int EVFLAG>
-    void compute_original(Atom &, Neighbor &, int);
-    template<int EVFLAG, int GHOST_NEWTON>
-    void compute_halfneigh(Atom &, Neighbor &, int);
-    template<int EVFLAG, int GHOST_NEWTON>
-    void compute_halfneigh_threaded(Atom &, Neighbor &, int);
+protected:
+    template <int EVFLAG> void compute_original(Atom &, Neighbor &, int);
+    template <int EVFLAG, int GHOST_NEWTON> void compute_halfneigh(Atom &, Neighbor &, int);
+    template <int EVFLAG, int GHOST_NEWTON> void compute_halfneigh_threaded(Atom &, Neighbor &, int);
 
-    template<int EVFLAG>
-    void compute_fullneigh(Atom &, Neighbor &, int);
-
+    template <int EVFLAG> void compute_fullneigh(Atom &, Neighbor &, int);
 };
 
 #endif

@@ -32,16 +32,15 @@
 #ifndef FORCE_H_
 #define FORCE_H_
 
-#include "main.hpp"
 #include "atom.hpp"
-#include "neighbor.hpp"
 #include "comm.hpp"
+#include "main.hpp"
+#include "neighbor.hpp"
 
-class Force
-{
-  public:
+class Force {
+public:
     MMD_float cutforce;
-    MMD_float* cutforcesq;
+    MMD_float *cutforcesq;
     MMD_float eng_vdwl;
     MMD_float mass;
     MMD_int evflag;
@@ -56,15 +55,15 @@ class Force
 
     int use_sse;
     int use_oldcompute;
-    ThreadData* threads;
+    ThreadData *threads;
     MMD_int reneigh;
-    Timer* timer;
+    Timer *timer;
 
-    MMD_float *epsilon, *sigma6, *sigma; //Parameters for LJ only
+    MMD_float *epsilon, *sigma6, *sigma; // Parameters for LJ only
 
     ForceStyle style;
-  protected:
 
+protected:
     MMD_int me;
 };
 

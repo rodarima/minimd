@@ -29,91 +29,93 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "stdlib.h"
-#include "mpi.h"
 #include "timer.hpp"
+#include "mpi.h"
+#include "stdlib.h"
 
 Timer::Timer()
 {
-  array = (double*) malloc(TIME_N * sizeof(double));
+    array = (double *) malloc(TIME_N * sizeof(double));
 
-  for(int i = 0; i < TIME_N; i++) array[i] = 0.0;
+    for (int i = 0; i < TIME_N; i++)
+        array[i] = 0.0;
 }
 
 Timer::~Timer()
 {
-  if(array) free(array);
+    if (array)
+        free(array);
 }
 
 void Timer::stamp()
 {
 #ifdef PREC_TIMER
-  clock_gettime(CLOCK_REALTIME, &previous_time);
+    clock_gettime(CLOCK_REALTIME, &previous_time);
 #else
-  previous_time_d = MPI_Wtime();
+    previous_time_d = MPI_Wtime();
 #endif
 }
 
 void Timer::stamp(int which)
 {
 #ifdef PREC_TIMER
-  timespec current_time;
-  clock_gettime(CLOCK_REALTIME, &current_time);
-  array[which] += (current_time.tv_sec - previous_time.tv_sec + 1.0 *
-                   (current_time.tv_nsec - previous_time.tv_nsec) / 1000000000);
-  previous_time = current_time;
+    timespec current_time;
+    clock_gettime(CLOCK_REALTIME, &current_time);
+    array[which] += (current_time.tv_sec - previous_time.tv_sec
+        + 1.0 * (current_time.tv_nsec - previous_time.tv_nsec) / 1000000000);
+    previous_time = current_time;
 #else
-  double current_time = MPI_Wtime();
-  array[which] += current_time - previous_time_d;
-  previous_time_d = current_time;
+    double current_time = MPI_Wtime();
+    array[which] += current_time - previous_time_d;
+    previous_time_d = current_time;
 #endif
 }
 
 void Timer::stamp_extra_start()
 {
 #ifdef PREC_TIMER
-  clock_gettime(CLOCK_REALTIME, &previous_time_extra);
+    clock_gettime(CLOCK_REALTIME, &previous_time_extra);
 #else
-  previous_time_extra_d = MPI_Wtime();
+    previous_time_extra_d = MPI_Wtime();
 #endif
 }
 
 void Timer::stamp_extra_stop(int which)
 {
 #ifdef PREC_TIMER
-  timespec current_time;
-  clock_gettime(CLOCK_REALTIME, &current_time);
-  array[which] += (current_time.tv_sec - previous_time_extra.tv_sec + 1.0 *
-                   (current_time.tv_nsec - previous_time_extra.tv_nsec) / 1000000000);
-  previous_time_extra = current_time;
+    timespec current_time;
+    clock_gettime(CLOCK_REALTIME, &current_time);
+    array[which] += (current_time.tv_sec - previous_time_extra.tv_sec
+        + 1.0 * (current_time.tv_nsec - previous_time_extra.tv_nsec) / 1000000000);
+    previous_time_extra = current_time;
 #else
-  double current_time = MPI_Wtime();
-  array[which] += current_time - previous_time_extra_d;
-  previous_time_extra_d = current_time;
+    double current_time = MPI_Wtime();
+    array[which] += current_time - previous_time_extra_d;
+    previous_time_extra_d = current_time;
 #endif
 }
 
 void Timer::barrier_start(int which)
 {
-  MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
 #ifdef PREC_TIMER
-  timespec current_time;
-  clock_gettime(CLOCK_REALTIME, &current_time);
-  array[which] = current_time.tv_sec + 1.0e-9 * current_time.tv_nsec;
+    timespec current_time;
+    clock_gettime(CLOCK_REALTIME, &current_time);
+    array[which] = current_time.tv_sec + 1.0e-9 * current_time.tv_nsec;
 #else
-  array[which] = MPI_Wtime();
+    array[which] = MPI_Wtime();
 #endif
 }
 
 void Timer::barrier_stop(int which)
 {
-  MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
 #ifdef PREC_TIMER
-  timespec current_time;
-  clock_gettime(CLOCK_REALTIME, &current_time);
-  array[which] = current_time.tv_sec + 1.0e-9 * current_time.tv_nsec - array[which];
+    timespec current_time;
+    clock_gettime(CLOCK_REALTIME, &current_time);
+    array[which] = current_time.tv_sec + 1.0e-9 * current_time.tv_nsec - array[which];
 #else
-  double current_time = MPI_Wtime();
-  array[which] = current_time - array[which];
+    double current_time = MPI_Wtime();
+    array[which] = current_time - array[which];
 #endif
 }

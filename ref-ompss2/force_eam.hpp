@@ -29,23 +29,20 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-
 #ifndef FORCEEAM_H
 #define FORCEEAM_H
 
-#include "stdio.h"
 #include "atom.hpp"
-#include "neighbor.hpp"
-#include "threadData.hpp"
-#include "types.hpp"
-#include "mpi.h"
 #include "comm.hpp"
 #include "force.hpp"
+#include "mpi.h"
+#include "neighbor.hpp"
+#include "stdio.h"
+#include "threadData.hpp"
+#include "types.hpp"
 
-class ForceEAM : Force
-{
-  public:
-
+class ForceEAM : Force {
+public:
     // public variables so USER-ATC package can access them
 
     MMD_float cutmax;
@@ -54,61 +51,59 @@ class ForceEAM : Force
 
     MMD_int nrho, nr;
     MMD_int nrho_tot, nr_tot;
-    MMD_float* frho, *rhor, *z2r;
+    MMD_float *frho, *rhor, *z2r;
 
     // potentials in spline form used for force computation
 
     MMD_float dr, rdr, drho, rdrho;
-    MMD_float* rhor_spline, *frho_spline, *z2r_spline;
+    MMD_float *rhor_spline, *frho_spline, *z2r_spline;
 
     ForceEAM(int ntypes_);
     virtual ~ForceEAM();
     virtual void compute(Atom &atom, Neighbor &neighbor, Comm &comm, int me);
-    virtual void coeff(const char*);
+    virtual void coeff(const char *);
     virtual void setup();
     void init_style();
     MMD_float single(MMD_int, MMD_int, MMD_int, MMD_int, MMD_float, MMD_float, MMD_float, MMD_float &);
 
-    virtual MMD_int pack_comm(int n, int iswap, MMD_float* buf, MMD_int** asendlist);
-    virtual void unpack_comm(int n, int first, MMD_float* buf);
-    MMD_int pack_reverse_comm(MMD_int, MMD_int, MMD_float*);
-    void unpack_reverse_comm(MMD_int, MMD_int*, MMD_float*);
+    virtual MMD_int pack_comm(int n, int iswap, MMD_float *buf, MMD_int **asendlist);
+    virtual void unpack_comm(int n, int first, MMD_float *buf);
+    MMD_int pack_reverse_comm(MMD_int, MMD_int, MMD_float *);
+    void unpack_reverse_comm(MMD_int, MMD_int *, MMD_float *);
     MMD_float memory_usage();
 
-  protected:
+protected:
     void compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int me);
     void compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int me);
 
     // per-atom arrays
 
-    MMD_float* rho, *fp;
+    MMD_float *rho, *fp;
 
     MMD_int nmax;
 
     // potentials as file data
 
-    MMD_int* map;                   // which element each atom type maps to
+    MMD_int *map; // which element each atom type maps to
 
     struct Funcfl {
-      char* file;
-      MMD_int nrho, nr;
-      double drho, dr, cut, mass;
-      MMD_float* frho, *rhor, *zr;
+        char *file;
+        MMD_int nrho, nr;
+        double drho, dr, cut, mass;
+        MMD_float *frho, *rhor, *zr;
     };
     Funcfl funcfl;
 
     void array2spline();
-    void interpolate(MMD_int n, MMD_float delta, MMD_float* f, MMD_float* spline);
-    void grab(FILE*, MMD_int, MMD_float*);
+    void interpolate(MMD_int n, MMD_float delta, MMD_float *f, MMD_float *spline);
+    void grab(FILE *, MMD_int, MMD_float *);
 
-    virtual void read_file(const char*);
+    virtual void read_file(const char *);
     virtual void file2array();
 
-    void bounds(char* str, int nmax, int &nlo, int &nhi);
+    void bounds(char *str, int nmax, int &nlo, int &nhi);
 
     void communicate(Atom &atom, Comm &comm);
 };
-
-
 
 #endif

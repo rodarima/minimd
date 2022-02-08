@@ -30,21 +30,20 @@
 ---------------------------------------------------------------------- */
 
 #include "atom.hpp"
+#include "comm.hpp"
 #include "force.hpp"
 #include "neighbor.hpp"
-#include "comm.hpp"
 #include "thermo.hpp"
-#include "timer.hpp"
 #include "threadData.hpp"
+#include "timer.hpp"
 
-class Integrate
-{
-  public:
+class Integrate {
+public:
     MMD_float dt;
     MMD_float dtforce;
     MMD_int ntimes;
     MMD_int nlocal, nmax;
-    MMD_float* x, *v, *f, *xold;
+    MMD_float *x, *v, *f, *xold;
     MMD_float mass;
 
     MMD_int sort_every;
@@ -54,7 +53,7 @@ class Integrate
     void setup();
     void initialIntegrate();
     void finalIntegrate();
-    void run(Atom &, Force*, Neighbor &, Comm &, Thermo &, Timer &);
+    void run(Atom &, Force *, Neighbor &, Comm &, Thermo &, Timer &);
 
-    ThreadData* threads;
+    ThreadData *threads;
 };

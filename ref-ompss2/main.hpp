@@ -35,19 +35,19 @@
 #include "types.hpp"
 
 struct In {
-  int nx, ny, nz;
-  MMD_float t_request;
-  MMD_float rho;
-  int units;
-  ForceStyle forcetype;
-  MMD_float epsilon, sigma;
-  char* datafile;
-  int ntimes;
-  MMD_float dt;
-  int neigh_every;
-  MMD_float force_cut;
-  MMD_float neigh_cut;
-  int thermo_nstat;
+    int nx, ny, nz;
+    MMD_float t_request;
+    MMD_float rho;
+    int units;
+    ForceStyle forcetype;
+    MMD_float epsilon, sigma;
+    char *datafile;
+    int ntimes;
+    MMD_float dt;
+    int neigh_every;
+    MMD_float force_cut;
+    MMD_float neigh_cut;
+    int thermo_nstat;
 };
 
 #endif
