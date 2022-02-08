@@ -32,7 +32,7 @@
 #ifndef FORCE_H_
 #define FORCE_H_
 
-#include "ljs.hpp"
+#include "main.hpp"
 #include "atom.hpp"
 #include "neighbor.hpp"
 #include "comm.hpp"

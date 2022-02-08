@@ -34,7 +34,7 @@
 #include "mpi.h"
 
 #include "variant.hpp"
-#include "ljs.hpp"
+#include "main.hpp"
 #include "atom.hpp"
 #include "neighbor.hpp"
 #include "integrate.hpp"

@@ -34,7 +34,7 @@
 #include <cstring>
 #include "mpi.h"
 
-#include "ljs.hpp"
+#include "main.hpp"
 #include "atom.hpp"
 #include "force.hpp"
 #include "neighbor.hpp"

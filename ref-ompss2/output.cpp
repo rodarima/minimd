@@ -32,7 +32,7 @@
 #include "stdio.h"
 #include "math.h"
 #include "mpi.h"
-#include "ljs.hpp"
+#include "main.hpp"
 #include "atom.hpp"
 #include "integrate.hpp"
 #include "force.hpp"
