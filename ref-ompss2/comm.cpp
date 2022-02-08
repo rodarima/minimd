@@ -143,12 +143,10 @@ int Comm::setup(double cutneigh, Atom &atom)
 
     /* lo/hi = my local box bounds */
 
-    atom.box.xlo = myloc[0] * prd[0] / procgrid[0];
-    atom.box.xhi = (myloc[0] + 1) * prd[0] / procgrid[0];
-    atom.box.ylo = myloc[1] * prd[1] / procgrid[1];
-    atom.box.yhi = (myloc[1] + 1) * prd[1] / procgrid[1];
-    atom.box.zlo = myloc[2] * prd[2] / procgrid[2];
-    atom.box.zhi = (myloc[2] + 1) * prd[2] / procgrid[2];
+    for (int dim = 0; dim < 3; dim++) {
+        atom.box.xlo[dim] = myloc[dim] * prd[dim] / procgrid[dim];
+        atom.box.xhi[dim] = (myloc[dim] + 1) * prd[dim] / procgrid[dim];
+    }
 
     /* need = # of boxes I need atoms from in each dimension */
 
@@ -226,14 +224,7 @@ int Comm::setup(double cutneigh, Atom &atom)
                 nbox = myloc[idim] + ineed / 2;
                 lo = nbox * prd[idim] / procgrid[idim];
 
-                if (idim == 0)
-                    hi = atom.box.xlo + cutneigh;
-
-                if (idim == 1)
-                    hi = atom.box.ylo + cutneigh;
-
-                if (idim == 2)
-                    hi = atom.box.zlo + cutneigh;
+                hi = atom.box.xlo[idim] + cutneigh;
 
                 hi = MIN(hi, (nbox + 1) * prd[idim] / procgrid[idim]);
 
@@ -255,14 +246,7 @@ int Comm::setup(double cutneigh, Atom &atom)
                 nbox = myloc[idim] - ineed / 2;
                 hi = (nbox + 1) * prd[idim] / procgrid[idim];
 
-                if (idim == 0)
-                    lo = atom.box.xhi - cutneigh;
-
-                if (idim == 1)
-                    lo = atom.box.yhi - cutneigh;
-
-                if (idim == 2)
-                    lo = atom.box.zhi - cutneigh;
+                lo = atom.box.xhi[idim] - cutneigh;
 
                 lo = MAX(lo, nbox * prd[idim] / procgrid[idim]);
 
@@ -392,16 +376,8 @@ void Comm::exchange(Atom &atom)
 
         i = nsend = 0;
 
-        if (idim == 0) {
-            lo = atom.box.xlo;
-            hi = atom.box.xhi;
-        } else if (idim == 1) {
-            lo = atom.box.ylo;
-            hi = atom.box.yhi;
-        } else {
-            lo = atom.box.zlo;
-            hi = atom.box.zhi;
-        }
+        lo = atom.box.xlo[idim];
+        hi = atom.box.xhi[idim];
 
         x = atom.x;
 
@@ -592,16 +568,8 @@ void Comm::exchange_all(Atom &atom)
 
         i = nsend = 0;
 
-        if (idim == 0) {
-            lo = atom.box.xlo;
-            hi = atom.box.xhi;
-        } else if (idim == 1) {
-            lo = atom.box.ylo;
-            hi = atom.box.yhi;
-        } else {
-            lo = atom.box.zlo;
-            hi = atom.box.zhi;
-        }
+        lo = atom.box.xlo[idim];
+        hi = atom.box.xhi[idim];
 
         x = atom.x;
 

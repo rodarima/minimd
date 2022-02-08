@@ -283,10 +283,22 @@ int read_lammps_data(
     }
 
     for (int i = 0; i < atom.natoms; i++) {
-        if (x[i * PAD + 0] >= atom.box.xlo && x[i * PAD + 0] < atom.box.xhi && x[i * PAD + 1] >= atom.box.ylo
-            && x[i * PAD + 1] < atom.box.yhi && x[i * PAD + 2] >= atom.box.zlo && x[i * PAD + 2] < atom.box.zhi)
+        if (
+                   x[i * PAD + 0] >= atom.box.xlo[X]
+                && x[i * PAD + 0] <  atom.box.xhi[X]
+                && x[i * PAD + 1] >= atom.box.xlo[Y]
+                && x[i * PAD + 1] <  atom.box.xhi[Y]
+                && x[i * PAD + 2] >= atom.box.xlo[Z]
+                && x[i * PAD + 2] <  atom.box.xhi[Z])
+        {
             atom.addatom(
-                x[i * PAD + 0], x[i * PAD + 1], x[i * PAD + 2], v[i * PAD + 0], v[i * PAD + 1], v[i * PAD + 2]);
+                x[i * PAD + 0],
+                x[i * PAD + 1],
+                x[i * PAD + 2],
+                v[i * PAD + 0],
+                v[i * PAD + 1],
+                v[i * PAD + 2]);
+        }
     }
 
     int me;
@@ -331,12 +343,12 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho)
        insure loop bounds do not exceed nx,ny,nz */
 
     double alat = pow((4.0 / rho), (1.0 / 3.0));
-    int ilo = static_cast<int>(atom.box.xlo / (0.5 * alat) - 1);
-    int ihi = static_cast<int>(atom.box.xhi / (0.5 * alat) + 1);
-    int jlo = static_cast<int>(atom.box.ylo / (0.5 * alat) - 1);
-    int jhi = static_cast<int>(atom.box.yhi / (0.5 * alat) + 1);
-    int klo = static_cast<int>(atom.box.zlo / (0.5 * alat) - 1);
-    int khi = static_cast<int>(atom.box.zhi / (0.5 * alat) + 1);
+    int ilo = static_cast<int>(atom.box.xlo[X] / (0.5 * alat) - 1);
+    int ihi = static_cast<int>(atom.box.xhi[X] / (0.5 * alat) + 1);
+    int jlo = static_cast<int>(atom.box.xlo[Y] / (0.5 * alat) - 1);
+    int jhi = static_cast<int>(atom.box.xhi[Y] / (0.5 * alat) + 1);
+    int klo = static_cast<int>(atom.box.xlo[Z] / (0.5 * alat) - 1);
+    int khi = static_cast<int>(atom.box.xhi[Z] / (0.5 * alat) + 1);
 
     ilo = MAX(ilo, 0);
     ihi = MIN(ihi, 2 * nx - 1);
@@ -379,8 +391,12 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho)
             ytmp = 0.5 * alat * j;
             ztmp = 0.5 * alat * k;
 
-            if (xtmp >= atom.box.xlo && xtmp < atom.box.xhi && ytmp >= atom.box.ylo && ytmp < atom.box.yhi
-                && ztmp >= atom.box.zlo && ztmp < atom.box.zhi) {
+            if (       xtmp >= atom.box.xlo[X]
+                    && xtmp <  atom.box.xhi[X]
+                    && ytmp >= atom.box.xlo[Y]
+                    && ytmp <  atom.box.xhi[Y]
+                    && ztmp >= atom.box.xlo[Z]
+                    && ztmp <  atom.box.xhi[Z]) {
                 n = k * (2 * ny) * (2 * nx) + j * (2 * nx) + i + 1;
 
                 for (m = 0; m < 5; m++)

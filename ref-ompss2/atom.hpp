@@ -35,12 +35,17 @@
 #include "threadData.hpp"
 #include "types.hpp"
 
+#define NDIM 3
+#define X 0
+#define Y 1
+#define Z 2
+
 class Neighbor;
 struct Box {
     double xprd, yprd, zprd;
-    double xlo, xhi;
-    double ylo, yhi;
-    double zlo, zhi;
+
+    double xlo[NDIM];
+    double xhi[NDIM];
 };
 
 class Atom {

@@ -335,31 +335,31 @@ int Neighbor::setup(Atom &atom)
     bininvy = 1.0 / binsizey;
     bininvz = 1.0 / binsizez;
 
-    coord = atom.box.xlo - cutneigh - SMALL * xprd;
+    coord = atom.box.xlo[X] - cutneigh - SMALL * xprd;
     mbinxlo = static_cast<int>(coord * bininvx);
 
     if (coord < 0.0)
         mbinxlo = mbinxlo - 1;
 
-    coord = atom.box.xhi + cutneigh + SMALL * xprd;
+    coord = atom.box.xhi[X] + cutneigh + SMALL * xprd;
     mbinxhi = static_cast<int>(coord * bininvx);
 
-    coord = atom.box.ylo - cutneigh - SMALL * yprd;
+    coord = atom.box.xlo[Y] - cutneigh - SMALL * yprd;
     mbinylo = static_cast<int>(coord * bininvy);
 
     if (coord < 0.0)
         mbinylo = mbinylo - 1;
 
-    coord = atom.box.yhi + cutneigh + SMALL * yprd;
+    coord = atom.box.xhi[Y] + cutneigh + SMALL * yprd;
     mbinyhi = static_cast<int>(coord * bininvy);
 
-    coord = atom.box.zlo - cutneigh - SMALL * zprd;
+    coord = atom.box.xlo[Z] - cutneigh - SMALL * zprd;
     mbinzlo = static_cast<int>(coord * bininvz);
 
     if (coord < 0.0)
         mbinzlo = mbinzlo - 1;
 
-    coord = atom.box.zhi + cutneigh + SMALL * zprd;
+    coord = atom.box.xhi[Z] + cutneigh + SMALL * zprd;
     mbinzhi = static_cast<int>(coord * bininvz);
 
     /* extend bins by 1 in each direction to insure stencil coverage */
