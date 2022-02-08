@@ -299,18 +299,14 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
     // grow energy and fp arrays if necessary
     // need to be atom->nmax in length
 
-    #pragma omp master
-    {
-        eng_vdwl = 0;
-        virial = 0;
-        if (atom.nmax > nmax) {
-            nmax = atom.nmax;
-            rho = new double[nmax];
-            fp = new double[nmax];
-        }
-    }
+	eng_vdwl = 0;
+	virial = 0;
+	if (atom.nmax > nmax) {
+		nmax = atom.nmax;
+		rho = new double[nmax];
+		fp = new double[nmax];
+	}
 
-    #pragma omp barrier
     const double *const x = atom.x;
     double *const f = atom.f;
     const int *const type = atom.type;
@@ -321,7 +317,6 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
     // rho = density at each atom
     // loop over neighbors of my atoms
 
-    OMPFORSCHEDULE
     for (int i = 0; i < nlocal; i++) {
         int *neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int jnum = neighbor.numneigh[i];
@@ -331,7 +326,6 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         const int type_i = type[i];
         double rhoi = 0;
 
-        #pragma ivdep
         for (int jj = 0; jj < jnum; jj++) {
             const int j = neighs[jj];
 
@@ -375,24 +369,17 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         }
     }
 
-    // #pragma omp barrier
     // fp = derivative of embedding energy at each atom
     // phi = embedding energy at each atom
 
     // communicate derivative of embedding function
 
-    #pragma omp master
-    {
-        communicate(atom, comm);
-    }
-
-    #pragma omp barrier
+    communicate(atom, comm);
 
     double t_virial = 0;
     // compute forces on each atom
     // loop over neighbors of my atoms
 
-    OMPFORSCHEDULE
     for (int i = 0; i < nlocal; i++) {
         int *neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneigh = neighbor.numneigh[i];
@@ -405,7 +392,6 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         double fy = 0.0;
         double fz = 0.0;
 
-        #pragma ivdep
         for (int jj = 0; jj < numneigh; jj++) {
             const int j = neighs[jj];
 
@@ -472,12 +458,8 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         f[i * PAD + 2] = fz;
     }
 
-    #pragma omp atomic
     virial += t_virial;
-    #pragma omp atomic
     eng_vdwl += 2.0 * evdwl;
-
-    #pragma omp barrier
 }
 
 /* ----------------------------------------------------------------------

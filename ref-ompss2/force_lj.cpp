@@ -177,7 +177,6 @@ template <int EVFLAG> void ForceLJ::compute_original(Atom &atom, Neighbor &neigh
 //   -use temporary variable for summing up fi
 //   -enables vectorization by:
 //      -getting rid of 2d pointers
-//      -use pragma simd to force vectorization of inner loop
 template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &atom, Neighbor &neighbor, int me)
 {
     const int nlocal = atom.nlocal;
@@ -210,9 +209,6 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &at
         double fiy = 0.0;
         double fiz = 0.0;
 
-#ifdef USE_SIMD
-        #pragma simd reduction (+: fix,fiy,fiz)
-#endif
         for (int k = 0; k < numneighs; k++) {
             const int j = neighs[k];
             const double delx = xtmp - x[j * PAD + 0];
@@ -259,7 +255,6 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &at
 //   -use temporary variable for summing up fi
 //   -enables vectorization by:
 //     -getting rid of 2d pointers
-//     -use pragma simd to force vectorization of inner loop (not currently supported due to OpenMP atomics
 template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded(Atom &atom, Neighbor &neighbor, int me)
 {
     double t_eng_vdwl = 0;
@@ -271,10 +266,8 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
     double *const f = atom.f;
     const int *const type = atom.type;
 
-    #pragma omp barrier
     // clear force on own and ghost atoms
 
-    OMPFORSCHEDULE
     for (int i = 0; i < nall; i++) {
         f[i * PAD + 0] = 0.0;
         f[i * PAD + 1] = 0.0;
@@ -284,7 +277,6 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
     // loop over all neighbors of my atoms
     // store force on both atoms i and j
 
-    OMPFORSCHEDULE
     for (int i = 0; i < nlocal; i++) {
         const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneighs = neighbor.numneigh[i];
@@ -315,11 +307,8 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
                 fiz += delz * force;
 
                 if (GHOST_NEWTON || j < nlocal) {
-                    #pragma omp atomic
                     f[j * PAD + 0] -= delx * force;
-                    #pragma omp atomic
                     f[j * PAD + 1] -= dely * force;
-                    #pragma omp atomic
                     f[j * PAD + 2] -= delz * force;
                 }
 
@@ -331,20 +320,13 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
             }
         }
 
-        #pragma omp atomic
         f[i * PAD + 0] += fix;
-        #pragma omp atomic
         f[i * PAD + 1] += fiy;
-        #pragma omp atomic
         f[i * PAD + 2] += fiz;
     }
 
-    #pragma omp atomic
     eng_vdwl += t_eng_vdwl;
-    #pragma omp atomic
     virial += t_virial;
-
-    #pragma omp barrier
 }
 
 // optimised version of compute
@@ -353,7 +335,6 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
 //   -use temporary variable for summing up fi
 //   -enables vectorization by:
 //     -get rid of 2d pointers
-//     -use pragma simd to force vectorization of inner loop
 template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neighbor, int me)
 {
     double t_eng_vdwl = 0;
@@ -365,10 +346,8 @@ template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neig
     double *const f = atom.f;
     const int *const type = atom.type;
 
-    #pragma omp barrier
     // clear force on own and ghost atoms
 
-    OMPFORSCHEDULE
     for (int i = 0; i < nlocal; i++) {
         f[i * PAD + 0] = 0.0;
         f[i * PAD + 1] = 0.0;
@@ -378,7 +357,6 @@ template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neig
     // loop over all neighbors of my atoms
     // store force on atom i
 
-    OMPFORSCHEDULE
     for (int i = 0; i < nlocal; i++) {
         const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneighs = neighbor.numneigh[i];
@@ -390,13 +368,6 @@ template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neig
         double fiy = 0;
         double fiz = 0;
 
-        // pragma simd forces vectorization (ignoring the performance objections of the compiler)
-        // also give hint to use certain vectorlength for MIC, Sandy Bridge and WESTMERE this should be be 8 here
-        // give hint to compiler that fix, fiy and fiz are used for reduction only
-
-#ifdef USE_SIMD
-        #pragma simd reduction (+: fix,fiy,fiz,t_eng_vdwl,t_virial)
-#endif
         for (int k = 0; k < numneighs; k++) {
             const int j = neighs[k];
             const double delx = xtmp - x[j * PAD + 0];
@@ -429,9 +400,6 @@ template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neig
     t_eng_vdwl *= 4.0;
     t_virial *= 0.5;
 
-    #pragma omp atomic
     eng_vdwl += t_eng_vdwl;
-    #pragma omp atomic
     virial += t_virial;
-    #pragma omp barrier
 }

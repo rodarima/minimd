@@ -105,7 +105,6 @@ void Atom::addatom(double x_in, double y_in, double z_in, double vx_in, double v
 
 void Atom::pbc()
 {
-    #pragma omp for
     for (int i = 0; i < nlocal; i++) {
         if (x[i * PAD + 0] < 0.0)
             x[i * PAD + 0] += box.xprd;
@@ -143,8 +142,6 @@ void Atom::pack_comm(int n, int *list, double *buf, int *pbc_flags)
     int i, j;
 
     if (pbc_flags[0] == 0) {
-
-        #pragma omp for schedule(static)
         for (i = 0; i < n; i++) {
             j = list[i];
             buf[3 * i] = x[j * PAD + 0];
@@ -152,8 +149,6 @@ void Atom::pack_comm(int n, int *list, double *buf, int *pbc_flags)
             buf[3 * i + 2] = x[j * PAD + 2];
         }
     } else {
-
-        #pragma omp for schedule(static)
         for (i = 0; i < n; i++) {
             j = list[i];
             buf[3 * i] = x[j * PAD + 0] + pbc_flags[1] * box.xprd;
@@ -167,7 +162,6 @@ void Atom::unpack_comm(int n, int first, double *buf)
 {
     int i;
 
-    #pragma omp for schedule(static)
     for (i = 0; i < n; i++) {
         x[(first + i) * PAD + 0] = buf[3 * i];
         x[(first + i) * PAD + 1] = buf[3 * i + 1];
@@ -179,7 +173,6 @@ void Atom::pack_reverse(int n, int first, double *buf)
 {
     int i;
 
-    #pragma omp for schedule(static)
     for (i = 0; i < n; i++) {
         buf[3 * i] = f[(first + i) * PAD + 0];
         buf[3 * i + 1] = f[(first + i) * PAD + 1];
@@ -191,7 +184,6 @@ void Atom::unpack_reverse(int n, int *list, double *buf)
 {
     int i, j;
 
-    #pragma omp for schedule(static)
     for (i = 0; i < n; i++) {
         j = list[i];
         f[j * PAD + 0] += buf[3 * i];
@@ -361,9 +353,7 @@ void Atom::destroy_1d_int_array(int *array)
 
 void Atom::sort(Neighbor &neighbor)
 {
-
     neighbor.binatoms(*this, nlocal);
-    #pragma omp barrier
 
     binpos = neighbor.bincount;
     bins = neighbor.bins;
@@ -371,22 +361,18 @@ void Atom::sort(Neighbor &neighbor)
     const int mbins = neighbor.mbins;
     const int atoms_per_bin = neighbor.atoms_per_bin;
 
-    #pragma omp master
-    {
-        for (int i = 1; i < mbins; i++)
-            binpos[i] += binpos[i - 1];
-        if (copy_size < nmax) {
-            destroy_2d_double_array(x_copy);
-            destroy_2d_double_array(v_copy);
-            destroy_1d_int_array(type_copy);
-            x_copy = (double *) create_2d_double_array(nmax, PAD);
-            v_copy = (double *) create_2d_double_array(nmax, PAD);
-            type_copy = create_1d_int_array(nmax);
-            copy_size = nmax;
-        }
-    }
+	for (int i = 1; i < mbins; i++)
+		binpos[i] += binpos[i - 1];
+	if (copy_size < nmax) {
+		destroy_2d_double_array(x_copy);
+		destroy_2d_double_array(v_copy);
+		destroy_1d_int_array(type_copy);
+		x_copy = (double *) create_2d_double_array(nmax, PAD);
+		v_copy = (double *) create_2d_double_array(nmax, PAD);
+		type_copy = create_1d_int_array(nmax);
+		copy_size = nmax;
+	}
 
-    #pragma omp barrier
     double *new_x = x_copy;
     double *new_v = v_copy;
     int *new_type = type_copy;
@@ -394,7 +380,6 @@ void Atom::sort(Neighbor &neighbor)
     double *old_v = v;
     int *old_type = type;
 
-    #pragma omp for
     for (int mybin = 0; mybin < mbins; mybin++) {
         const int start = mybin > 0 ? binpos[mybin - 1] : 0;
         const int count = binpos[mybin] - start;
@@ -411,18 +396,14 @@ void Atom::sort(Neighbor &neighbor)
         }
     }
 
-    #pragma omp master
-    {
-        double *x_tmp = x;
-        double *v_tmp = v;
-        int *type_tmp = type;
+	double *x_tmp = x;
+	double *v_tmp = v;
+	int *type_tmp = type;
 
-        x = x_copy;
-        v = v_copy;
-        type = type_copy;
-        x_copy = x_tmp;
-        v_copy = v_tmp;
-        type_copy = type_tmp;
-    }
-    #pragma omp barrier
+	x = x_copy;
+	v = v_copy;
+	type = type_copy;
+	x_copy = x_tmp;
+	v_copy = v_tmp;
+	type_copy = type_tmp;
 }
