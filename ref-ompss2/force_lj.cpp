@@ -31,8 +31,8 @@
 
 #include "stdio.h"
 #include "math.h"
-#include "force_lj.h"
-#include "openmp.h"
+#include "force_lj.hpp"
+#include "openmp.hpp"
 
 #ifndef VECTORLENGTH
 #define VECTORLENGTH 4

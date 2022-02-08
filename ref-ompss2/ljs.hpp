@@ -32,7 +32,7 @@
 #ifndef LJS_H_
 #define LJS_H_
 
-#include "types.h"
+#include "types.hpp"
 
 struct In {
   int nx, ny, nz;

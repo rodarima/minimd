@@ -33,13 +33,13 @@
 #define THERMO_H
 
 enum units {LJ, METAL};
-#include "atom.h"
-#include "neighbor.h"
-#include "force.h"
-#include "timer.h"
-#include "comm.h"
-#include "threadData.h"
-#include "types.h"
+#include "atom.hpp"
+#include "neighbor.hpp"
+#include "force.hpp"
+#include "timer.hpp"
+#include "comm.hpp"
+#include "threadData.hpp"
+#include "types.hpp"
 
 class Integrate;
 

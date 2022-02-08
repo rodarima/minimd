@@ -33,10 +33,10 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
-#include "force_eam.h"
-#include "atom.h"
-#include "comm.h"
-#include "neighbor.h"
+#include "force_eam.hpp"
+#include "atom.hpp"
+#include "comm.hpp"
+#include "neighbor.hpp"
 #include "memory.h"
 
 #define MAXLINE 1024

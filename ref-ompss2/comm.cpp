@@ -32,8 +32,8 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "mpi.h"
-#include "comm.h"
-#include "openmp.h"
+#include "comm.hpp"
+#include "openmp.hpp"
 
 #define BUFFACTOR 1.5
 #define BUFMIN 1000

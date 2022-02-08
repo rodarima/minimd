@@ -32,16 +32,16 @@
 #include "stdio.h"
 #include "math.h"
 #include "mpi.h"
-#include "ljs.h"
-#include "atom.h"
-#include "integrate.h"
-#include "force.h"
-#include "neighbor.h"
-#include "comm.h"
-#include "thermo.h"
-#include "timer.h"
+#include "ljs.hpp"
+#include "atom.hpp"
+#include "integrate.hpp"
+#include "force.hpp"
+#include "neighbor.hpp"
+#include "comm.hpp"
+#include "thermo.hpp"
+#include "timer.hpp"
 #include <time.h>
-#include "variant.h"
+#include "variant.hpp"
 
 void stats(int, double*, double*, double*, double*, int, int*);
 

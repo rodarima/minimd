@@ -32,9 +32,9 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "mpi.h"
-#include "force_lj.h"
-#include "integrate.h"
-#include "thermo.h"
+#include "force_lj.hpp"
+#include "integrate.hpp"
+#include "thermo.hpp"
 
 Thermo::Thermo() {}
 Thermo::~Thermo() {}

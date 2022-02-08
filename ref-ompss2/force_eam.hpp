@@ -34,13 +34,13 @@
 #define FORCEEAM_H
 
 #include "stdio.h"
-#include "atom.h"
-#include "neighbor.h"
-#include "threadData.h"
-#include "types.h"
+#include "atom.hpp"
+#include "neighbor.hpp"
+#include "threadData.hpp"
+#include "types.hpp"
 #include "mpi.h"
-#include "comm.h"
-#include "force.h"
+#include "comm.hpp"
+#include "force.hpp"
 
 class ForceEAM : Force
 {

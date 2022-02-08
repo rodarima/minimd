@@ -34,13 +34,13 @@
 #include <cstring>
 #include "mpi.h"
 
-#include "ljs.h"
-#include "atom.h"
-#include "force.h"
-#include "neighbor.h"
-#include "integrate.h"
-#include "thermo.h"
-#include "types.h"
+#include "ljs.hpp"
+#include "atom.hpp"
+#include "force.hpp"
+#include "neighbor.hpp"
+#include "integrate.hpp"
+#include "thermo.hpp"
+#include "types.hpp"
 
 
 #define MAXLINE 256

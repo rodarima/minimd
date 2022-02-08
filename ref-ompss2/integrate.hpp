@@ -29,13 +29,13 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "atom.h"
-#include "force.h"
-#include "neighbor.h"
-#include "comm.h"
-#include "thermo.h"
-#include "timer.h"
-#include "threadData.h"
+#include "atom.hpp"
+#include "force.hpp"
+#include "neighbor.hpp"
+#include "comm.hpp"
+#include "thermo.hpp"
+#include "timer.hpp"
+#include "threadData.hpp"
 
 class Integrate
 {

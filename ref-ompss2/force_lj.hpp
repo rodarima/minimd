@@ -32,12 +32,12 @@
 #ifndef FORCELJ_H
 #define FORCELJ_H
 
-#include "atom.h"
-#include "neighbor.h"
-#include "threadData.h"
-#include "types.h"
-#include "force.h"
-#include "comm.h"
+#include "atom.hpp"
+#include "neighbor.hpp"
+#include "threadData.hpp"
+#include "types.hpp"
+#include "force.hpp"
+#include "comm.hpp"
 
 class ForceLJ : Force
 {

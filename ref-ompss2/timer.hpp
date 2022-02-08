@@ -39,7 +39,7 @@
 #define TIME_TEST 4
 #define TIME_N     5
 
-#include "threadData.h"
+#include "threadData.hpp"
 #include <ctime>
 
 class Timer

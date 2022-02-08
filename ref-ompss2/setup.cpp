@@ -32,11 +32,11 @@
 #include <cstdio>
 #include <cmath>
 #include "mpi.h"
-#include "atom.h"
-#include "thermo.h"
-#include "types.h"
-#include "integrate.h"
-#include "neighbor.h"
+#include "atom.hpp"
+#include "thermo.hpp"
+#include "types.hpp"
+#include "integrate.hpp"
+#include "neighbor.hpp"
 
 #include <cstring>
 #include <cstdio>

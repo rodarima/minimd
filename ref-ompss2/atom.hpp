@@ -32,8 +32,8 @@
 #ifndef ATOM_H
 #define ATOM_H
 
-#include "threadData.h"
-#include "types.h"
+#include "threadData.hpp"
+#include "types.hpp"
 
 
 class Neighbor;

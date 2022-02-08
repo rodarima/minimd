@@ -33,8 +33,8 @@
 #include "string.h"
 #include "stdlib.h"
 #include "mpi.h"
-#include "atom.h"
-#include "neighbor.h"
+#include "atom.hpp"
+#include "neighbor.hpp"
 
 #define DELTA 20000
 

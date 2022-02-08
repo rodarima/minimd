@@ -32,8 +32,8 @@
 #include "stdio.h"
 #include "stdlib.h"
 
-#include "neighbor.h"
-#include "openmp.h"
+#include "neighbor.hpp"
+#include "openmp.hpp"
 
 #define FACTOR 0.999
 #define SMALL 1.0e-6

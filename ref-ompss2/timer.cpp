@@ -31,7 +31,7 @@
 
 #include "stdlib.h"
 #include "mpi.h"
-#include "timer.h"
+#include "timer.hpp"
 
 Timer::Timer()
 {

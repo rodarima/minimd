@@ -32,9 +32,9 @@
 #ifndef COMM_H
 #define COMM_H
 
-#include "atom.h"
-#include "threadData.h"
-#include "timer.h"
+#include "atom.hpp"
+#include "threadData.hpp"
+#include "timer.hpp"
 
 class Comm
 {

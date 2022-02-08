@@ -32,10 +32,10 @@
 #ifndef FORCE_H_
 #define FORCE_H_
 
-#include "ljs.h"
-#include "atom.h"
-#include "neighbor.h"
-#include "comm.h"
+#include "ljs.hpp"
+#include "atom.hpp"
+#include "neighbor.hpp"
+#include "comm.hpp"
 
 class Force
 {
