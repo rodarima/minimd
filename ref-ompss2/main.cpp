@@ -496,6 +496,7 @@ int main(int argc, char **argv)
 
     delete force;
     MPI_Barrier(MPI_COMM_WORLD);
+    fflush(stdout);
     MPI_Finalize();
     return 0;
 }
