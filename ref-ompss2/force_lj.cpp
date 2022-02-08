@@ -30,8 +30,8 @@
 ---------------------------------------------------------------------- */
 
 #include "force_lj.hpp"
-#include <math.h>
 #include "openmp.hpp"
+#include <math.h>
 #include <stdio.h>
 
 #ifndef VECTORLENGTH

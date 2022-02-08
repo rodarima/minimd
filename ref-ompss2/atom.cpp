@@ -30,8 +30,8 @@
 ---------------------------------------------------------------------- */
 
 #include "atom.hpp"
-#include <mpi.h>
 #include "neighbor.hpp"
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

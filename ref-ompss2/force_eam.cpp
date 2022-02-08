@@ -32,9 +32,9 @@
 #include "force_eam.hpp"
 #include "atom.hpp"
 #include "comm.hpp"
+#include "neighbor.hpp"
 #include <math.h>
 #include <memory.h>
-#include "neighbor.hpp"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

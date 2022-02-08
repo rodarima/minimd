@@ -30,8 +30,8 @@
 ---------------------------------------------------------------------- */
 
 #include "comm.hpp"
-#include <mpi.h>
 #include "openmp.hpp"
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 

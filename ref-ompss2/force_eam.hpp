@@ -35,11 +35,11 @@
 #include "atom.hpp"
 #include "comm.hpp"
 #include "force.hpp"
-#include <mpi.h>
 #include "neighbor.hpp"
-#include <stdio.h>
 #include "threadData.hpp"
 #include "types.hpp"
+#include <mpi.h>
+#include <stdio.h>
 
 class ForceEAM : Force {
 public:

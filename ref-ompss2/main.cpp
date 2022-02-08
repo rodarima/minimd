@@ -42,11 +42,11 @@
 #include "main.hpp"
 #include "neighbor.hpp"
 #include "openmp.hpp"
-#include <string.h>
 #include "thermo.hpp"
 #include "threadData.hpp"
 #include "timer.hpp"
 #include "variant.hpp"
+#include <string.h>
 
 #define MAXLINE 256
 
