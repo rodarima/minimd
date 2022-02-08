@@ -29,8 +29,8 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "stdio.h"
-#include "stdlib.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "neighbor.hpp"
 #include "openmp.hpp"

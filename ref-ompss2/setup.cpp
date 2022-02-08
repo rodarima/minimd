@@ -31,7 +31,7 @@
 
 #include "atom.hpp"
 #include "integrate.hpp"
-#include "mpi.h"
+#include <mpi.h>
 #include "neighbor.hpp"
 #include "thermo.hpp"
 #include "types.hpp"

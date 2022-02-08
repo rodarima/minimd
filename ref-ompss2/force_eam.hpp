@@ -35,9 +35,9 @@
 #include "atom.hpp"
 #include "comm.hpp"
 #include "force.hpp"
-#include "mpi.h"
+#include <mpi.h>
 #include "neighbor.hpp"
-#include "stdio.h"
+#include <stdio.h>
 #include "threadData.hpp"
 #include "types.hpp"
 

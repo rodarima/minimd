@@ -30,11 +30,11 @@
 ---------------------------------------------------------------------- */
 
 #include "atom.hpp"
-#include "mpi.h"
+#include <mpi.h>
 #include "neighbor.hpp"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define DELTA 20000
 

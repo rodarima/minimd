@@ -32,12 +32,12 @@
 #include "force_eam.hpp"
 #include "atom.hpp"
 #include "comm.hpp"
-#include "math.h"
-#include "memory.h"
+#include <math.h>
+#include <memory.h>
 #include "neighbor.hpp"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define MAXLINE 1024
 

@@ -29,9 +29,9 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "mpi.h"
-#include "stdio.h"
-#include "stdlib.h"
+#include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "atom.hpp"
 #include "comm.hpp"
@@ -42,7 +42,7 @@
 #include "main.hpp"
 #include "neighbor.hpp"
 #include "openmp.hpp"
-#include "string.h"
+#include <string.h>
 #include "thermo.hpp"
 #include "threadData.hpp"
 #include "timer.hpp"

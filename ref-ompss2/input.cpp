@@ -29,7 +29,7 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "mpi.h"
+#include <mpi.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

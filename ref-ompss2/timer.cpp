@@ -30,8 +30,8 @@
 ---------------------------------------------------------------------- */
 
 #include "timer.hpp"
-#include "mpi.h"
-#include "stdlib.h"
+#include <mpi.h>
+#include <stdlib.h>
 
 Timer::Timer()
 {

@@ -33,11 +33,11 @@
 #include "force.hpp"
 #include "integrate.hpp"
 #include "main.hpp"
-#include "math.h"
-#include "mpi.h"
+#include <math.h>
+#include <mpi.h>
 #include "neighbor.hpp"
-#include "stdio.h"
-#include "stdlib.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include "thermo.hpp"
 #include "timer.hpp"
 #include "variant.hpp"

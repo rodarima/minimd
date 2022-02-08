@@ -30,10 +30,10 @@
 ---------------------------------------------------------------------- */
 
 #include "comm.hpp"
-#include "mpi.h"
+#include <mpi.h>
 #include "openmp.hpp"
-#include "stdio.h"
-#include "stdlib.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #define BUFFACTOR 1.5
 #define BUFMIN 1000

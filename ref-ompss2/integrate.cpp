@@ -31,9 +31,9 @@
 //#define PRINTDEBUG(a) a
 #define PRINTDEBUG(a)
 #include "integrate.hpp"
-#include "math.h"
+#include <math.h>
 #include "openmp.hpp"
-#include "stdio.h"
+#include <stdio.h>
 
 Integrate::Integrate() { sort_every = 20; }
 Integrate::~Integrate() { }
