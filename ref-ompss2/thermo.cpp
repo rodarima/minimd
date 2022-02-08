@@ -86,33 +86,33 @@ void Thermo::compute(int iflag, Atom &atom, Neighbor &neighbor, Force *force, Ti
     e_act = 0;
     p_act = 0;
     t = temperature(atom);
-	eng = energy(atom, neighbor, force);
+    eng = energy(atom, neighbor, force);
 
-	p = pressure(t, force);
+    p = pressure(t, force);
 
-	int istep = iflag;
+    int istep = iflag;
 
-	if (iflag == -1)
-		istep = ntimes;
+    if (iflag == -1)
+        istep = ntimes;
 
-	if (iflag == 0)
-		mstat = 0;
+    if (iflag == 0)
+        mstat = 0;
 
-	steparr[mstat] = istep;
-	tmparr[mstat] = t;
-	engarr[mstat] = eng;
-	prsarr[mstat] = p;
+    steparr[mstat] = istep;
+    tmparr[mstat] = t;
+    engarr[mstat] = eng;
+    prsarr[mstat] = p;
 
-	mstat++;
+    mstat++;
 
-	double oldtime = timer.array[TIME_TOTAL];
-	timer.barrier_stop(TIME_TOTAL);
+    double oldtime = timer.array[TIME_TOTAL];
+    timer.barrier_stop(TIME_TOTAL);
 
-	if (threads->mpi_me == 0) {
-		fprintf(stdout, "%i %e %e %e %6.3lf\n", istep, t, eng, p, istep == 0 ? 0.0 : timer.array[TIME_TOTAL]);
-	}
+    if (threads->mpi_me == 0) {
+        fprintf(stdout, "%i %e %e %e %6.3lf\n", istep, t, eng, p, istep == 0 ? 0.0 : timer.array[TIME_TOTAL]);
+    }
 
-	timer.array[TIME_TOTAL] = oldtime;
+    timer.array[TIME_TOTAL] = oldtime;
 }
 
 /* reduced potential energy */
@@ -158,10 +158,10 @@ double Thermo::temperature(Atom &atom)
     t_act += t;
 
     double t1;
-	if (sizeof(double) == 4)
-		MPI_Allreduce(&t_act, &t1, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-	else
-		MPI_Allreduce(&t_act, &t1, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    if (sizeof(double) == 4)
+        MPI_Allreduce(&t_act, &t1, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    else
+        MPI_Allreduce(&t_act, &t1, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     return t1 * t_scale;
 }
 

@@ -299,13 +299,13 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
     // grow energy and fp arrays if necessary
     // need to be atom->nmax in length
 
-	eng_vdwl = 0;
-	virial = 0;
-	if (atom.nmax > nmax) {
-		nmax = atom.nmax;
-		rho = new double[nmax];
-		fp = new double[nmax];
-	}
+    eng_vdwl = 0;
+    virial = 0;
+    if (atom.nmax > nmax) {
+        nmax = atom.nmax;
+        rho = new double[nmax];
+        fp = new double[nmax];
+    }
 
     const double *const x = atom.x;
     double *const f = atom.f;

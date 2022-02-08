@@ -460,8 +460,8 @@ int main(int argc, char **argv)
     comm.borders(atom);
 
     force->evflag = 1;
-	neighbor.build(atom);
-	force->compute(atom, neighbor, comm, me);
+    neighbor.build(atom);
+    force->compute(atom, neighbor, comm, me);
 
     if (neighbor.halfneigh && neighbor.ghost_newton)
         comm.reverse_communicate(atom);
@@ -472,7 +472,7 @@ int main(int argc, char **argv)
     if (me == 0)
         printf("# Timestep T U P Time\n");
 
-	thermo.compute(0, atom, neighbor, force, timer, comm);
+    thermo.compute(0, atom, neighbor, force, timer, comm);
 
     timer.barrier_start(TIME_TOTAL);
     integrate.run(atom, force, neighbor, comm, thermo, timer);

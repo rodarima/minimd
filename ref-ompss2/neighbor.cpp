@@ -203,15 +203,14 @@ void Neighbor::build(Atom &atom)
             }
         }
 
-
         if (resize) {
-			maxneighs = new_maxneighs * 1.2;
+            maxneighs = new_maxneighs * 1.2;
 #ifdef ALIGNMALLOC
-			_mm_free(neighbors);
-			neighbors = (int *) _mm_malloc(nmax * maxneighs * sizeof(int) + ALIGNMALLOC, ALIGNMALLOC);
+            _mm_free(neighbors);
+            neighbors = (int *) _mm_malloc(nmax * maxneighs * sizeof(int) + ALIGNMALLOC, ALIGNMALLOC);
 #else
-			free(neighbors);
-			neighbors = (int *) malloc(nmax * maxneighs * sizeof(int));
+            free(neighbors);
+            neighbors = (int *) malloc(nmax * maxneighs * sizeof(int));
 #endif
         }
     }

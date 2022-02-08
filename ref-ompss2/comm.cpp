@@ -309,9 +309,9 @@ void Comm::communicate(Atom &atom)
            if self, set recv buffer to send buffer */
 
         if (sendproc[iswap] != me) {
-			MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
-			MPI_Sendrecv(buf_send, comm_send_size[iswap], type, sendproc[iswap], 0, buf_recv, comm_recv_size[iswap],
-				type, recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+            MPI_Sendrecv(buf_send, comm_send_size[iswap], type, sendproc[iswap], 0, buf_recv, comm_recv_size[iswap],
+                type, recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             buf = buf_recv;
         } else
             buf = buf_send;
@@ -340,9 +340,9 @@ void Comm::reverse_communicate(Atom &atom)
 
         if (sendproc[iswap] != me) {
 
-			MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
-			MPI_Sendrecv(buf_send, reverse_send_size[iswap], type, recvproc[iswap], 0, buf_recv,
-				reverse_recv_size[iswap], type, sendproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+            MPI_Sendrecv(buf_send, reverse_send_size[iswap], type, recvproc[iswap], 0, buf_recv,
+                reverse_recv_size[iswap], type, sendproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             buf = buf_recv;
         } else
             buf = buf_send;
@@ -403,24 +403,24 @@ void Comm::exchange(Atom &atom)
 
         nlocal = atom.nlocal;
 
-		if (nlocal > maxnlocal) {
-			send_flag = new int[nlocal];
-			maxnlocal = nlocal;
-		}
+        if (nlocal > maxnlocal) {
+            send_flag = new int[nlocal];
+            maxnlocal = nlocal;
+        }
 
-		if (maxthreads < threads->omp_num_threads) {
-			maxthreads = threads->omp_num_threads;
-			nsend_thread = new int[maxthreads];
-			nrecv_thread = new int[maxthreads];
-			nholes_thread = new int[maxthreads];
-			maxsend_thread = new int[maxthreads];
-			exc_sendlist_thread = new int *[maxthreads];
+        if (maxthreads < threads->omp_num_threads) {
+            maxthreads = threads->omp_num_threads;
+            nsend_thread = new int[maxthreads];
+            nrecv_thread = new int[maxthreads];
+            nholes_thread = new int[maxthreads];
+            maxsend_thread = new int[maxthreads];
+            exc_sendlist_thread = new int *[maxthreads];
 
-			for (int i = 0; i < maxthreads; i++) {
-				maxsend_thread[i] = maxsend;
-				exc_sendlist_thread[i] = (int *) malloc(maxsend * sizeof(int));
-			}
-		}
+            for (int i = 0; i < maxthreads; i++) {
+                maxsend_thread[i] = maxsend;
+                exc_sendlist_thread[i] = (int *) malloc(maxsend * sizeof(int));
+            }
+        }
 
         nsend = 0;
 
@@ -444,15 +444,15 @@ void Comm::exchange(Atom &atom)
 
         nsend_thread[tid] = nsend;
 
-		int total_nsend = 0;
+        int total_nsend = 0;
 
-		for (int i = 0; i < threads->omp_num_threads; i++) {
-			total_nsend += nsend_thread[i];
-			nsend_thread[i] = total_nsend;
-		}
+        for (int i = 0; i < threads->omp_num_threads; i++) {
+            total_nsend += nsend_thread[i];
+            nsend_thread[i] = total_nsend;
+        }
 
-		if (total_nsend * 7 > maxsend)
-			growsend(total_nsend * 7);
+        if (total_nsend * 7 > maxsend)
+            growsend(total_nsend * 7);
 
         int total_nsend = nsend_thread[threads->omp_num_threads - 1];
         int nholes = 0;
@@ -463,12 +463,12 @@ void Comm::exchange(Atom &atom)
 
         nholes_thread[tid] = nholes;
 
-		int total_nholes = 0;
+        int total_nholes = 0;
 
-		for (int i = 0; i < threads->omp_num_threads; i++) {
-			total_nholes += nholes_thread[i];
-			nholes_thread[i] = total_nholes;
-		}
+        for (int i = 0; i < threads->omp_num_threads; i++) {
+            total_nholes += nholes_thread[i];
+            nholes_thread[i] = total_nholes;
+        }
 
         int j = nlocal;
         int holes = 0;
@@ -493,38 +493,38 @@ void Comm::exchange(Atom &atom)
 
         nsend *= 7;
 
-		atom.nlocal = nlocal - total_nsend;
-		nsend = total_nsend * 7;
+        atom.nlocal = nlocal - total_nsend;
+        nsend = total_nsend * 7;
 
-		/* send/recv atoms in both directions
-		   only if neighboring procs are different */
+        /* send/recv atoms in both directions
+           only if neighboring procs are different */
 
-		MPI_Sendrecv(&nsend, 1, MPI_INT, procneigh[idim][0], 0, &nrecv1, 1, MPI_INT, procneigh[idim][1], 0,
-			MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		nrecv = nrecv1;
+        MPI_Sendrecv(&nsend, 1, MPI_INT, procneigh[idim][0], 0, &nrecv1, 1, MPI_INT, procneigh[idim][1], 0,
+            MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        nrecv = nrecv1;
 
-		if (procgrid[idim] > 2) {
-			MPI_Sendrecv(&nsend, 1, MPI_INT, procneigh[idim][1], 0, &nrecv2, 1, MPI_INT, procneigh[idim][0], 0,
-				MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			nrecv += nrecv2;
-		}
+        if (procgrid[idim] > 2) {
+            MPI_Sendrecv(&nsend, 1, MPI_INT, procneigh[idim][1], 0, &nrecv2, 1, MPI_INT, procneigh[idim][0], 0,
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            nrecv += nrecv2;
+        }
 
-		if (nrecv > maxrecv)
-			growrecv(nrecv);
+        if (nrecv > maxrecv)
+            growrecv(nrecv);
 
-		MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
-		MPI_Sendrecv(buf_send, nsend, type, procneigh[idim][0], 0, buf_recv, nrecv1, type, procneigh[idim][1], 0,
-			MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+        MPI_Sendrecv(buf_send, nsend, type, procneigh[idim][0], 0, buf_recv, nrecv1, type, procneigh[idim][1], 0,
+            MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-		if (procgrid[idim] > 2) {
-			MPI_Sendrecv(buf_send, nsend, type, procneigh[idim][1], 0, buf_recv + nrecv1, nrecv2, type,
-				procneigh[idim][0], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		}
+        if (procgrid[idim] > 2) {
+            MPI_Sendrecv(buf_send, nsend, type, procneigh[idim][1], 0, buf_recv + nrecv1, nrecv2, type,
+                procneigh[idim][0], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
 
-		nrecv_atoms = nrecv / 7;
+        nrecv_atoms = nrecv / 7;
 
-		for (int i = 0; i < threads->omp_num_threads; i++)
-			nrecv_thread[i] = 0;
+        for (int i = 0; i < threads->omp_num_threads; i++)
+            nrecv_thread[i] = 0;
 
         /* check incoming atoms to see if they are in my box
            if they are, add to my list */
@@ -541,14 +541,14 @@ void Comm::exchange(Atom &atom)
         nrecv_thread[tid] = nrecv;
         nlocal = atom.nlocal;
 
-		int total_nrecv = 0;
+        int total_nrecv = 0;
 
-		for (int i = 0; i < threads->omp_num_threads; i++) {
-			total_nrecv += nrecv_thread[i];
-			nrecv_thread[i] = total_nrecv;
-		}
+        for (int i = 0; i < threads->omp_num_threads; i++) {
+            total_nrecv += nrecv_thread[i];
+            nrecv_thread[i] = total_nrecv;
+        }
 
-		atom.nlocal += total_nrecv;
+        atom.nlocal += total_nrecv;
 
         int copyinpos = nlocal + nrecv_thread[tid] - nrecv;
 
@@ -680,24 +680,24 @@ void Comm::borders(Atom &atom)
 
     int tid = omp_get_thread_num();
 
-	if (atom.nlocal > maxnlocal) {
-		send_flag = new int[atom.nlocal];
-		maxnlocal = atom.nlocal;
-	}
+    if (atom.nlocal > maxnlocal) {
+        send_flag = new int[atom.nlocal];
+        maxnlocal = atom.nlocal;
+    }
 
-	if (maxthreads < threads->omp_num_threads) {
-		maxthreads = threads->omp_num_threads;
-		nsend_thread = new int[maxthreads];
-		nrecv_thread = new int[maxthreads];
-		nholes_thread = new int[maxthreads];
-		maxsend_thread = new int[maxthreads];
-		exc_sendlist_thread = new int *[maxthreads];
+    if (maxthreads < threads->omp_num_threads) {
+        maxthreads = threads->omp_num_threads;
+        nsend_thread = new int[maxthreads];
+        nrecv_thread = new int[maxthreads];
+        nholes_thread = new int[maxthreads];
+        maxsend_thread = new int[maxthreads];
+        exc_sendlist_thread = new int *[maxthreads];
 
-		for (int i = 0; i < maxthreads; i++) {
-			maxsend_thread[i] = maxsend;
-			exc_sendlist_thread[i] = (int *) malloc(maxsend * sizeof(int));
-		}
-	}
+        for (int i = 0; i < maxthreads; i++) {
+            maxsend_thread[i] = maxsend;
+            exc_sendlist_thread[i] = (int *) malloc(maxsend * sizeof(int));
+        }
+    }
 
     for (idim = 0; idim < 3; idim++) {
         nlast = 0;
@@ -745,18 +745,18 @@ void Comm::borders(Atom &atom)
 
             nsend_thread[tid] = nsend;
 
-			int total_nsend = 0;
+            int total_nsend = 0;
 
-			for (int i = 0; i < threads->omp_num_threads; i++) {
-				total_nsend += nsend_thread[i];
-				nsend_thread[i] = total_nsend;
-			}
+            for (int i = 0; i < threads->omp_num_threads; i++) {
+                total_nsend += nsend_thread[i];
+                nsend_thread[i] = total_nsend;
+            }
 
-			if (total_nsend > maxsendlist[iswap])
-				growlist(iswap, total_nsend);
+            if (total_nsend > maxsendlist[iswap])
+                growlist(iswap, total_nsend);
 
-			if (total_nsend * 4 > maxsend)
-				growsend(total_nsend * 4);
+            if (total_nsend * 4 > maxsend)
+                growsend(total_nsend * 4);
 
             for (int k = 0; k < nsend; k++) {
                 atom.pack_border(
@@ -768,25 +768,25 @@ void Comm::borders(Atom &atom)
             put incoming ghosts at end of my atom arrays
             if swapping with self, simply copy, no messages */
 
-			nsend = nsend_thread[threads->omp_num_threads - 1];
+            nsend = nsend_thread[threads->omp_num_threads - 1];
 
-			if (sendproc[iswap] != me) {
-				MPI_Sendrecv(&nsend, 1, MPI_INT, sendproc[iswap], 0, &nrecv, 1, MPI_INT, recvproc[iswap], 0,
-					MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            if (sendproc[iswap] != me) {
+                MPI_Sendrecv(&nsend, 1, MPI_INT, sendproc[iswap], 0, &nrecv, 1, MPI_INT, recvproc[iswap], 0,
+                    MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-				if (nrecv * atom.border_size > maxrecv)
-					growrecv(nrecv * atom.border_size);
+                if (nrecv * atom.border_size > maxrecv)
+                    growrecv(nrecv * atom.border_size);
 
-				MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
-				MPI_Sendrecv(buf_send, nsend * atom.border_size, type, sendproc[iswap], 0, buf_recv,
-					nrecv * atom.border_size, type, recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				buf = buf_recv;
-			} else {
-				nrecv = nsend;
-				buf = buf_send;
-			}
+                MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+                MPI_Sendrecv(buf_send, nsend * atom.border_size, type, sendproc[iswap], 0, buf_recv,
+                    nrecv * atom.border_size, type, recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                buf = buf_recv;
+            } else {
+                nrecv = nsend;
+                buf = buf_send;
+            }
 
-			nrecv_atoms = nrecv;
+            nrecv_atoms = nrecv;
 
             /* unpack buffer */
 
@@ -798,14 +798,14 @@ void Comm::borders(Atom &atom)
 
             /* set all pointers & counters */
 
-			sendnum[iswap] = nsend;
-			recvnum[iswap] = nrecv;
-			comm_send_size[iswap] = nsend * atom.comm_size;
-			comm_recv_size[iswap] = nrecv * atom.comm_size;
-			reverse_send_size[iswap] = nrecv * atom.reverse_size;
-			reverse_recv_size[iswap] = nsend * atom.reverse_size;
-			firstrecv[iswap] = atom.nlocal + atom.nghost;
-			atom.nghost += nrecv;
+            sendnum[iswap] = nsend;
+            recvnum[iswap] = nrecv;
+            comm_send_size[iswap] = nsend * atom.comm_size;
+            comm_recv_size[iswap] = nrecv * atom.comm_size;
+            reverse_send_size[iswap] = nrecv * atom.reverse_size;
+            reverse_recv_size[iswap] = nsend * atom.reverse_size;
+            firstrecv[iswap] = atom.nlocal + atom.nghost;
+            atom.nghost += nrecv;
 
             iswap++;
         }

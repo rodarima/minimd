@@ -361,17 +361,17 @@ void Atom::sort(Neighbor &neighbor)
     const int mbins = neighbor.mbins;
     const int atoms_per_bin = neighbor.atoms_per_bin;
 
-	for (int i = 1; i < mbins; i++)
-		binpos[i] += binpos[i - 1];
-	if (copy_size < nmax) {
-		destroy_2d_double_array(x_copy);
-		destroy_2d_double_array(v_copy);
-		destroy_1d_int_array(type_copy);
-		x_copy = (double *) create_2d_double_array(nmax, PAD);
-		v_copy = (double *) create_2d_double_array(nmax, PAD);
-		type_copy = create_1d_int_array(nmax);
-		copy_size = nmax;
-	}
+    for (int i = 1; i < mbins; i++)
+        binpos[i] += binpos[i - 1];
+    if (copy_size < nmax) {
+        destroy_2d_double_array(x_copy);
+        destroy_2d_double_array(v_copy);
+        destroy_1d_int_array(type_copy);
+        x_copy = (double *) create_2d_double_array(nmax, PAD);
+        v_copy = (double *) create_2d_double_array(nmax, PAD);
+        type_copy = create_1d_int_array(nmax);
+        copy_size = nmax;
+    }
 
     double *new_x = x_copy;
     double *new_v = v_copy;
@@ -396,14 +396,14 @@ void Atom::sort(Neighbor &neighbor)
         }
     }
 
-	double *x_tmp = x;
-	double *v_tmp = v;
-	int *type_tmp = type;
+    double *x_tmp = x;
+    double *v_tmp = v;
+    int *type_tmp = type;
 
-	x = x_copy;
-	v = v_copy;
-	type = type_copy;
-	x_copy = x_tmp;
-	v_copy = v_tmp;
-	type_copy = type_tmp;
+    x = x_copy;
+    v = v_copy;
+    type = type_copy;
+    x_copy = x_tmp;
+    v_copy = v_tmp;
+    type_copy = type_tmp;
 }
