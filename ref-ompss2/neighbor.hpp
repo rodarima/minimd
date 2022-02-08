@@ -40,8 +40,8 @@ class Neighbor {
 public:
     int every; // re-neighbor every this often
     int nbinx, nbiny, nbinz; // # of global bins
-    MMD_float cutneigh; // neighbor cutoff
-    MMD_float *cutneighsq; // neighbor cutoff squared
+    double cutneigh; // neighbor cutoff
+    double *cutneighsq; // neighbor cutoff squared
     int ncalls; // # of times build has been called
     int max_totalneigh; // largest # of neighbors ever stored
 
@@ -50,7 +50,7 @@ public:
     int maxneighs; // max number of neighbors per atom
     int halfneigh;
 
-    MMD_int ghost_newton;
+    int ghost_newton;
     int count;
     Neighbor(int ntypes_);
     ~Neighbor();
@@ -70,7 +70,7 @@ public:
     int atoms_per_bin;
 
 private:
-    MMD_float xprd, yprd, zprd; // box size
+    double xprd, yprd, zprd; // box size
 
     int nmax; // max size of atom arrays in neighbor
     int ntypes; // number of atom types
@@ -80,13 +80,13 @@ private:
 
     int mbinx, mbiny, mbinz;
     int mbinxlo, mbinylo, mbinzlo;
-    MMD_float binsizex, binsizey, binsizez;
-    MMD_float bininvx, bininvy, bininvz;
+    double binsizex, binsizey, binsizez;
+    double bininvx, bininvy, bininvz;
 
     int resize;
 
-    MMD_float bindist(int, int, int); // distance between binx
-    int coord2bin(MMD_float, MMD_float, MMD_float); // mapping atom coord to a bin
+    double bindist(int, int, int); // distance between binx
+    int coord2bin(double, double, double); // mapping atom coord to a bin
 };
 
 #endif

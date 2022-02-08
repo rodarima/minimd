@@ -363,7 +363,7 @@ int main(int argc, char **argv)
     }
 
     if (neighbor_size < 0 && in.datafile == NULL) {
-        MMD_float neighscale = 5.0 / 6.0;
+        double neighscale = 5.0 / 6.0;
         neighbor.nbinx = neighscale * in.nx;
         neighbor.nbiny = neighscale * in.ny;
         neighbor.nbinz = neighscale * in.nz;
@@ -394,7 +394,7 @@ int main(int argc, char **argv)
 
     if (in.datafile) {
         read_lammps_data(atom, comm, neighbor, integrate, thermo, in.datafile, in.units);
-        MMD_float volume = atom.box.xprd * atom.box.yprd * atom.box.zprd;
+        double volume = atom.box.xprd * atom.box.yprd * atom.box.zprd;
         in.rho = 1.0 * atom.natoms / volume;
         force->setup();
 
@@ -451,7 +451,7 @@ int main(int argc, char **argv)
         fprintf(stdout, "\t# Ghost Newton: %i\n", ghost_newton);
         fprintf(stdout, "\t# Use intrinsics: %i\n", force->use_sse);
         fprintf(stdout, "\t# Do safe exchange: %i\n", comm.do_safeexchange);
-        fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(MMD_float));
+        fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(double));
     }
 
     comm.exchange(atom);

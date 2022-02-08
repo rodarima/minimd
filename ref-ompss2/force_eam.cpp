@@ -50,7 +50,7 @@ ForceEAM::ForceEAM(int ntypes_)
 {
     ntypes = ntypes_;
     cutforce = 0.0;
-    cutforcesq = new MMD_float[ntypes * ntypes];
+    cutforcesq = new double[ntypes * ntypes];
     for (int i = 0; i < ntypes * ntypes; i++)
         cutforcesq[i] = 0.0;
     use_oldcompute = 0;
@@ -90,7 +90,7 @@ void ForceEAM::compute(Atom &atom, Neighbor &neighbor, Comm &comm, int me)
 void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int me)
 {
 
-    MMD_float evdwl = 0.0;
+    double evdwl = 0.0;
 
     virial = 0;
     // grow energy and fp arrays if necessary
@@ -101,12 +101,12 @@ void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         delete[] rho;
         delete[] fp;
 
-        rho = new MMD_float[nmax];
-        fp = new MMD_float[nmax];
+        rho = new double[nmax];
+        fp = new double[nmax];
     }
 
-    const MMD_float *const x = atom.x;
-    MMD_float *const f = atom.f;
+    const double *const x = atom.x;
+    double *const f = atom.f;
     int *type = atom.type;
 
     const int nlocal = atom.nlocal;
@@ -119,35 +119,35 @@ void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         f[i * PAD + 2] = 0;
     }
 
-    for (MMD_int i = 0; i < nlocal; i++)
+    for (int i = 0; i < nlocal; i++)
         rho[i] = 0.0;
 
     // rho = density at each atom
     // loop over neighbors of my atoms
 
-    for (MMD_int i = 0; i < nlocal; i++) {
+    for (int i = 0; i < nlocal; i++) {
         int *neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneigh = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
-        MMD_float rhoi = 0.0;
+        double rhoi = 0.0;
 
-        for (MMD_int jj = 0; jj < numneigh; jj++) {
-            const MMD_int j = neighs[jj];
+        for (int jj = 0; jj < numneigh; jj++) {
+            const int j = neighs[jj];
 
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                MMD_float p = sqrt(rsq) * rdr + 1.0;
-                MMD_int m = static_cast<int>(p);
+                double p = sqrt(rsq) * rdr + 1.0;
+                int m = static_cast<int>(p);
                 m = m < nr - 1 ? m : nr - 1;
                 p -= m;
                 p = p < 1.0 ? p : 1.0;
@@ -174,9 +174,9 @@ void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
     // fp = derivative of embedding energy at each atom
     // phi = embedding energy at each atom
 
-    for (MMD_int i = 0; i < nlocal; i++) {
-        MMD_float p = 1.0 * rho[i] * rdrho + 1.0;
-        MMD_int m = static_cast<int>(p);
+    for (int i = 0; i < nlocal; i++) {
+        double p = 1.0 * rho[i] * rdrho + 1.0;
+        int m = static_cast<int>(p);
         const int type_ii = type[i] * type[i];
         m = MAX(1, MIN(m, nrho - 1));
         p -= m;
@@ -201,32 +201,32 @@ void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
 
     // compute forces on each atom
     // loop over neighbors of my atoms
-    for (MMD_int i = 0; i < nlocal; i++) {
+    for (int i = 0; i < nlocal; i++) {
         int *neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneigh = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
-        MMD_float fx = 0;
-        MMD_float fy = 0;
-        MMD_float fz = 0;
+        double fx = 0;
+        double fy = 0;
+        double fz = 0;
 
-        for (MMD_int jj = 0; jj < numneigh; jj++) {
-            const MMD_int j = neighs[jj];
+        for (int jj = 0; jj < numneigh; jj++) {
+            const int j = neighs[jj];
 
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                MMD_float r = sqrt(rsq);
-                MMD_float p = r * rdr + 1.0;
-                MMD_int m = static_cast<int>(p);
+                double r = sqrt(rsq);
+                double p = r * rdr + 1.0;
+                int m = static_cast<int>(p);
                 m = m < nr - 1 ? m : nr - 1;
                 p -= m;
                 p = p < 1.0 ? p : 1.0;
@@ -241,23 +241,23 @@ void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
                 //   terms of embed eng: Fi(sum rho_ij) and Fj(sum rho_ji)
                 //   hence embed' = Fi(sum rho_ij) rhojp + Fj(sum rho_ji) rhoip
 
-                MMD_float rhoip
+                double rhoip
                     = (rhor_spline[type_ij * nr_tot + m * 7 + 0] * p + rhor_spline[type_ij * nr_tot + m * 7 + 1]) * p
                     + rhor_spline[type_ij * nr_tot + m * 7 + 2];
-                MMD_float z2p
+                double z2p
                     = (z2r_spline[type_ij * nr_tot + m * 7 + 0] * p + z2r_spline[type_ij * nr_tot + m * 7 + 1]) * p
                     + z2r_spline[type_ij * nr_tot + m * 7 + 2];
-                MMD_float z2
+                double z2
                     = ((z2r_spline[type_ij * nr_tot + m * 7 + 3] * p + z2r_spline[type_ij * nr_tot + m * 7 + 4]) * p
                           + z2r_spline[type_ij * nr_tot + m * 7 + 5])
                         * p
                     + z2r_spline[type_ij * nr_tot + m * 7 + 6];
 
-                MMD_float recip = 1.0 / r;
-                MMD_float phi = z2 * recip;
-                MMD_float phip = z2p * recip - phi * recip;
-                MMD_float psip = fp[i] * rhoip + fp[j] * rhoip + phip;
-                MMD_float fpair = -psip * recip;
+                double recip = 1.0 / r;
+                double phi = z2 * recip;
+                double phip = z2p * recip - phi * recip;
+                double psip = fp[i] * rhoip + fp[j] * rhoip + phip;
+                double fpair = -psip * recip;
 
                 fx += delx * fpair;
                 fy += dely * fpair;
@@ -294,7 +294,7 @@ void ForceEAM::compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
 void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int me)
 {
 
-    MMD_float evdwl = 0.0;
+    double evdwl = 0.0;
 
     // grow energy and fp arrays if necessary
     // need to be atom->nmax in length
@@ -305,14 +305,14 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         virial = 0;
         if (atom.nmax > nmax) {
             nmax = atom.nmax;
-            rho = new MMD_float[nmax];
-            fp = new MMD_float[nmax];
+            rho = new double[nmax];
+            fp = new double[nmax];
         }
     }
 
     #pragma omp barrier
-    const MMD_float *const x = atom.x;
-    MMD_float *const f = atom.f;
+    const double *const x = atom.x;
+    double *const f = atom.f;
     const int *const type = atom.type;
     const int nlocal = atom.nlocal;
 
@@ -322,30 +322,30 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
     // loop over neighbors of my atoms
 
     OMPFORSCHEDULE
-    for (MMD_int i = 0; i < nlocal; i++) {
+    for (int i = 0; i < nlocal; i++) {
         int *neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int jnum = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
-        MMD_float rhoi = 0;
+        double rhoi = 0;
 
         #pragma ivdep
-        for (MMD_int jj = 0; jj < jnum; jj++) {
-            const MMD_int j = neighs[jj];
+        for (int jj = 0; jj < jnum; jj++) {
+            const int j = neighs[jj];
 
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                MMD_float p = sqrt(rsq) * rdr + 1.0;
-                MMD_int m = static_cast<int>(p);
+                double p = sqrt(rsq) * rdr + 1.0;
+                int m = static_cast<int>(p);
                 m = m < nr - 1 ? m : nr - 1;
                 p -= m;
                 p = p < 1.0 ? p : 1.0;
@@ -358,8 +358,8 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
         }
 
         const int type_ii = type_i * type_i;
-        MMD_float p = 1.0 * rhoi * rdrho + 1.0;
-        MMD_int m = static_cast<int>(p);
+        double p = 1.0 * rhoi * rdrho + 1.0;
+        int m = static_cast<int>(p);
         m = MAX(1, MIN(m, nrho - 1));
         p -= m;
         p = MIN(p, 1.0);
@@ -388,39 +388,39 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
 
     #pragma omp barrier
 
-    MMD_float t_virial = 0;
+    double t_virial = 0;
     // compute forces on each atom
     // loop over neighbors of my atoms
 
     OMPFORSCHEDULE
-    for (MMD_int i = 0; i < nlocal; i++) {
+    for (int i = 0; i < nlocal; i++) {
         int *neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneigh = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
 
-        MMD_float fx = 0.0;
-        MMD_float fy = 0.0;
-        MMD_float fz = 0.0;
+        double fx = 0.0;
+        double fy = 0.0;
+        double fz = 0.0;
 
         #pragma ivdep
-        for (MMD_int jj = 0; jj < numneigh; jj++) {
-            const MMD_int j = neighs[jj];
+        for (int jj = 0; jj < numneigh; jj++) {
+            const int j = neighs[jj];
 
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                MMD_float r = sqrt(rsq);
-                MMD_float p = r * rdr + 1.0;
-                MMD_int m = static_cast<int>(p);
+                double r = sqrt(rsq);
+                double p = r * rdr + 1.0;
+                int m = static_cast<int>(p);
                 m = m < nr - 1 ? m : nr - 1;
                 p -= m;
                 p = p < 1.0 ? p : 1.0;
@@ -435,23 +435,23 @@ void ForceEAM::compute_fullneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int
                 //   terms of embed eng: Fi(sum rho_ij) and Fj(sum rho_ji)
                 //   hence embed' = Fi(sum rho_ij) rhojp + Fj(sum rho_ji) rhoip
 
-                MMD_float rhoip
+                double rhoip
                     = (rhor_spline[type_ij * nr_tot + m * 7 + 0] * p + rhor_spline[type_ij * nr_tot + m * 7 + 1]) * p
                     + rhor_spline[type_ij * nr_tot + m * 7 + 2];
-                MMD_float z2p
+                double z2p
                     = (z2r_spline[type_ij * nr_tot + m * 7 + 0] * p + z2r_spline[type_ij * nr_tot + m * 7 + 1]) * p
                     + z2r_spline[type_ij * nr_tot + m * 7 + 2];
-                MMD_float z2
+                double z2
                     = ((z2r_spline[type_ij * nr_tot + m * 7 + 3] * p + z2r_spline[type_ij * nr_tot + m * 7 + 4]) * p
                           + z2r_spline[type_ij * nr_tot + m * 7 + 5])
                         * p
                     + z2r_spline[type_ij * nr_tot + m * 7 + 6];
 
-                MMD_float recip = 1.0 / r;
-                MMD_float phi = z2 * recip;
-                MMD_float phip = z2p * recip - phi * recip;
-                MMD_float psip = fp[i] * rhoip + fp[j] * rhoip + phip;
-                MMD_float fpair = -psip * recip;
+                double recip = 1.0 / r;
+                double phi = z2 * recip;
+                double phip = z2p * recip - phi * recip;
+                double psip = fp[i] * rhoip + fp[j] * rhoip + phip;
+                double fpair = -psip * recip;
 
                 fx += delx * fpair;
                 fy += dely * fpair;
@@ -573,14 +573,14 @@ void ForceEAM::read_file(const char *filename)
     MPI_Bcast(&file->dr, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&file->cut, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     mass = file->mass;
-    file->frho = new MMD_float[file->nrho + 1];
-    file->rhor = new MMD_float[file->nr + 1];
-    file->zr = new MMD_float[file->nr + 1];
+    file->frho = new double[file->nrho + 1];
+    file->rhor = new double[file->nr + 1];
+    file->zr = new double[file->nr + 1];
 
     if (me == 0)
         grab(fptr, file->nrho, file->frho);
 
-    if (sizeof(MMD_float) == 4)
+    if (sizeof(double) == 4)
         MPI_Bcast(file->frho, file->nrho, MPI_FLOAT, 0, MPI_COMM_WORLD);
     else
         MPI_Bcast(file->frho, file->nrho, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -588,7 +588,7 @@ void ForceEAM::read_file(const char *filename)
     if (me == 0)
         grab(fptr, file->nr, file->zr);
 
-    if (sizeof(MMD_float) == 4)
+    if (sizeof(double) == 4)
         MPI_Bcast(file->zr, file->nr, MPI_FLOAT, 0, MPI_COMM_WORLD);
     else
         MPI_Bcast(file->zr, file->nr, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -596,7 +596,7 @@ void ForceEAM::read_file(const char *filename)
     if (me == 0)
         grab(fptr, file->nr, file->rhor);
 
-    if (sizeof(MMD_float) == 4)
+    if (sizeof(double) == 4)
         MPI_Bcast(file->rhor, file->nr, MPI_FLOAT, 0, MPI_COMM_WORLD);
     else
         MPI_Bcast(file->rhor, file->nr, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -652,7 +652,7 @@ void ForceEAM::file2array()
     // allocate frho arrays
     // nfrho = # of funcfl files + 1 for zero array
 
-    frho = new MMD_float[nrho + 1];
+    frho = new double[nrho + 1];
 
     // interpolate each file's frho to a single grid and cutoff
 
@@ -682,7 +682,7 @@ void ForceEAM::file2array()
     // allocate rhor arrays
     // nrhor = # of funcfl files
 
-    rhor = new MMD_float[nr + 1];
+    rhor = new double[nr + 1];
 
     // interpolate each file's rhor to a single grid and cutoff
 
@@ -713,7 +713,7 @@ void ForceEAM::file2array()
     // allocate z2r arrays
     // nz2r = N*(N+1)/2 where N = # of funcfl files
 
-    z2r = new MMD_float[nr + 1];
+    z2r = new double[nr + 1];
 
     // create a z2r array for each file against other files, only for I >= J
     // interpolate zri and zrj to a single grid and cutoff
@@ -766,9 +766,9 @@ void ForceEAM::array2spline()
     nrho_tot -= nrho_tot % 64;
     nr_tot -= nr_tot % 64;
 
-    frho_spline = new MMD_float[ntypes * ntypes * nrho_tot];
-    rhor_spline = new MMD_float[ntypes * ntypes * nr_tot];
-    z2r_spline = new MMD_float[ntypes * ntypes * nr_tot];
+    frho_spline = new double[ntypes * ntypes * nrho_tot];
+    rhor_spline = new double[ntypes * ntypes * nr_tot];
+    z2r_spline = new double[ntypes * ntypes * nr_tot];
 
     interpolate(nrho, drho, frho, frho_spline);
 
@@ -789,7 +789,7 @@ void ForceEAM::array2spline()
 
 /* ---------------------------------------------------------------------- */
 
-void ForceEAM::interpolate(MMD_int n, MMD_float delta, MMD_float *f, MMD_float *spline)
+void ForceEAM::interpolate(int n, double delta, double *f, double *spline)
 {
     for (int m = 1; m <= n; m++)
         spline[m * 7 + 6] = f[m];
@@ -827,7 +827,7 @@ void ForceEAM::interpolate(MMD_int n, MMD_float delta, MMD_float *f, MMD_float *
    only called by proc 0
 ------------------------------------------------------------------------- */
 
-void ForceEAM::grab(FILE *fptr, MMD_int n, MMD_float *list)
+void ForceEAM::grab(FILE *fptr, int n, double *list)
 {
     char *ptr;
     char line[MAXLINE];
@@ -846,12 +846,12 @@ void ForceEAM::grab(FILE *fptr, MMD_int n, MMD_float *list)
 
 /* ---------------------------------------------------------------------- */
 
-MMD_float ForceEAM::single(
-    int i, int j, int itype, int jtype, MMD_float rsq, MMD_float factor_coul, MMD_float factor_lj, MMD_float &fforce)
+double ForceEAM::single(
+    int i, int j, int itype, int jtype, double rsq, double factor_coul, double factor_lj, double &fforce)
 {
     int m;
-    MMD_float r, p, rhoip, rhojp, z2, z2p, recip, phi, phip, psip;
-    MMD_float *coeff;
+    double r, p, rhoip, rhojp, z2, z2p, recip, phi, phip, psip;
+    double *coeff;
 
     r = sqrt(rsq);
     p = r * rdr + 1.0;
@@ -882,7 +882,7 @@ void ForceEAM::communicate(Atom &atom, Comm &comm)
 
     int iswap;
     int pbc_flags[4];
-    MMD_float *buf;
+    double *buf;
 
     for (iswap = 0; iswap < comm.nswap; iswap++) {
 
@@ -901,7 +901,7 @@ void ForceEAM::communicate(Atom &atom, Comm &comm)
            if self, set recv buffer to send buffer */
 
         if (comm.sendproc[iswap] != me) {
-            MPI_Datatype type = (sizeof(MMD_float) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+            MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
             MPI_Sendrecv(comm.buf_send, comm.comm_send_size[iswap], MPI_FLOAT, comm.sendproc[iswap], 0, comm.buf_recv,
                 comm.comm_recv_size[iswap], MPI_FLOAT, comm.recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             buf = comm.buf_recv;
@@ -915,7 +915,7 @@ void ForceEAM::communicate(Atom &atom, Comm &comm)
 }
 /* ---------------------------------------------------------------------- */
 
-int ForceEAM::pack_comm(int n, int iswap, MMD_float *buf, int **asendlist)
+int ForceEAM::pack_comm(int n, int iswap, double *buf, int **asendlist)
 {
     int i, j, m;
 
@@ -931,7 +931,7 @@ int ForceEAM::pack_comm(int n, int iswap, MMD_float *buf, int **asendlist)
 
 /* ---------------------------------------------------------------------- */
 
-void ForceEAM::unpack_comm(int n, int first, MMD_float *buf)
+void ForceEAM::unpack_comm(int n, int first, double *buf)
 {
     int i, m, last;
 
@@ -944,7 +944,7 @@ void ForceEAM::unpack_comm(int n, int first, MMD_float *buf)
 
 /* ---------------------------------------------------------------------- */
 
-int ForceEAM::pack_reverse_comm(int n, int first, MMD_float *buf)
+int ForceEAM::pack_reverse_comm(int n, int first, double *buf)
 {
     int i, m, last;
 
@@ -959,7 +959,7 @@ int ForceEAM::pack_reverse_comm(int n, int first, MMD_float *buf)
 
 /* ---------------------------------------------------------------------- */
 
-void ForceEAM::unpack_reverse_comm(int n, int *list, MMD_float *buf)
+void ForceEAM::unpack_reverse_comm(int n, int *list, double *buf)
 {
     int i, j, m;
 
@@ -975,9 +975,9 @@ void ForceEAM::unpack_reverse_comm(int n, int *list, MMD_float *buf)
    memory usage of local atom-based arrays
 ------------------------------------------------------------------------- */
 
-MMD_float ForceEAM::memory_usage()
+double ForceEAM::memory_usage()
 {
-    MMD_int bytes = 2 * nmax * sizeof(MMD_float);
+    int bytes = 2 * nmax * sizeof(double);
     return bytes;
 }
 

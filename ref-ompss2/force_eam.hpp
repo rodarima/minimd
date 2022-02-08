@@ -45,18 +45,18 @@ class ForceEAM : Force {
 public:
     // public variables so USER-ATC package can access them
 
-    MMD_float cutmax;
+    double cutmax;
 
     // potentials as array data
 
-    MMD_int nrho, nr;
-    MMD_int nrho_tot, nr_tot;
-    MMD_float *frho, *rhor, *z2r;
+    int nrho, nr;
+    int nrho_tot, nr_tot;
+    double *frho, *rhor, *z2r;
 
     // potentials in spline form used for force computation
 
-    MMD_float dr, rdr, drho, rdrho;
-    MMD_float *rhor_spline, *frho_spline, *z2r_spline;
+    double dr, rdr, drho, rdrho;
+    double *rhor_spline, *frho_spline, *z2r_spline;
 
     ForceEAM(int ntypes_);
     virtual ~ForceEAM();
@@ -64,13 +64,13 @@ public:
     virtual void coeff(const char *);
     virtual void setup();
     void init_style();
-    MMD_float single(MMD_int, MMD_int, MMD_int, MMD_int, MMD_float, MMD_float, MMD_float, MMD_float &);
+    double single(int, int, int, int, double, double, double, double &);
 
-    virtual MMD_int pack_comm(int n, int iswap, MMD_float *buf, MMD_int **asendlist);
-    virtual void unpack_comm(int n, int first, MMD_float *buf);
-    MMD_int pack_reverse_comm(MMD_int, MMD_int, MMD_float *);
-    void unpack_reverse_comm(MMD_int, MMD_int *, MMD_float *);
-    MMD_float memory_usage();
+    virtual int pack_comm(int n, int iswap, double *buf, int **asendlist);
+    virtual void unpack_comm(int n, int first, double *buf);
+    int pack_reverse_comm(int, int, double *);
+    void unpack_reverse_comm(int, int *, double *);
+    double memory_usage();
 
 protected:
     void compute_halfneigh(Atom &atom, Neighbor &neighbor, Comm &comm, int me);
@@ -78,25 +78,25 @@ protected:
 
     // per-atom arrays
 
-    MMD_float *rho, *fp;
+    double *rho, *fp;
 
-    MMD_int nmax;
+    int nmax;
 
     // potentials as file data
 
-    MMD_int *map; // which element each atom type maps to
+    int *map; // which element each atom type maps to
 
     struct Funcfl {
         char *file;
-        MMD_int nrho, nr;
+        int nrho, nr;
         double drho, dr, cut, mass;
-        MMD_float *frho, *rhor, *zr;
+        double *frho, *rhor, *zr;
     };
     Funcfl funcfl;
 
     void array2spline();
-    void interpolate(MMD_int n, MMD_float delta, MMD_float *f, MMD_float *spline);
-    void grab(FILE *, MMD_int, MMD_float *);
+    void interpolate(int n, double delta, double *f, double *spline);
+    void grab(FILE *, int, double *);
 
     virtual void read_file(const char *);
     virtual void file2array();

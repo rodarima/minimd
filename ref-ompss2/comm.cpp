@@ -44,9 +44,9 @@
 Comm::Comm()
 {
     maxsend = BUFMIN;
-    buf_send = (MMD_float *) malloc((maxsend + BUFMIN) * sizeof(MMD_float));
+    buf_send = (double *) malloc((maxsend + BUFMIN) * sizeof(double));
     maxrecv = BUFMIN;
-    buf_recv = (MMD_float *) malloc(maxrecv * sizeof(MMD_float));
+    buf_recv = (double *) malloc(maxrecv * sizeof(double));
     check_safeexchange = 0;
     do_safeexchange = 0;
     maxthreads = 0;
@@ -57,15 +57,15 @@ Comm::~Comm() { }
 
 /* setup spatial-decomposition communication patterns */
 
-int Comm::setup(MMD_float cutneigh, Atom &atom)
+int Comm::setup(double cutneigh, Atom &atom)
 {
     int i;
     int nprocs;
     int periods[3];
-    MMD_float prd[3];
+    double prd[3];
     int myloc[3];
     MPI_Comm cartesian;
-    MMD_float lo, hi;
+    double lo, hi;
     int ineed, idim, nbox;
 
     prd[0] = atom.box.xprd;
@@ -77,20 +77,20 @@ int Comm::setup(MMD_float cutneigh, Atom &atom)
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-    MMD_float area[3];
+    double area[3];
 
     area[0] = prd[0] * prd[1];
     area[1] = prd[0] * prd[2];
     area[2] = prd[1] * prd[2];
 
-    MMD_float bestsurf = 2.0 * (area[0] + area[1] + area[2]);
+    double bestsurf = 2.0 * (area[0] + area[1] + area[2]);
 
     // loop thru all possible factorizations of nprocs
     // surf = surface area of a proc sub-domain
     // for 2d, insure ipz = 1
 
     int ipx, ipy, ipz, nremain;
-    MMD_float surf;
+    double surf;
 
     ipx = 1;
 
@@ -156,8 +156,8 @@ int Comm::setup(MMD_float cutneigh, Atom &atom)
 
     int maxswap = 2 * (need[0] + need[1] + need[2]);
 
-    slablo = (MMD_float *) malloc(maxswap * sizeof(MMD_float));
-    slabhi = (MMD_float *) malloc(maxswap * sizeof(MMD_float));
+    slablo = (double *) malloc(maxswap * sizeof(double));
+    slabhi = (double *) malloc(maxswap * sizeof(double));
     pbc_any = (int *) malloc(maxswap * sizeof(int));
     pbc_flagx = (int *) malloc(maxswap * sizeof(int));
     pbc_flagy = (int *) malloc(maxswap * sizeof(int));
@@ -292,7 +292,7 @@ void Comm::communicate(Atom &atom)
 
     int iswap;
     int pbc_flags[4];
-    MMD_float *buf;
+    double *buf;
 
     for (iswap = 0; iswap < nswap; iswap++) {
 
@@ -314,7 +314,7 @@ void Comm::communicate(Atom &atom)
         if (sendproc[iswap] != me) {
             #pragma omp master
             {
-                MPI_Datatype type = (sizeof(MMD_float) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+                MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
                 MPI_Sendrecv(buf_send, comm_send_size[iswap], type, sendproc[iswap], 0, buf_recv, comm_recv_size[iswap],
                     type, recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             }
@@ -335,7 +335,7 @@ void Comm::communicate(Atom &atom)
 void Comm::reverse_communicate(Atom &atom)
 {
     int iswap;
-    MMD_float *buf;
+    double *buf;
 
     for (iswap = nswap - 1; iswap >= 0; iswap--) {
 
@@ -352,7 +352,7 @@ void Comm::reverse_communicate(Atom &atom)
 
             #pragma omp master
             {
-                MPI_Datatype type = (sizeof(MMD_float) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+                MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
                 MPI_Sendrecv(buf_send, reverse_send_size[iswap], type, recvproc[iswap], 0, buf_recv,
                     reverse_recv_size[iswap], type, sendproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             }
@@ -381,8 +381,8 @@ void Comm::exchange(Atom &atom)
         return exchange_all(atom);
 
     int i, m, n, idim, nsend, nrecv, nrecv1, nrecv2, nlocal;
-    MMD_float lo, hi, value;
-    MMD_float *x;
+    double lo, hi, value;
+    double *x;
 
     /* enforce PBC */
 
@@ -548,7 +548,7 @@ void Comm::exchange(Atom &atom)
             if (nrecv > maxrecv)
                 growrecv(nrecv);
 
-            MPI_Datatype type = (sizeof(MMD_float) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+            MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
             MPI_Sendrecv(buf_send, nsend, type, procneigh[idim][0], 0, buf_recv, nrecv1, type, procneigh[idim][1], 0,
                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
@@ -611,8 +611,8 @@ void Comm::exchange(Atom &atom)
 void Comm::exchange_all(Atom &atom)
 {
     int i, m, n, idim, nsend, nrecv, nrecv1, nrecv2, nlocal;
-    MMD_float lo, hi, value;
-    MMD_float *x;
+    double lo, hi, value;
+    double *x;
 
     /* enforce PBC */
 
@@ -674,7 +674,7 @@ void Comm::exchange_all(Atom &atom)
                 if (nrecv > maxrecv)
                     growrecv(nrecv);
 
-                MPI_Datatype type = (sizeof(MMD_float) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+                MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
                 MPI_Sendrecv(buf_send, nsend, type, sendproc_exc[iswap], 0, buf_recv, nrecv, type, recvproc_exc[iswap],
                     0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
@@ -713,9 +713,9 @@ void Comm::exchange_all(Atom &atom)
 void Comm::borders(Atom &atom)
 {
     int i, m, n, iswap, idim, ineed, nsend, nrecv, nall, nfirst, nlast;
-    MMD_float lo, hi;
+    double lo, hi;
     int pbc_flags[4];
-    MMD_float *x;
+    double *x;
 
     /* erase all ghost atoms */
 
@@ -841,7 +841,7 @@ void Comm::borders(Atom &atom)
                     if (nrecv * atom.border_size > maxrecv)
                         growrecv(nrecv * atom.border_size);
 
-                    MPI_Datatype type = (sizeof(MMD_float) == 4) ? MPI_FLOAT : MPI_DOUBLE;
+                    MPI_Datatype type = (sizeof(double) == 4) ? MPI_FLOAT : MPI_DOUBLE;
                     MPI_Sendrecv(buf_send, nsend * atom.border_size, type, sendproc[iswap], 0, buf_recv,
                         nrecv * atom.border_size, type, recvproc[iswap], 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                     buf = buf_recv;
@@ -904,7 +904,7 @@ void Comm::borders(Atom &atom)
 void Comm::growsend(int n)
 {
     maxsend = static_cast<int>(BUFFACTOR * n);
-    buf_send = (MMD_float *) realloc(buf_send, (maxsend + BUFEXTRA) * sizeof(MMD_float));
+    buf_send = (double *) realloc(buf_send, (maxsend + BUFEXTRA) * sizeof(double));
 }
 
 /* free/malloc the size of the recv buffer as needed with BUFFACTOR */
@@ -913,7 +913,7 @@ void Comm::growrecv(int n)
 {
     maxrecv = static_cast<int>(BUFFACTOR * n);
     free(buf_recv);
-    buf_recv = (MMD_float *) malloc(maxrecv * sizeof(MMD_float));
+    buf_recv = (double *) malloc(maxrecv * sizeof(double));
 }
 
 /* realloc the size of the iswap sendlist as needed with BUFFACTOR */

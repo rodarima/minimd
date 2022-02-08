@@ -39,12 +39,12 @@
 
 class Force {
 public:
-    MMD_float cutforce;
-    MMD_float *cutforcesq;
-    MMD_float eng_vdwl;
-    MMD_float mass;
-    MMD_int evflag;
-    MMD_float virial;
+    double cutforce;
+    double *cutforcesq;
+    double eng_vdwl;
+    double mass;
+    int evflag;
+    double virial;
     int ntypes;
 
     Force() {};
@@ -56,15 +56,15 @@ public:
     int use_sse;
     int use_oldcompute;
     ThreadData *threads;
-    MMD_int reneigh;
+    int reneigh;
     Timer *timer;
 
-    MMD_float *epsilon, *sigma6, *sigma; // Parameters for LJ only
+    double *epsilon, *sigma6, *sigma; // Parameters for LJ only
 
     ForceStyle style;
 
 protected:
-    MMD_int me;
+    int me;
 };
 
 #endif

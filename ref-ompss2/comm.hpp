@@ -40,7 +40,7 @@ class Comm {
 public:
     Comm();
     ~Comm();
-    int setup(MMD_float, Atom &);
+    int setup(double, Atom &);
     void communicate(Atom &);
     void reverse_communicate(Atom &);
     void exchange(Atom &);
@@ -69,16 +69,16 @@ public:
     int **sendlist; // list of atoms to send in each swap
     int *maxsendlist;
 
-    MMD_float *buf_send; // send buffer for all comm
-    MMD_float *buf_recv; // recv buffer for all comm
-    MMD_float *buf;
+    double *buf_send; // send buffer for all comm
+    double *buf_recv; // recv buffer for all comm
+    double *buf;
     int maxsend;
     int maxrecv;
 
     int procneigh[3][2]; // my 6 proc neighbors
     int procgrid[3]; // # of procs in each dim
     int need[3]; // how many procs away needed in each dim
-    MMD_float *slablo, *slabhi; // bounds of slabs to send to other procs
+    double *slablo, *slabhi; // bounds of slabs to send to other procs
 
     ThreadData *threads; //
 

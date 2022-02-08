@@ -36,17 +36,17 @@
 
 struct In {
     int nx, ny, nz;
-    MMD_float t_request;
-    MMD_float rho;
+    double t_request;
+    double rho;
     int units;
     ForceStyle forcetype;
-    MMD_float epsilon, sigma;
+    double epsilon, sigma;
     char *datafile;
     int ntimes;
-    MMD_float dt;
+    double dt;
     int neigh_every;
-    MMD_float force_cut;
-    MMD_float neigh_cut;
+    double force_cut;
+    double neigh_cut;
     int thermo_nstat;
 };
 

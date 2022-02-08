@@ -43,7 +43,7 @@ void Integrate::setup() { dtforce = 0.5 * dt; }
 void Integrate::initialIntegrate()
 {
     OMPFORSCHEDULE
-    for (MMD_int i = 0; i < nlocal; i++) {
+    for (int i = 0; i < nlocal; i++) {
         v[i * PAD + 0] += dtforce * f[i * PAD + 0];
         v[i * PAD + 1] += dtforce * f[i * PAD + 1];
         v[i * PAD + 2] += dtforce * f[i * PAD + 2];
@@ -56,7 +56,7 @@ void Integrate::initialIntegrate()
 void Integrate::finalIntegrate()
 {
     OMPFORSCHEDULE
-    for (MMD_int i = 0; i < nlocal; i++) {
+    for (int i = 0; i < nlocal; i++) {
         v[i * PAD + 0] += dtforce * f[i * PAD + 0];
         v[i * PAD + 1] += dtforce * f[i * PAD + 1];
         v[i * PAD + 2] += dtforce * f[i * PAD + 2];

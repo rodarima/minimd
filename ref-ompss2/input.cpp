@@ -190,7 +190,7 @@ int input(In &in, const char *filename)
     fclose(fp);
 #else
     if (me == 0)
-        printf("Invalid MMD_float size specified: crash imminent.\n");
+        printf("Invalid double size specified: crash imminent.\n");
 #endif
 #endif
 

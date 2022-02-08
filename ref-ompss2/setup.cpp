@@ -174,7 +174,7 @@ void read_lammps_header(Atom &atom)
     // error check on consistency of header values
 }
 
-void read_lammps_atoms(Atom &atom, MMD_float *x)
+void read_lammps_atoms(Atom &atom, double *x)
 {
     int i;
 
@@ -196,7 +196,7 @@ void read_lammps_atoms(Atom &atom, MMD_float *x)
     }
 }
 
-void read_lammps_velocities(Atom &atom, MMD_float *v)
+void read_lammps_velocities(Atom &atom, double *v)
 {
     int i;
 
@@ -233,9 +233,9 @@ int read_lammps_data(
     comm.setup(neighbor.cutneigh, atom);
 
     if (neighbor.nbinx < 0) {
-        MMD_float volume = atom.box.xprd * atom.box.yprd * atom.box.zprd;
-        MMD_float rho = 1.0 * atom.natoms / volume;
-        MMD_float neigh_bin_size = pow(rho * 16, MMD_float(1.0 / 3.0));
+        double volume = atom.box.xprd * atom.box.yprd * atom.box.zprd;
+        double rho = 1.0 * atom.natoms / volume;
+        double neigh_bin_size = pow(rho * 16, double(1.0 / 3.0));
         neighbor.nbinx = atom.box.xprd / neigh_bin_size;
         neighbor.nbiny = atom.box.yprd / neigh_bin_size;
         neighbor.nbinz = atom.box.zprd / neigh_bin_size;
@@ -258,8 +258,8 @@ int read_lammps_data(
 
     thermo.setup(atom.box.xprd * atom.box.yprd * atom.box.zprd / atom.natoms, integrate, atom, units);
 
-    MMD_float *x = atom.create_2d_MMD_float_array(atom.natoms, PAD);
-    MMD_float *v = atom.create_2d_MMD_float_array(atom.natoms, PAD);
+    double *x = atom.create_2d_double_array(atom.natoms, PAD);
+    double *v = atom.create_2d_double_array(atom.natoms, PAD);
 
     int atomflag = 0;
     int tmp;

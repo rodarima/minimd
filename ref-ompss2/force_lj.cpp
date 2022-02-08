@@ -46,10 +46,10 @@ ForceLJ::ForceLJ(int ntypes_)
     style = FORCELJ;
     ntypes = ntypes_;
 
-    cutforcesq = new MMD_float[ntypes * ntypes];
-    epsilon = new MMD_float[ntypes * ntypes];
-    sigma6 = new MMD_float[ntypes * ntypes];
-    sigma = new MMD_float[ntypes * ntypes];
+    cutforcesq = new double[ntypes * ntypes];
+    epsilon = new double[ntypes * ntypes];
+    sigma6 = new double[ntypes * ntypes];
+    sigma = new double[ntypes * ntypes];
 
     for (int i = 0; i < ntypes * ntypes; i++) {
         cutforcesq[i] = 0.0;
@@ -117,8 +117,8 @@ template <int EVFLAG> void ForceLJ::compute_original(Atom &atom, Neighbor &neigh
 {
     int nlocal = atom.nlocal;
     int nall = atom.nlocal + atom.nghost;
-    MMD_float *x = atom.x;
-    MMD_float *f = atom.f;
+    double *x = atom.x;
+    double *f = atom.f;
     int *type = atom.type;
 
     eng_vdwl = 0;
@@ -137,25 +137,25 @@ template <int EVFLAG> void ForceLJ::compute_original(Atom &atom, Neighbor &neigh
     for (int i = 0; i < nlocal; i++) {
         const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneigh = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
 
         for (int k = 0; k < numneigh; k++) {
             const int j = neighs[k];
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                const MMD_float sr2 = 1.0 / rsq;
-                const MMD_float sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
-                const MMD_float force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
+                const double sr2 = 1.0 / rsq;
+                const double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
+                const double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
                 f[i * PAD + 0] += delx * force;
                 f[i * PAD + 1] += dely * force;
                 f[i * PAD + 2] += delz * force;
@@ -182,8 +182,8 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &at
 {
     const int nlocal = atom.nlocal;
     const int nall = atom.nlocal + atom.nghost;
-    const MMD_float *const x = atom.x;
-    MMD_float *const f = atom.f;
+    const double *const x = atom.x;
+    double *const f = atom.f;
     const int *const type = atom.type;
 
     // clear force on own and ghost atoms
@@ -195,37 +195,37 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &at
 
     // loop over all neighbors of my atoms
     // store force on both atoms i and j
-    MMD_float t_energy = 0;
-    MMD_float t_virial = 0;
+    double t_energy = 0;
+    double t_virial = 0;
 
     for (int i = 0; i < nlocal; i++) {
         const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneighs = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
 
-        MMD_float fix = 0.0;
-        MMD_float fiy = 0.0;
-        MMD_float fiz = 0.0;
+        double fix = 0.0;
+        double fiy = 0.0;
+        double fiz = 0.0;
 
 #ifdef USE_SIMD
         #pragma simd reduction (+: fix,fiy,fiz)
 #endif
         for (int k = 0; k < numneighs; k++) {
             const int j = neighs[k];
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                const MMD_float sr2 = 1.0 / rsq;
-                const MMD_float sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
-                const MMD_float force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
+                const double sr2 = 1.0 / rsq;
+                const double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
+                const double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
 
                 fix += delx * force;
                 fiy += dely * force;
@@ -238,7 +238,7 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &at
                 }
 
                 if (EVFLAG) {
-                    const MMD_float scale = (GHOST_NEWTON || j < nlocal) ? 1.0 : 0.5;
+                    const double scale = (GHOST_NEWTON || j < nlocal) ? 1.0 : 0.5;
                     t_energy += scale * (4.0 * sr6 * (sr6 - 1.0)) * epsilon[type_ij];
                     t_virial += scale * (delx * delx + dely * dely + delz * delz) * force;
                 }
@@ -262,13 +262,13 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh(Atom &at
 //     -use pragma simd to force vectorization of inner loop (not currently supported due to OpenMP atomics
 template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded(Atom &atom, Neighbor &neighbor, int me)
 {
-    MMD_float t_eng_vdwl = 0;
-    MMD_float t_virial = 0;
+    double t_eng_vdwl = 0;
+    double t_virial = 0;
 
     const int nlocal = atom.nlocal;
     const int nall = atom.nlocal + atom.nghost;
-    const MMD_float *const x = atom.x;
-    MMD_float *const f = atom.f;
+    const double *const x = atom.x;
+    double *const f = atom.f;
     const int *const type = atom.type;
 
     #pragma omp barrier
@@ -288,27 +288,27 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
     for (int i = 0; i < nlocal; i++) {
         const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneighs = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
-        MMD_float fix = 0.0;
-        MMD_float fiy = 0.0;
-        MMD_float fiz = 0.0;
+        double fix = 0.0;
+        double fiy = 0.0;
+        double fiz = 0.0;
 
         for (int k = 0; k < numneighs; k++) {
             const int j = neighs[k];
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
             const int type_ij = type_i * ntypes + type_j;
 
             if (rsq < cutforcesq[type_ij]) {
-                const MMD_float sr2 = 1.0 / rsq;
-                const MMD_float sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
-                const MMD_float force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
+                const double sr2 = 1.0 / rsq;
+                const double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
+                const double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
 
                 fix += delx * force;
                 fiy += dely * force;
@@ -324,7 +324,7 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
                 }
 
                 if (EVFLAG) {
-                    const MMD_float scale = (GHOST_NEWTON || j < nlocal) ? 1.0 : 0.5;
+                    const double scale = (GHOST_NEWTON || j < nlocal) ? 1.0 : 0.5;
                     t_eng_vdwl += scale * (4.0 * sr6 * (sr6 - 1.0)) * epsilon[type_ij];
                     t_virial += scale * (delx * delx + dely * dely + delz * delz) * force;
                 }
@@ -356,13 +356,13 @@ template <int EVFLAG, int GHOST_NEWTON> void ForceLJ::compute_halfneigh_threaded
 //     -use pragma simd to force vectorization of inner loop
 template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neighbor, int me)
 {
-    MMD_float t_eng_vdwl = 0;
-    MMD_float t_virial = 0;
+    double t_eng_vdwl = 0;
+    double t_virial = 0;
 
     const int nlocal = atom.nlocal;
     const int nall = atom.nlocal + atom.nghost;
-    const MMD_float *const x = atom.x;
-    MMD_float *const f = atom.f;
+    const double *const x = atom.x;
+    double *const f = atom.f;
     const int *const type = atom.type;
 
     #pragma omp barrier
@@ -382,13 +382,13 @@ template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neig
     for (int i = 0; i < nlocal; i++) {
         const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
         const int numneighs = neighbor.numneigh[i];
-        const MMD_float xtmp = x[i * PAD + 0];
-        const MMD_float ytmp = x[i * PAD + 1];
-        const MMD_float ztmp = x[i * PAD + 2];
+        const double xtmp = x[i * PAD + 0];
+        const double ytmp = x[i * PAD + 1];
+        const double ztmp = x[i * PAD + 2];
         const int type_i = type[i];
-        MMD_float fix = 0;
-        MMD_float fiy = 0;
-        MMD_float fiz = 0;
+        double fix = 0;
+        double fiy = 0;
+        double fiz = 0;
 
         // pragma simd forces vectorization (ignoring the performance objections of the compiler)
         // also give hint to use certain vectorlength for MIC, Sandy Bridge and WESTMERE this should be be 8 here
@@ -399,17 +399,17 @@ template <int EVFLAG> void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neig
 #endif
         for (int k = 0; k < numneighs; k++) {
             const int j = neighs[k];
-            const MMD_float delx = xtmp - x[j * PAD + 0];
-            const MMD_float dely = ytmp - x[j * PAD + 1];
-            const MMD_float delz = ztmp - x[j * PAD + 2];
+            const double delx = xtmp - x[j * PAD + 0];
+            const double dely = ytmp - x[j * PAD + 1];
+            const double delz = ztmp - x[j * PAD + 2];
             const int type_j = type[j];
-            const MMD_float rsq = delx * delx + dely * dely + delz * delz;
+            const double rsq = delx * delx + dely * dely + delz * delz;
 
             int type_ij = type_i * ntypes + type_j;
             if (rsq < cutforcesq[type_ij]) {
-                const MMD_float sr2 = 1.0 / rsq;
-                const MMD_float sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
-                const MMD_float force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
+                const double sr2 = 1.0 / rsq;
+                const double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
+                const double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
                 fix += delx * force;
                 fiy += dely * force;
                 fiz += delz * force;

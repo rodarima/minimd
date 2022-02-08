@@ -89,9 +89,9 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
     /* long-range energy and pressure corrections Whats this???*/
 
     double engcorr = 8.0 * 3.1415926 * in.rho
-        * (1.0 / (9.0 * pow(force->cutforce, MMD_float(9.0))) - 1.0 / (3.0 * pow(force->cutforce, MMD_float(3.0))));
+        * (1.0 / (9.0 * pow(force->cutforce, double(9.0))) - 1.0 / (3.0 * pow(force->cutforce, double(3.0))));
     double prscorr = 8.0 * 3.1415926 * in.rho * in.rho
-        * (4.0 / (9.0 * pow(force->cutforce, MMD_float(9.0))) - 2.0 / (3.0 * pow(force->cutforce, MMD_float(3.0))));
+        * (4.0 / (9.0 * pow(force->cutforce, double(9.0))) - 2.0 / (3.0 * pow(force->cutforce, double(3.0))));
 
     /* thermo output */
 
@@ -134,7 +134,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
             fprintf(stdout, "  ghost_newton: %i\n", neighbor.ghost_newton);
             fprintf(stdout, "  use_intrinsics: %i\n", force->use_sse);
             fprintf(stdout, "  safe_exchange: %i\n", comm.do_safeexchange);
-            fprintf(stdout, "  float_size: %i\n\n", (int) sizeof(MMD_float));
+            fprintf(stdout, "  float_size: %i\n\n", (int) sizeof(double));
         }
 
         fprintf(fp, "run_configuration: \n");
@@ -162,7 +162,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
         fprintf(fp, "  ghost_newton: %i\n", neighbor.ghost_newton);
         fprintf(fp, "  use_intrinsics: %i\n", force->use_sse);
         fprintf(fp, "  safe_exchange: %i\n", comm.do_safeexchange);
-        fprintf(fp, "  float_size: %i\n\n", (int) sizeof(MMD_float));
+        fprintf(fp, "  float_size: %i\n\n", (int) sizeof(double));
 
         if (screen_yaml)
             fprintf(stdout, "\n\nthermodynamic_output:\n");
@@ -202,7 +202,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
     double time_total = timer.array[TIME_TOTAL];
     MPI_Allreduce(&time_total, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     time_total = tmp / nprocs;
-    double mflops = 4.0 / 3.0 * 3.1415926 * pow(force->cutforce, MMD_float(3.0)) * in.rho * 0.5 * 23 * natoms
+    double mflops = 4.0 / 3.0 * 3.1415926 * pow(force->cutforce, double(3.0)) * in.rho * 0.5 * 23 * natoms
         * integrate.ntimes / time_total / 1000000.0;
 
     if (me == 0) {
