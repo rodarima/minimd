@@ -30,7 +30,6 @@
 ---------------------------------------------------------------------- */
 
 #include "force_lj.hpp"
-#include "openmp.hpp"
 #include <math.h>
 #include <stdio.h>
 

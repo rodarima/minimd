@@ -276,11 +276,7 @@ int read_lammps_data(
         } else if (strcmp(keyword, "Masses") == 0) {
             fgets(line, MAXLINE, fp);
 
-#if PRECISION == 1
-            sscanf(line, "%i %g", &tmp, &atom.mass);
-#else
             sscanf(line, "%i %lg", &tmp, &atom.mass);
-#endif
         }
 
         read_lammps_parse_keyword(0);

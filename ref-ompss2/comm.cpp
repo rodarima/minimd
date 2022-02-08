@@ -30,7 +30,6 @@
 ---------------------------------------------------------------------- */
 
 #include "comm.hpp"
-#include "openmp.hpp"
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,39 +88,46 @@ int Comm::setup(double cutneigh, Atom &atom)
     // surf = surface area of a proc sub-domain
     // for 2d, insure ipz = 1
 
-    int ipx, ipy, ipz, nremain;
+    int ipx = 1, ipy = 1, ipz = 1, nremain;
     double surf;
 
-    ipx = 1;
+	if (nprocs != 1) {
+		while (ipx <= nprocs) {
+			if (nprocs % ipx == 0) {
+				nremain = nprocs / ipx;
+				ipy = 1;
 
-    while (ipx <= nprocs) {
-        if (nprocs % ipx == 0) {
-            nremain = nprocs / ipx;
-            ipy = 1;
+				while (ipy <= nremain) {
+					if (nremain % ipy == 0) {
+						ipz = nremain / ipy;
+						surf = area[0] / ipx / ipy + area[1] / ipx / ipz + area[2] / ipy / ipz;
 
-            while (ipy <= nremain) {
-                if (nremain % ipy == 0) {
-                    ipz = nremain / ipy;
-                    surf = area[0] / ipx / ipy + area[1] / ipx / ipz + area[2] / ipy / ipz;
+						if (surf < bestsurf) {
+							bestsurf = surf;
+							procgrid[0] = ipx;
+							procgrid[1] = ipy;
+							procgrid[2] = ipz;
+						}
+					}
 
-                    if (surf < bestsurf) {
-                        bestsurf = surf;
-                        procgrid[0] = ipx;
-                        procgrid[1] = ipy;
-                        procgrid[2] = ipz;
-                    }
-                }
+					ipy++;
+				}
+			}
 
-                ipy++;
-            }
-        }
-
-        ipx++;
-    }
+			ipx++;
+		}
+	} else {
+		procgrid[0] = 1;
+		procgrid[1] = 1;
+		procgrid[2] = 1;
+	}
 
     if (procgrid[0] * procgrid[1] * procgrid[2] != nprocs) {
-        if (me == 0)
-            printf("ERROR: Bad grid of processors\n");
+        if (me == 0) {
+			fprintf(stderr,
+					"mismatch procs grid (%d %d %d) and total procs %d\n",
+					procgrid[0], procgrid[1], procgrid[2], nprocs);
+		}
 
         return 1;
     }
@@ -374,7 +380,7 @@ void Comm::exchange(Atom &atom)
     atom.pbc();
 
     /* loop over dimensions */
-    int tid = omp_get_thread_num();
+    int tid = 0;
 
     for (idim = 0; idim < 3; idim++) {
 
@@ -454,7 +460,7 @@ void Comm::exchange(Atom &atom)
         if (total_nsend * 7 > maxsend)
             growsend(total_nsend * 7);
 
-        int total_nsend = nsend_thread[threads->omp_num_threads - 1];
+        total_nsend = nsend_thread[threads->omp_num_threads - 1];
         int nholes = 0;
 
         for (int i = 0; i < nsend; i++)
@@ -678,7 +684,7 @@ void Comm::borders(Atom &atom)
 
     iswap = 0;
 
-    int tid = omp_get_thread_num();
+    int tid = 0;
 
     if (atom.nlocal > maxnlocal) {
         send_flag = new int[atom.nlocal];

@@ -1,20 +1,8 @@
-CXX=I_MPI_CXX=mcxx OMPI_CXX=mcxx mpicxx
+CXX=mpicxx
 LINK=$(CXX)
 
-CXXFLAGS+=--ompss-2 -mavx
-LDFLAGS+=--ompss-2
-
-# Use tampi?
-CXXFLAGS+=-DUSE_TAMPI
-LDFLAGS+=-ltampi-c
-
 #CXXFLAGS+=-O0
-CXXFLAGS+=-O2
-
-CXXFLAGS+=-g
-LDFLAGS+=-g
-#CXXFLAGS+=-k
-CXXFLAGS+=--line-markers
+CXXFLAGS+=-O2 -g
 
 CXXFLAGS+=-fsanitize=address
 LDFLAGS+=-fsanitize=address

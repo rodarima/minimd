@@ -41,7 +41,6 @@
 #include "integrate.hpp"
 #include "main.hpp"
 #include "neighbor.hpp"
-#include "openmp.hpp"
 #include "thermo.hpp"
 #include "threadData.hpp"
 #include "timer.hpp"
@@ -292,7 +291,7 @@ int main(int argc, char **argv)
     threads.mpi_me = me;
     threads.mpi_num_threads = nprocs;
     threads.omp_me = 0;
-    threads.omp_num_threads = num_threads;
+    threads.omp_num_threads = 1;
 
     atom.threads = &threads;
     comm.threads = &threads;
@@ -310,8 +309,6 @@ int main(int argc, char **argv)
     }
 
     neighbor.ghost_newton = ghost_newton;
-
-    omp_set_num_threads(num_threads);
 
     neighbor.timer = &timer;
     force->timer = &timer;

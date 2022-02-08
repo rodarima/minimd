@@ -31,7 +31,6 @@
 //#define PRINTDEBUG(a) a
 #define PRINTDEBUG(a)
 #include "integrate.hpp"
-#include "openmp.hpp"
 #include <math.h>
 #include <stdio.h>
 
