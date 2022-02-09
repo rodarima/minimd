@@ -163,8 +163,6 @@ void Atom::pack_comm(int n, int *list, double *buf, int pbc_any, double pbc_x, d
     // subtracted, added or not included in the calculation (i.e. atom is within the box). Top and bottom branches give
     // identical answers when pbc_flags[1-3] == 0, i.e. when pbc_flags[0] == 0.
     if (pbc_any == 0) {
-
-        //#pragma omp for schedule(static)
         for (i = 0; i < n; i++) {
             j = list[i];
             buf[3 * i] = x[j * PAD + 0];
@@ -172,8 +170,6 @@ void Atom::pack_comm(int n, int *list, double *buf, int pbc_any, double pbc_x, d
             buf[3 * i + 2] = x[j * PAD + 2];
         }
     } else {
-
-        //#pragma omp for schedule(static)
         for (i = 0; i < n; i++) {
             j = list[i];
             buf[3 * i] = x[j * PAD + 0] + pbc_x;
