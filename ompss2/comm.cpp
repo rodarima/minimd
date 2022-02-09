@@ -856,8 +856,6 @@ void Comm::communicate(Atom *atoms[])
         // Tasks created within this functions
         communicate_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
 
-        /* WTF, we are reading sendnum and recvnum without any sync ? */
-
         // Generate tasks for internal swaps between boxes only if we have some atoms to send
         if (boxBufs[box_index].sendnum[0][2] > 0 && boxBufs[box_index].sendnum[0][3] > 0) {
             // 2 sets of tasks here: the pushing of data to both of this
@@ -896,6 +894,7 @@ void Comm::communicate(Atom *atoms[])
                 in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_positive]) \
                 in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_negative]) \
                 out(communicateInternalUnpackSentinels[box_index]) \
+                out(atoms[box_index]->x) \
                 firstprivate(box_index)
             {
                 // Values of firstrecv are set in borders function: [2] is always y-ve swap and [3] always y+ve.
@@ -1174,6 +1173,10 @@ void Comm::communicate_blocking_isend(Atom &atom, int box_id)
 
 // Nonblocking_neighbourtasks but using TAMPI_Iwaitall
 // Combined recv+unpack tasks. Only sends are non-blocking now
+
+/* Sends and receives ghosts atoms to the neighbor boxes. All 26
+ * neighbor boxes are considered, except the two ones in the same rank,
+ * which use memcpy instead of MPI send/recv */
 void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int box_id)
 {
     // ID of box we're sending to and receiving from
@@ -1260,6 +1263,7 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
         #pragma oss task \
             label("communicate_recv & unpack") \
             inout(communicateSentinels[box_id]) \
+            inout(atom->x) \
             firstprivate(atom, box_id, iswap)
         {
             MPI_Request requests[] = { MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL };

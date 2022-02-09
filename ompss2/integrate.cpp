@@ -161,7 +161,9 @@ void force_compute(Atom *atoms[], Comm *comm, Force *force, int print_thermo_sta
             in(comm->communicateSentinels[i]) \
             in(comm->communicateInternalUnpackSentinels[i]) \
             out(comm->forceComputeSentinels[i]) \
+            out(a->f) \
             out(force->eng_vdwl[i]) \
+            out(force->virial[i]) \
             firstprivate(i, a)
         {
             // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
@@ -210,6 +212,8 @@ void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Tim
         next_sort[i] = sort_every > 0 ? sort_every : ntimes + 1;
     }
 
+    #pragma oss taskwait
+
     for (int iter = 0; iter < ntimes; iter++) {
         int recompute_neigh = ((iter + 1) % every == 0);
         int print_thermo_stats = ((iter + 1) % thermo.nstat == 0);
@@ -217,7 +221,6 @@ void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Tim
         /* Update atoms positions and half velocities */
         initial_integrate(atoms, dt, dtforce);
 
-        #pragma oss taskwait
         if (!recompute_neigh) {
             comm.communicate(atoms);
         } else {
@@ -228,13 +231,12 @@ void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Tim
             neigh_build(atoms, &comm);
         }
 
-        #pragma oss taskwait
         force_compute(atoms, &comm, force, print_thermo_stats);
-        #pragma oss taskwait
         final_integrate(atoms, dtforce);
-        #pragma oss taskwait
 
         if (print_thermo_stats)
             thermo.compute(iter + 1, atoms, force, timer);
     }
+
+    #pragma oss taskwait
 }
