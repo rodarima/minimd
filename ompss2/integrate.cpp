@@ -32,39 +32,151 @@
 #define PRINTDEBUG(a)
 #include "integrate.h"
 #include "math.h"
-#include "stdio.h"
+#include <stdio.h>
 
 Integrate::Integrate() { sort_every = 20; }
 Integrate::~Integrate() { }
 
 void Integrate::setup() { dtforce = 0.5 * dt; }
 
-void Integrate::initialIntegrate(double *x, double *v, double *f, int nlocal)
+/* Performs a half-integration updating the velocity and position of the
+ * particles of the given box by using the force */
+void initial_integrate(Atom *atoms[], double dt, double dtforce)
 {
-    for (int i = 0; i < nlocal; i++) {
-        v[i * PAD + 0] += dtforce * f[i * PAD + 0];
-        v[i * PAD + 1] += dtforce * f[i * PAD + 1];
-        v[i * PAD + 2] += dtforce * f[i * PAD + 2];
-        x[i * PAD + 0] += dt * v[i * PAD + 0];
-        x[i * PAD + 1] += dt * v[i * PAD + 1];
-        x[i * PAD + 2] += dt * v[i * PAD + 2];
+    int nboxes = atoms[0]->boxes_per_process;
+    for (int ib = 0; ib < nboxes; ib++) {
+        Atom* a = atoms[ib];
+
+        /* Set the dependencies over the pointers f, v and x (not the
+         * region towards they point to) so they serve as sentinels */
+        #pragma oss task label("initial_integrate") \
+            firstprivate(a) in(a->f) inout(a->v) inout(a->x)
+        {
+            double *x = a->x;
+            double *v = a->v;
+            double *f = a->f;
+            size_t n = a->nlocal;
+            size_t pad = PAD;
+
+            fprintf(stderr, "initial_integrate for box %d\n", ib);
+
+            for (int i = 0; i < n; i++) {
+                v[i * PAD + 0] += dtforce * f[i * PAD + 0];
+                v[i * PAD + 1] += dtforce * f[i * PAD + 1];
+                v[i * PAD + 2] += dtforce * f[i * PAD + 2];
+
+                x[i * PAD + 0] += dt * v[i * PAD + 0];
+                x[i * PAD + 1] += dt * v[i * PAD + 1];
+                x[i * PAD + 2] += dt * v[i * PAD + 2];
+            }
+        }
     }
 }
 
-// DSM Velocity update
-void Integrate::finalIntegrate(double *v, double *f, int nlocal)
+/* Finishes the integration by updating the velocity of all particles */
+void final_integrate(Atom *atoms[], double dtforce)
 {
-    for (int i = 0; i < nlocal; i++) {
-        v[i * PAD + 0] += dtforce * f[i * PAD + 0];
-        v[i * PAD + 1] += dtforce * f[i * PAD + 1];
-        v[i * PAD + 2] += dtforce * f[i * PAD + 2];
+    int nboxes = atoms[0]->boxes_per_process;
+    for (int ib = 0; ib < nboxes; ib++) {
+
+        Atom* a = atoms[ib];
+
+        /* Set the dependencies over the pointers f and v (not the
+         * region towards they point to) so they serve as sentinels */
+        #pragma oss task label("final_integrate for half velocity") \
+            firstprivate(a) in(a->f) inout(a->v)
+        {
+            double *x = a->x;
+            double *v = a->v;
+            double *f = a->f;
+            size_t n = a->nlocal;
+            size_t pad = PAD;
+            fprintf(stderr, "final_integrate for box %d\n", ib);
+
+            for (int i = 0; i < n; i++) {
+                v[i * PAD + 0] += dtforce * f[i * PAD + 0];
+                v[i * PAD + 1] += dtforce * f[i * PAD + 1];
+                v[i * PAD + 2] += dtforce * f[i * PAD + 2];
+            }
+        }
+    }
+}
+
+void sort_atoms(Atom *atoms[], Comm *comm)
+{
+    int nboxes = atoms[0]->boxes_per_process;
+
+    for (int i = 0; i < nboxes; i++) {
+        Atom* a = atoms[i];
+
+        #pragma oss task \
+            label("atom->sort") \
+            in(comm->exchangePBCSentinels[i]) \
+            out(comm->sortSentinels[i]) \
+            firstprivate(a)
+        {
+            a->sort(*a->neighbor);
+        }
+    }
+}
+
+void neigh_build(Atom *atoms[], Comm *comm)
+{
+    int nboxes = atoms[0]->boxes_per_process;
+
+    for (int i = 0; i < nboxes; i++) {
+        Atom* a = atoms[i];
+
+        // Depends on all borders unpack tasks completing,
+        // i.e. must have full knowledge of ghost atoms
+        // before rebuilding neighbour list.
+        // Does not modify x, no pack depedencies.
+        // Dependencies on communicate tasks to prevent this
+        // task running before all non-rebuild iterations
+        // are complete
+        #pragma oss task \
+            label("neighbor->build")                                        \
+            in(comm->bordersUnpackSentinels[i]) \
+            in(comm->bordersInternalSentinels[i]) \
+            in(comm->communicateSentinels[i]) \
+            in(comm->communicateInternalUnpackSentinels[i]) \
+            out(comm->forceComputeSentinels[i]) \
+            firstprivate(a)
+        {
+            a->neighbor->build(*a);
+        }
+    }
+}
+
+void force_compute(Atom *atoms[], Comm *comm, Force *force, int print_thermo_stats)
+{
+    int nboxes = atoms[0]->boxes_per_process;
+
+    for (int i = 0; i < nboxes; i++) {
+        Atom* a = atoms[i];
+        // No need for borders dependencies, borders tasks run only in
+        // reneighbouring branch
+        #pragma oss task \
+            label("force->compute") \
+            in(comm->communicateSentinels[i]) \
+            in(comm->communicateInternalUnpackSentinels[i]) \
+            out(comm->forceComputeSentinels[i]) \
+            out(force->eng_vdwl[i]) \
+            firstprivate(i, a)
+        {
+            // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
+            force->evflag[i] = print_thermo_stats;
+            // Controls whether eng_vdwl and virial are set this
+            // compute call or not.
+            // The last 2 arguments (comm & comm.me) are not used in
+            // force_lj implementation. Replace with nulls
+            force->compute(*a, *a->neighbor, *(Comm *) 0, NULL);
+        }
     }
 }
 
 void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Timer &timer)
 {
-    int i, n;
-
     comm.timer = &timer;
     timer.array[TIME_TEST] = 0.0;
 
@@ -88,140 +200,41 @@ void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Tim
     char *exchangePackSentinels = comm.exchangePackSentinels;
     char *bordersPackSentinels = comm.bordersPackSentinels;
 
-    mass = atoms[0]
-               ->mass; // DSM Multibox change: assuming all atoms have the same mass value here and we have at least 1
+    // DSM Multibox change: assuming all atoms have the same mass value here and we have at least 1
+    mass = atoms[0]->mass;
     dtforce = dtforce / mass;
-    //#pragma omp parallel private(i,n)
-    {
-        // Replaced with an array (one per box)
-        int next_sort[atoms[0]->boxes_per_process];
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-            next_sort[box_index] = sort_every > 0 ? sort_every : ntimes + 1;
+
+    // Replaced with an array (one per box)
+    int next_sort[atoms[0]->boxes_per_process];
+    for (int i = 0; i < atoms[0]->boxes_per_process; ++i) {
+        next_sort[i] = sort_every > 0 ? sort_every : ntimes + 1;
+    }
+
+    for (int iter = 0; iter < ntimes; iter++) {
+        int recompute_neigh = ((iter + 1) % every == 0);
+        int print_thermo_stats = ((iter + 1) % thermo.nstat == 0);
+
+        /* Update atoms positions and half velocities */
+        initial_integrate(atoms, dt, dtforce);
+
+        #pragma oss taskwait
+        if (!recompute_neigh) {
+            comm.communicate(atoms);
+        } else {
+            /* expensive */
+            comm.exchange(atoms);
+            sort_atoms(atoms, &comm);
+            comm.borders(atoms);
+            neigh_build(atoms, &comm);
         }
 
-        // DSM: The main loop over all timesteps. Split into:
-        //   * initialIntegrate()
-        //   * Almost always:
-        //       - comm.communicate()
-        //     but every neighbor.every timesteps instead do:
-        //       - comm.exchange()
-        //       - comm.borders()
-        //       - neighbor.build()
-        //   * force->compute()
-        //   * finalIntegrate()
-        //   * thermo.compute() (once, gives final output)
-        //
-        // comm.communicate is a cheaper function that is called most of the time. Updates atom positions.
-        // comm.exchange+comm.borders are more expensive and called occasionally to update neighbours and change atom
-        // boxes
-        for (n = 0; n < ntimes; n++) {
+        #pragma oss taskwait
+        force_compute(atoms, &comm, force, print_thermo_stats);
+        #pragma oss taskwait
+        final_integrate(atoms, dtforce);
+        #pragma oss taskwait
 
-            // if (threads->mpi_me == 0) {
-            //   printf("Starting iteration %d\n", n);
-            // }
-
-            // --- initialIntegrate ---
-            for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// in-dependencies on all packs for this box. 26 way communication but
-// 3 (box layers) * 10 (neighbours) elements in sentinels array to simplify allocation.
-// Packs do not need to complete until this point; force calculation and finalIntegrate can be done before or
-// after sends are posted.
-// Recvs from neighbours must have completed, however.
-#pragma oss task label("initialIntegrate") in(forceComputeSentinels[box_index]) in(                                    \
-    communicatePackSentinels[box_index] [0:30]) in(communicateInternalPackSentinels[box_index])                        \
-    in(exchangePackSentinels[box_index]) in(bordersPackSentinels[box_index]) out(initialIntegrateSentinels[box_index]) \
-        firstprivate(box_index)
-                {
-                    initialIntegrate(
-                        atoms[box_index]->x, atoms[box_index]->v, atoms[box_index]->f, atoms[box_index]->nlocal);
-                }
-            }
-
-            // --- comm.communicate() ---
-            // DSM: communicate() almost every timestep. neighbor.every number of timesteps do more expensive
-            // exchange().
-            if ((n + 1) % every) {
-                comm.communicate(atoms); // DSM: Multibox
-            }
-
-            // --- comm.exchange() ---
-            if (!((n + 1) % every)) {
-                comm.exchange(atoms);
-            }
-
-            // --- atom.sort() ---
-            for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-                if (!((n + 1) % every)) {
-                    if (n + 1 >= next_sort[box_index]) {
-#pragma oss task label("atom->sort") in(exchangePBCSentinels[box_index]) out(sortSentinels[box_index])                 \
-    firstprivate(box_index)
-                        atoms[box_index]->sort(*atoms[box_index]->neighbor);
-
-                        next_sort[box_index] += sort_every;
-                    }
-                }
-            }
-
-            // --- comm.borders() ---
-            if (!((n + 1) % every)) {
-                comm.borders(atoms);
-            }
-
-            // Only perform neighbour rebuild "every" iterations
-            if (!((n + 1) % every)) {
-                // --- neighbor.build() ---
-                // --- force->compute() ---
-                // --- finalIntegrate --- combined tasks
-                for (int box_index = 0; box_index < boxes_per_process; ++box_index) {
-// Depends on all borders unpack tasks completing, i.e. must have full
-// knowledge of ghost atoms before rebuilding neighbour list.
-// Does not modify x, no pack depedencies.
-// Dependencies on communicate tasks to prevent this task running before all non-rebuild iterations are complete
-#pragma oss task label("neighbor->build & force->compute & finalIntegrate")                                            \
-    in(bordersUnpackSentinels[box_index]) in(bordersInternalSentinels[box_index]) in(communicateSentinels[box_index])  \
-        in(communicateInternalUnpackSentinels[box_index]) out(forceComputeSentinels[box_index])                        \
-            firstprivate(box_index, n)
-                    {
-                        atoms[box_index]->neighbor->build(*atoms[box_index]);
-                        // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
-                        force->evflag[box_index] = (n + 1) % thermo.nstat
-                            == 0; // Controls whether eng_vdwl and virial are set this compute call or not
-                        force->compute(*atoms[box_index], *atoms[box_index]->neighbor, *(Comm *) 0,
-                            NULL); // last 2 arguments (comm & comm.me) are not used in force_lj implementation. Replace
-                                   // with nulls
-                        finalIntegrate(atoms[box_index]->v, atoms[box_index]->f, atoms[box_index]->nlocal);
-                    }
-                }
-            } else {
-                // --- force->compute() ---
-                // --- finalIntegrate --- combined tasks
-                for (int box_index = 0; box_index < boxes_per_process; ++box_index) {
-// No need for borders dependencies, borders tasks run only in reneighbouring branch
-#pragma oss task label("force->compute & finalIntegrate") in(communicateSentinels[box_index]) in(                      \
-    communicateInternalUnpackSentinels[box_index]) out(forceComputeSentinels[box_index]) firstprivate(box_index, n)
-                    {
-                        // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
-                        force->evflag[box_index] = (n + 1) % thermo.nstat
-                            == 0; // Controls whether eng_vdwl and virial are set this compute call or not
-                        force->compute(*atoms[box_index], *atoms[box_index]->neighbor, *(Comm *) 0,
-                            NULL); // last 2 arguments (comm & comm.me) are not used in force_lj implementation. Replace
-                                   // with nulls
-                        finalIntegrate(atoms[box_index]->v, atoms[box_index]->f, atoms[box_index]->nlocal);
-                    }
-                }
-            }
-
-            // --- thermo.compute() ---
-            // DSM Multibox: This function requires output of force->compute() on the timesteps it is called.
-            // Consists of energy(), temperature() and pressure() calculations = 3x MPI_Allreduces
-            // Loops over boxes_per_process occur within these functions.
-
-            if (!((n + 1) % thermo.nstat)) {
-// Wait for all tasks to complete before doing final thermo calculation
-#pragma oss taskwait
-                thermo.compute(n + 1, atoms, force, timer);
-            }
-
-        } // End main loop over timesteps
-    } // end OpenMP parallel
-} // End run() function
+        if (print_thermo_stats)
+            thermo.compute(iter + 1, atoms, force, timer);
+    }
+}
