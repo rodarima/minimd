@@ -33,20 +33,25 @@
 #include "mpi.h"
 #include "stdio.h"
 #include "stdlib.h"
+#include <errno.h>
 
 #ifdef USE_TAMPI
 #include <TAMPI.h>
 #else
-// Dummy definitions for tasked versions of communicate, borders, exchange
-int TAMPI_Iwait(MPI_Request *, MPI_Status *) { return 0; }
-int TAMPI_Iwaitall(int, MPI_Request *, MPI_Status *) { return 0; }
+//int TAMPI_Iwait(MPI_Request *r, MPI_Status *s) {
+//  return MPI_Wait(r, s);
+//}
+//
+//int TAMPI_Iwaitall(int n, MPI_Request *r, MPI_Status *s) {
+//  return MPI_Waitall(n, r, s);
+//}
 #endif
 
 // DSM Added for memcpy
 #include <string.h>
 
 #define BUFFACTOR 1.5
-#define BUFMIN 10000000
+#define BUFMIN 100000
 #define BUFEXTRA 100
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -88,6 +93,7 @@ Comm::Comm(int boxes_per_process_)
     // DSM Allocate initial send and recv buffers per box
     // TODO: Remove all this boilerplate. Replace with initialiseBuffer() method?
     for (int i = 0; i < boxes_per_process; ++i) {
+        fprintf(stderr, "creating comms for box %d\n", i);
         // 3 sets of buffers per function that performs communication
         for (int function_index = 0; function_index < 3; ++function_index) {
             // Internal buffers for communication between boxes on this process
@@ -355,110 +361,74 @@ int Comm::setup(double cutneigh, int nprocsx, int nprocsz, Atom *atoms[], int no
         exchangeRecv2Sentinels[i] = (char *) malloc(5);
     }
     // Fully-tasked borders
-    // 3d array: 5 dimensions in borders, 2 swaps per dimension, all per box
-    bordersRecvSentinels = (char(*)[5][2])(malloc(atoms[0]->boxes_per_process * sizeof(*bordersRecvSentinels)));
+    // 3d array: 5 dimensions in borders, 2 swaps per dimension, all per
+    // box
+    bordersRecvSentinels =
+        (char(*)[5][2])(malloc(atoms[0]->boxes_per_process *
+                    sizeof(*bordersRecvSentinels)));
 
     // Enable/disable non-blocking mode
     this->nonblocking_enabled = nonblocking_enabled;
 
-    // Orderings of 24 buffers per box (one send and one recv buffer per exchange)
+    // Orderings of 24 buffers per box (one send and one recv buffer per
+    // exchange)
     int box_layers[] = { SAME_LAYER, LOWER_LAYER, UPPER_LAYER };
-    int neighbours[] = { UP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT, DOWN, BOTTOM_LEFT, LEFT, TOP_LEFT };
+    int neighbours[] = { UP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT, DOWN,
+        BOTTOM_LEFT, LEFT, TOP_LEFT };
 
     // DSM Box dimensions. Product of units and lattice in create_box(
-    // DSM: Multibox change. All boxes have the same prd dimensions and we assume we have at least one box.
+    // DSM: Multibox change. All boxes have the same prd dimensions and
+    // we assume we have at least one box.
     prd[0] = atoms[0]->box.xprd;
     prd[1] = atoms[0]->box.yprd;
     prd[2] = atoms[0]->box.zprd;
 
     /* setup 3-d grid of procs */
-    // DSM: Could pull this from threads.mpi_me and threads.mpi_num_threads to save an MPI call.
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-    double area[3];
-
-    // DSM: entire simulation box dimensions: x*y, x*z, y*z
-    area[0] = prd[0] * prd[1];
-    area[1] = prd[0] * prd[2];
-    area[2] = prd[1] * prd[2];
-
-    double bestsurf = 2.0 * (area[0] + area[1] + area[2]);
-
-    // loop thru all possible factorizations of nprocs
-    // surf = surface area of a proc sub-domain
-    // for 2d, insure ipz = 1
-
-    int ipx, ipy, ipz, nremain;
-    double surf;
-
-    ipx = 1;
-
-    // DSM: TODO: This generates the process grid. Need to change for multibox as we're ignoring the outcome
-    // DSM: Looks like it tries every possible process grid "loop thru all possible factorizations of nprocs" until it
-    // finds the smallest surface (bestsurf), where "surf = surface area of a proc sub-domain"
-    while (ipx <= nprocs) {
-        if (nprocs % ipx == 0) {
-            nremain = nprocs / ipx;
-            ipy = 1;
-
-            while (ipy <= nremain) {
-                if (nremain % ipy == 0) {
-                    ipz = nremain / ipy;
-                    surf = area[0] / ipx / ipy + area[1] / ipx / ipz + area[2] / ipy / ipz;
-
-                    if (surf < bestsurf) {
-                        bestsurf = surf;
-                        procgrid[0] = ipx;
-                        procgrid[1] = ipy;
-                        procgrid[2] = ipz;
-                    }
-                }
-
-                ipy++;
-            }
-        }
-
-        ipx++;
-    }
-
-    // DSM: Multiple boxes change. Ignoring results from above factorisation and hardcoding a grid with one column of
-    // box space per process.
-    // TODO: Fix factorisation to avoid need for user to manually specify process grid in input file
+    /* Number of processes per dimension */
     procgrid[0] = nprocsx;
     procgrid[1] = 1;
     procgrid[2] = nprocsz;
 
-    // DSM: Could this happen? Is this a redundant assert?
     if (procgrid[0] * procgrid[1] * procgrid[2] != nprocs) {
-        printf("ERROR: Bad grid of processors\n");
-        MPI_Abort(MPI_COMM_WORLD, 1);
+        fprintf(stderr,
+                "mismatch procs grid (%d %d %d) and total procs %d\n",
+                procgrid[0], procgrid[1], procgrid[2], nprocs);
+        exit(1);
     }
 
-    // DSM Set equivalent boxgrid (# boxes per dimension) based on procgrid.
-    // DSM This will always be equal to procgrid in x and z dimensions as we are splitting the grid over boxes in y.
+    /* Global number of boxes per dimension */
     boxgrid[0] = procgrid[0];
     boxgrid[1] = boxes_per_process;
     boxgrid[2] = procgrid[2];
 
     /* determine where I am and my neighboring procs in 3d grid of procs */
 
-    // DSM: COMM_WORLD rank order preserved in new communicator. All dimensions are periodic, i.e. coordinate 0 is a
+    // DSM: COMM_WORLD rank order preserved in new communicator. All
+    // dimensions are periodic, i.e. coordinate 0 is a
     // neighbour of coordinate nmax ("it circles around").
     int reorder = 0;
     periods[0] = periods[1] = periods[2] = 1;
 
-    MPI_Cart_create(MPI_COMM_WORLD, 3, procgrid, periods, reorder, &cartesian);
-    // DSM: Retrieving myloc: array of calling process's coordinates in the new communicator
+    MPI_Cart_create(MPI_COMM_WORLD, 3, procgrid, periods, reorder,
+            &cartesian);
+
     MPI_Cart_get(cartesian, 3, procgrid, periods, myloc);
+
     // DSM: Getting ranks of neighbours in all dimensions
-    // We have 8 process neighbours * 3 layers of boxes + 2 internal communications between boxes on this rank = 26-way
-    // Process neighbours are constant for all boxes on this rank. Neighbouring box IDs tracked in atom->boxneigh
+    // We have 8 process neighbours * 3 layers of boxes + 2 internal
+    // communications between boxes on this rank = 26-way
+    // Process neighbours are constant for all boxes on this rank.
+    // Neighbouring box IDs tracked in atom->boxneigh
     // Sides:
     // Due to procgrid[1] being fixed to 1, shift in direction 1 will always == me.
+
     MPI_Cart_shift(cartesian, 0, 1, &procneigh[0][0], &procneigh[0][1]); // DSM: Left/Right
     MPI_Cart_shift(cartesian, 1, 1, &procneigh[1][0], &procneigh[1][1]); // DSM: Down/Up
     MPI_Cart_shift(cartesian, 2, 1, &procneigh[2][0], &procneigh[2][1]); // DSM: Front/Back
+
     // Corners:
     int cornerLoc[3];
     cornerLoc[0] = myloc[0] - 1;
@@ -520,16 +490,39 @@ int Comm::setup(double cutneigh, int nprocsx, int nprocsz, Atom *atoms[], int no
 
     /* need = # of boxes I need atoms from in each dimension */
 
-    need[0] = static_cast<int>(cutneigh * procgrid[0] / prd[0] + 1);
-    // need[1] = static_cast<int>(cutneigh * procgrid[1] / prd[1] + 1);
-    need[1] = static_cast<int>(cutneigh * boxes_per_process / prd[1] + 1);
-    need[2] = static_cast<int>(cutneigh * procgrid[2] / prd[2] + 1);
+    /* An atom cannot move more than cutneigh in one timestep, so we can
+     * bound the number of boxes it can travel */
+
+    double boxlen[] = {
+        prd[0] / boxgrid[0],
+        prd[1] / boxgrid[1],
+        prd[2] / boxgrid[2],
+    };
+
+    /* Ensure we only need the atoms in one neighbor box by forcing the
+     * rcut to be less than the boxlen in X, Y and Z */
+    for (int dim = 0; dim < 3; dim++) {
+        char dimc = "XYZ"[dim];
+        double rcut = cutneigh;
+
+        if (rcut >= boxlen[dim]) {
+            fprintf(stderr, "box too small in dimension %c\n", dimc);
+            fprintf(stderr, "rcut=%e but box len in %c is %e\n",
+                    cutneigh, dimc, boxlen[dim]);
+            exit(1);
+        }
+
+        need[dim] = 1;
+    }
+
     // Added for multibox (corner dimensions
     need[3] = 1;
     need[4] = 1;
 
-    // DSM The "need" calculations above allow for >3^3 communications (i.e. >=2 communications in each dimension).
-    // Choosing to support nearest neighbour communications only, i.e. need[0] == need[1] == need[2] == 1.
+    // DSM The "need" calculations above allow for >3^3 communications
+    // (i.e. >=2 communications in each dimension).
+    // Choosing to support nearest neighbour communications only, i.e.
+    // need[0] == need[1] == need[2] == 1.
     if (need[0] != 1 || need[1] != 1 || need[2] != 1) {
         printf("ERROR: # boxes Rank %d needs atoms from in each dimension calculated as %d, %d, %d.\n"
                "Only communication with nearest neighbours supported in taskified version.\n"
@@ -854,312 +847,69 @@ int Comm::setup(double cutneigh, int nprocsx, int nprocsz, Atom *atoms[], int no
     return 0;
 }
 
-/* communication of atom info every timestep */
-
 void Comm::communicate(Atom *atoms[])
 {
 
-    // Select between blocking and non-blocking communication modes
-    if (nonblocking_enabled) {
-        communicate_nonblocking(atoms);
-        // Wait for all other communications to finish before doing internal swaps between boxes on same process
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-            communicate_internal(*atoms[box_index], box_index);
-        }
-    } else {
-        // Call once per box instance
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-            //#pragma oss task label("communicate_blocking") in(initialIntegrateSentinels[box_index])
-            // out(communicateSentinels[box_index]) firstprivate(box_index)
-            // communicate_blocking_isend(*atoms[box_index], box_index);
+    // Call once per box instance
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
 
-            // Tasks created within this functions
-            // communicate_blocking_alltasks(atoms[box_index], box_index);
-            // communicate_blocking_alltasks_recvfirst(atoms[box_index], box_index);
-            // communicate_nonblocking_neighbourtasks(atoms[box_index], box_index);
-            // communicate_blocking_neighbourtasks(atoms[box_index], box_index);
-            // communicate_blocking_single_message_neighbourtasks(atoms[box_index], box_index); // TODO: BROKEN
-            // communicate_nonblocking_alltasks_tampi_iwait(atoms[box_index], box_index);
-            communicate_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
+        // Tasks created within this functions
+        communicate_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
 
-            // Generate tasks for internal swaps between boxes only if we have some atoms to send
-            if (boxBufs[box_index].sendnum[0][2] > 0 && boxBufs[box_index].sendnum[0][3] > 0) {
-// 2 sets of tasks here: the pushing of data to both of this box's neighbours (i.e. "sends") and the unpacking of
-// data done in loop following (i.e. "recvs")
-#pragma oss task label("communicate_internal_pack")                                                                    \
-    in(initialIntegrateSentinels[box_index]) out(communicateInternalPackSentinels[box_index]) firstprivate(box_index)
-                {
-                    // Lower layer (usually box_id-1)
-                    int neighbour = atoms[box_index]->boxneigh_negative;
-                    communicate_internal_send(atoms[box_index],
-                        &boxBufs[box_index].internal_buf_send_down[COMMUNICATE_FUNCTION],
-                        &boxBufs[neighbour].internal_buf_recv_down[COMMUNICATE_FUNCTION],
-                        boxBufs[box_index].internal_sendlist_down, boxBufs[box_index].comm_send_size[0][2],
-                        boxBufs[box_index].sendnum[0][2]);
-                    // Upper layer (usually box_id+1)
-                    neighbour = atoms[box_index]->boxneigh_positive;
-                    communicate_internal_send(atoms[box_index],
-                        &boxBufs[box_index].internal_buf_send_up[COMMUNICATE_FUNCTION],
-                        &boxBufs[neighbour].internal_buf_recv_up[COMMUNICATE_FUNCTION],
-                        boxBufs[box_index].internal_sendlist_up, boxBufs[box_index].comm_send_size[0][3],
-                        boxBufs[box_index].sendnum[0][3]);
-                }
+        /* WTF, we are reading sendnum and recvnum without any sync ? */
+
+        // Generate tasks for internal swaps between boxes only if we have some atoms to send
+        if (boxBufs[box_index].sendnum[0][2] > 0 && boxBufs[box_index].sendnum[0][3] > 0) {
+            // 2 sets of tasks here: the pushing of data to both of this
+            // box's neighbours (i.e. "sends") and the unpacking of data
+            // done in loop following (i.e. "recvs")
+            #pragma oss task \
+                label("communicate_internal_pack") \
+                in(atoms[box_index]->x) \
+                out(communicateInternalPackSentinels[box_index]) \
+                firstprivate(box_index)
+            {
+                // Lower layer (usually box_id-1)
+                int neighbour = atoms[box_index]->boxneigh_negative;
+                communicate_internal_send(atoms[box_index],
+                    &boxBufs[box_index].internal_buf_send_down[COMMUNICATE_FUNCTION],
+                    &boxBufs[neighbour].internal_buf_recv_down[COMMUNICATE_FUNCTION],
+                    boxBufs[box_index].internal_sendlist_down, boxBufs[box_index].comm_send_size[0][2],
+                    boxBufs[box_index].sendnum[0][2]);
+                // Upper layer (usually box_id+1)
+                neighbour = atoms[box_index]->boxneigh_positive;
+                communicate_internal_send(atoms[box_index],
+                    &boxBufs[box_index].internal_buf_send_up[COMMUNICATE_FUNCTION],
+                    &boxBufs[neighbour].internal_buf_recv_up[COMMUNICATE_FUNCTION],
+                    boxBufs[box_index].internal_sendlist_up, boxBufs[box_index].comm_send_size[0][3],
+                    boxBufs[box_index].sendnum[0][3]);
             }
         }
+    }
 
-        // Receive/unpack half of internal swaps between boxes
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-            // Wait for both of my neighbours' pack tasks to finish before unpacking (if there is data to unpack)
-            if (boxBufs[box_index].recvnum[0][2] > 0 && boxBufs[box_index].recvnum[0][3] > 0) {
-#pragma oss task label("communicate_internal_unpack")                                                                  \
-    in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_positive])                                          \
-        in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_negative]) out(                                 \
-            communicateInternalUnpackSentinels[box_index]) firstprivate(box_index)
-                {
-                    // Values of firstrecv are set in borders function: [2] is always y-ve swap and [3] always y+ve.
-                    // Data has been pushed into my internal buffers. Unpack into end of atom list
-                    // Unlike other unpack routines, unpack_comm has an internal loop over atoms
-                    atoms[box_index]->unpack_comm(boxBufs[box_index].recvnum[0][2], boxBufs[box_index].firstrecv[0][2],
-                        boxBufs[box_index].internal_buf_recv_down[COMMUNICATE_FUNCTION].buf);
-                    // As above but y+ve direction ([3] always y+ve)
-                    atoms[box_index]->unpack_comm(boxBufs[box_index].recvnum[0][3], boxBufs[box_index].firstrecv[0][3],
-                        boxBufs[box_index].internal_buf_recv_up[COMMUNICATE_FUNCTION].buf);
-                }
-            } // End of recvnum branch
-        } // End of loop over boxes
-    } // End of blocking branch
-} // End of function
+    // Receive/unpack half of internal swaps between boxes
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // Wait for both of my neighbours' pack tasks to finish before unpacking (if there is data to unpack)
+        if (boxBufs[box_index].recvnum[0][2] > 0 && boxBufs[box_index].recvnum[0][3] > 0) {
+            #pragma oss task \
+                label("communicate_internal_unpack") \
+                in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_positive]) \
+                in(communicateInternalPackSentinels[atoms[box_index]->boxneigh_negative]) \
+                out(communicateInternalUnpackSentinels[box_index]) \
+                firstprivate(box_index)
+            {
+                // Values of firstrecv are set in borders function: [2] is always y-ve swap and [3] always y+ve.
+                // Data has been pushed into my internal buffers. Unpack into end of atom list
+                // Unlike other unpack routines, unpack_comm has an internal loop over atoms
+                atoms[box_index]->unpack_comm(boxBufs[box_index].recvnum[0][2], boxBufs[box_index].firstrecv[0][2],
+                    boxBufs[box_index].internal_buf_recv_down[COMMUNICATE_FUNCTION].buf);
 
-// DSM:
-// Calculated for each timestep in borders()+exchange():
-// sendnum           number of atoms to send
-// sendlist          list of indices into x array representing the atoms to send
-// comm_recv_size    number of doubles to receive in a swap (will be 3x sending proc's sendnum)
-// comm_send_size    number of doubles to send in a swap (will be 3x this proc's sendnum)
-// firstrecv         index of the first atom in the x array in the region we're receiving into (used as offset to x in
-// unpack_comm())
-//
-// Calculated in setup(), constant for all timesteps:
-// nswap             number of swaps to perform
-// sendproc          list of process ranks to send to
-// recvproc          list of process ranks to receive from
-// pbc_any           whether this process+box combination is periodic in any dimension (flag == 0 or 1)
-// pbc_flagx         whether this process+box combination is periodic in the x dimension (flag == 0 or 1 or -1)
-// pbc_flagy         whether this process+box combination is periodic in the y dimension (flag == 0 or 1 or -1)
-// pbc_flagz         whether this process+box combination is periodic in the z dimension (flag == 0 or 1 or -1)
-void Comm::communicate_nonblocking(Atom *atoms[])
-{
-
-    // Arrays for isend/irecv requests
-    // nswaps communications per box layer, 3 box layers per box on this process.
-    // Internal swaps in y-dimension are skipped => subtract 6 per box (2 y-swaps per box layer)
-    // nswaps and boxes_per_process constant per box
-    int nrequests = boxBufs[0].nswap * 3 * atoms[0]->boxes_per_process - 6 * atoms[0]->boxes_per_process;
-    MPI_Request recv_requests[nrequests];
-    MPI_Request send_requests[nrequests];
-    int recv_req_i = 0;
-    int send_req_i = 0;
-
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        int nsend;
-        AtomBuffer *buf_send = NULL, *buf_recv = NULL;
-        // ID of boxes we're sending to and receiving from
-        int send_target_box_id, recv_target_box_id;
-        // Directions of buffers we're using to send to/recieve into
-        int sendNeighbour, recvNeighbour;
-        // Message tags
-        int sendtag, recvtag;
-        // Communicators to use
-        MPI_Comm *send_comm, *recv_comm;
-        // List of atoms to be sent
-        int *sendlist;
-        // Swap counter for this box
-        int swapnum = 0;
-
-        // DSM Multibox: Reference buffers/variables specific to this box.
-        Atom &atom = *atoms[box_id];
-        int &nswap = boxBufs[box_id].nswap;
-        int *(&sendnum)[3] = boxBufs[box_id].sendnum;
-        int *(&recvnum)[3] = boxBufs[box_id].recvnum;
-        int *(&firstrecv)[3] = boxBufs[box_id].firstrecv;
-        int *&sendproc = boxBufs[box_id].sendproc;
-        int *&recvproc = boxBufs[box_id].recvproc;
-        int *&sendneigh = boxBufs[box_id].sendneigh;
-        int *&recvneigh = boxBufs[box_id].recvneigh;
-        int *(&comm_send_size)[3] = boxBufs[box_id].comm_send_size;
-        int *(&comm_recv_size)[3] = boxBufs[box_id].comm_recv_size;
-        AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION];
-        AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION];
-        int *(&sendlists)[3][8] = boxBufs[box_id].sendlists;
-        AtomBuffer &internal_buf_send_up = boxBufs[box_id].internal_buf_send_up[COMMUNICATE_FUNCTION];
-        AtomBuffer &internal_buf_send_down = boxBufs[box_id].internal_buf_send_down[COMMUNICATE_FUNCTION];
-        AtomBuffer &internal_buf_recv_up = boxBufs[box_id].internal_buf_recv_up[COMMUNICATE_FUNCTION];
-        AtomBuffer &internal_buf_recv_down = boxBufs[box_id].internal_buf_recv_down[COMMUNICATE_FUNCTION];
-        int *&internal_sendlist_up = boxBufs[box_id].internal_sendlist_up;
-        int *&internal_sendlist_down = boxBufs[box_id].internal_sendlist_down;
-
-        for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-
-            // Determine box IDs to send to/receive from on this layer
-            layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-            // DSM nswap (number of swaps) is a constant calculated in setup()
-            for (int iswap = 0; iswap < nswap; iswap++) {
-
-                // Check if this is an internal memory copy between boxes on same proc. Skip MPI communication if so
-                if (iswap == 2) { // iswap=2 guaranteed to be swap in y -ve direction
-                    // Only perform the internal swap once, do not repeat for every box layer
-                    if (box_layer_index > 0) {
-                        continue;
-                    }
-                    // First exchange to lower layer (usually box_id-1 but periodic)
-                    int boxNeighbour = atom.boxneigh_negative;
-                    buf_send = &internal_buf_send_down;
-                    buf_recv = &(boxBufs[boxNeighbour].internal_buf_recv_down[COMMUNICATE_FUNCTION]);
-                    sendlist = internal_sendlist_down;
-                    // Increase size of receive buffers if packing/receiving more than can be held
-                    nsend = comm_send_size[box_layer_index][iswap];
-                    // TODO: Could optimise by packing directly into neighbour's buffer (PBC would complicate things)
-                    if (nsend > buf_send->maxsize) {
-                        buf_send->growrecv(nsend);
-                    }
-                    if (nsend > buf_recv->maxsize) {
-                        buf_recv->growrecv(nsend);
-                    }
-                    // Pack data into send buffer
-                    atom.pack_comm(sendnum[box_layer_index][iswap], sendlist, buf_send->buf, buf_send->pbc_any,
-                        buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-                    // Push to neighbour.
-                    memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
-                    continue;
-                } else if (iswap == 3) { // iswap=3 guaranteed to be swap in y +ve direction
-                    if (box_layer_index > 0) {
-                        continue;
-                    }
-                    // As above but to upper layer (usually box_id+1)
-                    int boxNeighbour = atom.boxneigh_positive;
-                    buf_send = &internal_buf_send_up;
-                    buf_recv = &(boxBufs[boxNeighbour].internal_buf_recv_up[COMMUNICATE_FUNCTION]);
-                    sendlist = internal_sendlist_up;
-                    nsend = comm_send_size[box_layer_index][iswap];
-                    if (nsend > buf_send->maxsize) {
-                        buf_send->growrecv(nsend);
-                    }
-                    if (nsend > buf_recv->maxsize) {
-                        buf_recv->growrecv(nsend);
-                    }
-                    atom.pack_comm(sendnum[box_layer_index][iswap], sendlist, buf_send->buf, buf_send->pbc_any,
-                        buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-                    memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
-                    continue;
-                }
-
-                // Determine which buffers we are using in each communication
-                sendNeighbour = sendneigh[iswap];
-                recvNeighbour = recvneigh[iswap];
-                buf_send = &bufs_send[box_layer_index][sendNeighbour];
-                buf_recv = &bufs_recv[box_layer_index][recvNeighbour];
-                send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
-                recv_comm = &boxBufs[atom.box_id].comm[COMMUNICATE_FUNCTION];
-                sendtag = swapnum;
-                recvtag = sendtag;
-                ++swapnum;
-                sendlist = sendlists[box_layer_index][sendNeighbour];
-
-                /* pack buffer */
-
-                // DSM Added buffer size checks. Previously weren't necessary as buffers were reused from borders()
-                // (which ensured ensured sufficient size) but now independent buffers used for each function
-                if (comm_send_size[box_layer_index][iswap] > buf_send->maxsize) {
-                    buf_send->growsend(comm_send_size[box_layer_index][iswap]);
-                }
-                if (comm_recv_size[box_layer_index][iswap] > buf_recv->maxsize) {
-                    buf_recv->growrecv(comm_recv_size[box_layer_index][iswap]);
-                }
-
-                //#pragma omp barrier
-                atom.pack_comm(sendnum[box_layer_index][iswap], sendlist, buf_send->buf, buf_send->pbc_any,
-                    buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-
-                /* exchange with another proc
-                   if self, set recv buffer to send buffer */
-
-                // DSM Multibox: Reverse order of this if statement and include box id
-                if (sendproc[iswap] == me && send_target_box_id == atom.box_id) {
-                    // Skip copies to myself, data will be unpacked directly from send buffer in next step
-                    continue;
-                } else {
-                    //#pragma omp master
-                    {
-                        if (sizeof(double) == 4) {
-                            MPI_Irecv(buf_recv->buf, comm_recv_size[box_layer_index][iswap], MPI_FLOAT, recvproc[iswap],
-                                recvtag, *recv_comm, &recv_requests[recv_req_i]);
-                            MPI_Isend(buf_send->buf, comm_send_size[box_layer_index][iswap], MPI_FLOAT, sendproc[iswap],
-                                sendtag, *send_comm, &send_requests[send_req_i]);
-                        } else {
-                            MPI_Irecv(buf_recv->buf, comm_recv_size[box_layer_index][iswap], MPI_DOUBLE,
-                                recvproc[iswap], recvtag, *recv_comm, &recv_requests[recv_req_i]);
-                            MPI_Isend(buf_send->buf, comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                                sendproc[iswap], sendtag, *send_comm, &send_requests[send_req_i]);
-                        }
-
-                        recv_req_i++;
-                        send_req_i++;
-                    }
-                }
-
-            } // End of loop over number of swap
-        } // End of loop over box layers
-    } // End of loop over boxes per processs
-
-    // All swaps posted, wait for completion
-    // req_is rather than nrequests as may have skipped requests if sending to self
-    MPI_Waitall(recv_req_i, recv_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(send_req_i, send_requests, MPI_STATUSES_IGNORE);
-
-    /* unpack buffer */
-
-    // Do all unpacks unless this was an internal swap
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        int neighbour, send_target_box_id, recv_target_box_id;
-        // Variables for this box
-        AtomBuffer *buf = NULL;
-        AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION];
-        AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION];
-        Atom &atom = *atoms[box_id];
-        int &nswap = boxBufs[box_id].nswap;
-        int *&sendproc = boxBufs[box_id].sendproc;
-        int *(&recvnum)[3] = boxBufs[box_id].recvnum;
-        int *(&firstrecv)[3] = boxBufs[box_id].firstrecv;
-        int *&sendneigh = boxBufs[box_id].sendneigh;
-        int *&recvneigh = boxBufs[box_id].recvneigh;
-
-        for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-            // Determine box IDs to send to/receive from on this layer
-            layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-            for (int iswap = 0; iswap < nswap; iswap++) {
-                // Skip internal swaps - 2/3 are always y-ve and y+ve directions
-                if (iswap == 2 || iswap == 3) {
-                    continue;
-                }
-
-                // Which buffer are we unpacking?
-                if (sendproc[iswap] == me && send_target_box_id == atom.box_id) {
-                    // Sending to self. Just unpack the send buffer
-                    neighbour = sendneigh[iswap];
-                    buf = &bufs_send[box_layer_index][neighbour];
-                } else {
-                    // Otherwise, unpack the receive buffer as normal
-                    neighbour = recvneigh[iswap];
-                    buf = &bufs_recv[box_layer_index][neighbour];
-                }
-
-                atom.unpack_comm(recvnum[box_layer_index][iswap], firstrecv[box_layer_index][iswap], buf->buf);
-            } // End of loop over number of swap
-        } // End of loop over box layers
-    } // End of loop over boxes per processs
+                // As above but y+ve direction ([3] always y+ve)
+                atoms[box_index]->unpack_comm(boxBufs[box_index].recvnum[0][3], boxBufs[box_index].firstrecv[0][3],
+                    boxBufs[box_index].internal_buf_recv_up[COMMUNICATE_FUNCTION].buf);
+            }
+        } // End of recvnum branch
+    } // End of loop over boxes
 } // End of function
 
 void Comm::communicate_blocking(Atom &atom, int box_id)
@@ -1422,694 +1172,6 @@ void Comm::communicate_blocking_isend(Atom &atom, int box_id)
     } // End of loop over box layers
 }
 
-// All steps in an iteration are individual tasks per box
-// Buffer pack, send to neighbour, recv from neighbour and buffer unpack are their own tasks
-void Comm::communicate_blocking_alltasks(Atom *atom, int box_id)
-{
-    // ID of box we're sending to and receiving from
-    int send_target_box_id, recv_target_box_id;
-    // Message tags
-    int sendtag, recvtag;
-    // Swap counter for this box
-    int swapnum = 0;
-
-    for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-
-        // Determine box IDs to send to/receive from on this layer
-        layer_to_targets(atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-        // DSM nswap (number of swaps) is a constant calculated in setup()
-        for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-            // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-            // task
-            if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-                continue;
-            }
-
-/* pack buffer */
-
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][swapnum]) firstprivate(atom, box_id, box_layer_index, iswap)
-            {
-                // Determine which buffers we are using in each communication
-                int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                AtomBuffer *buf_send
-                    = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour]);
-
-                // Added buffer size checks. Previously weren't necessary as buffers were reused from borders() (which
-                // ensured ensured sufficient size) but now independent buffers used for each function
-                if (boxBufs[box_id].comm_send_size[box_layer_index][iswap] > buf_send->maxsize) {
-                    buf_send->growsend(boxBufs[box_id].comm_send_size[box_layer_index][iswap]);
-                }
-
-                atom->pack_comm(boxBufs[box_id].sendnum[box_layer_index][iswap],
-                    boxBufs[box_id].sendlists[box_layer_index][sendNeighbour], buf_send->buf, buf_send->pbc_any,
-                    buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-            }
-
-            // Set tags
-            sendtag = swapnum;
-            recvtag = sendtag;
-
-            /* exchange with another proc
-               if self, set recv buffer to send buffer */
-
-            // DSM Multibox: Reverse order of this if statement and include box id
-            if (boxBufs[box_id].sendproc[iswap] == me && send_target_box_id == atom->box_id) {
-
-// Skip MPI communication to myself
-// This unpack task has dependencies on the packing task as we unpack our own send buffer.
-// Unpack task in other branch depends only on recv tasks
-#pragma oss task label("communicate_unpack_self") in(communicatePackSentinels[box_id][swapnum]) out(                   \
-    communicateSentinels[box_id]) firstprivate(atom, box_id, box_layer_index, iswap)
-                {
-                    // Sending to self. Just unpack the send buffer
-                    int neighbour = boxBufs[box_id].sendneigh[iswap];
-                    atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                        boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                        boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][neighbour].buf);
-                }
-
-            } else {
-#pragma oss task label("communicate_send")                                                                             \
-    in(communicatePackSentinels[box_id][swapnum]) out(communicateSendSentinel[box_id][swapnum])                        \
-        firstprivate(box_id, box_layer_index, iswap, sendtag, send_target_box_id)
-                {
-                    int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                    AtomBuffer *buf_send
-                        = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
-                    MPI_Comm *send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
-
-                    if (sizeof(double) == 4) {
-                        MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
-                            boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-                    } else {
-                        MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                            boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-                    }
-                }
-
-// No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-#pragma oss task label("communicate_recv") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicateRecvSentinels[box_id][swapnum]) firstprivate(atom, box_id, box_layer_index, iswap, recvtag)
-                {
-                    int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-                    AtomBuffer *buf_recv
-                        = &boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour];
-                    MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[COMMUNICATE_FUNCTION];
-
-                    // Ensure recv buffer is large enough. Equivalent check for send buffer done in packing task
-                    if (boxBufs[box_id].comm_recv_size[box_layer_index][iswap] > buf_recv->maxsize) {
-                        buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
-                    }
-
-                    if (sizeof(double) == 4) {
-                        MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
-                            boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    } else {
-                        MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_DOUBLE,
-                            boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    }
-                }
-
-// Now do unpacks
-// We only depend on corresponding recvs here; no dependencies on send tasks.
-// Sends don't need to complete until after force/before initialIntegrate calculations
-#pragma oss task label("communicate_unpack") in(communicateRecvSentinels[box_id][swapnum]) out(                        \
-    communicateSentinels[box_id]) firstprivate(atom, box_id, box_layer_index, iswap)
-                {
-                    int neighbour = boxBufs[box_id].recvneigh[iswap];
-                    atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                        boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                        boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][neighbour].buf);
-                }
-
-            } // End of skip-MPI branch
-
-            // Counts total number of swaps over all box layers. i.e. value is 0 to 30 (3 box layers * 10 swaps per
-            // layer)
-            ++swapnum;
-
-        } // End of loop over number of swaps
-    } // End of loop over box layers
-} // End of function
-
-// Alltasks but recv tasks posted first
-void Comm::communicate_blocking_alltasks_recvfirst(Atom *atom, int box_id)
-{
-    // ID of box we're sending to and receiving from
-    int send_target_box_id, recv_target_box_id;
-    // Message tags
-    int sendtag, recvtag;
-    // Swap counter for this box
-    int swapnum = 0;
-
-    for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-
-        // Determine box IDs to send to/receive from on this layer
-        layer_to_targets(atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-        // No in-dependencies on pack or send tasks. Recvs posted as soon as communicate starts to avoid late receiver
-        // performance problems
-        for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-            // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-            // task
-            if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-                continue;
-            }
-
-            // Set tags
-            recvtag = swapnum;
-
-            // Only generate recv if not sending to self
-            if (!(boxBufs[box_id].sendproc[iswap] == me && send_target_box_id == atom->box_id)) {
-#pragma oss task label("communicate_recv") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicateRecvSentinels[box_id][swapnum]) firstprivate(atom, box_id, box_layer_index, iswap, recvtag)
-                {
-                    int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-                    AtomBuffer *buf_recv
-                        = &boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour];
-                    MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[COMMUNICATE_FUNCTION];
-
-                    // Ensure recv buffer is large enough. Equivalent check for send buffer done in packing task
-                    if (boxBufs[box_id].comm_recv_size[box_layer_index][iswap] > buf_recv->maxsize) {
-                        buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
-                    }
-
-                    if (sizeof(double) == 4) {
-                        MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
-                            boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    } else {
-                        MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_DOUBLE,
-                            boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    }
-                }
-            }
-
-            ++swapnum;
-        }
-    }
-
-    // Reset swapnum for next loop to generate remaining pack, send and unpack tasks
-    swapnum = 0;
-
-    for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-
-        // Determine box IDs to send to/receive from on this layer
-        layer_to_targets(atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-        // DSM nswap (number of swaps) is a constant calculated in setup()
-        for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-            // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-            // task
-            if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-                continue;
-            }
-
-/* pack buffer */
-
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][swapnum]) firstprivate(atom, box_id, box_layer_index, iswap)
-            {
-                // Determine which buffers we are using in each communication
-                int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                AtomBuffer *buf_send
-                    = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour]);
-
-                // Added buffer size checks. Previously weren't necessary as buffers were reused from borders() (which
-                // ensured ensured sufficient size) but now independent buffers used for each function
-                if (boxBufs[box_id].comm_send_size[box_layer_index][iswap] > buf_send->maxsize) {
-                    buf_send->growsend(boxBufs[box_id].comm_send_size[box_layer_index][iswap]);
-                }
-
-                atom->pack_comm(boxBufs[box_id].sendnum[box_layer_index][iswap],
-                    boxBufs[box_id].sendlists[box_layer_index][sendNeighbour], buf_send->buf, buf_send->pbc_any,
-                    buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-            }
-
-            // Set tags
-            sendtag = swapnum;
-
-            /* exchange with another proc
-               if self, set recv buffer to send buffer */
-
-            // DSM Multibox: Reverse order of this if statement and include box id
-            if (boxBufs[box_id].sendproc[iswap] == me && send_target_box_id == atom->box_id) {
-
-// Skip MPI communication to myself
-// This unpack task has dependencies on the packing task as we unpack our own send buffer.
-// Unpack task in other branch depends only on recv tasks
-#pragma oss task label("communicate_unpack_self") in(communicatePackSentinels[box_id][swapnum]) out(                   \
-    communicateSentinels[box_id]) firstprivate(atom, box_id, box_layer_index, iswap)
-                {
-                    // Sending to self. Just unpack the send buffer
-                    int neighbour = boxBufs[box_id].sendneigh[iswap];
-                    atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                        boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                        boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][neighbour].buf);
-                }
-
-            } else {
-#pragma oss task label("communicate_send")                                                                             \
-    in(communicatePackSentinels[box_id][swapnum]) out(communicateSendSentinel[box_id][swapnum])                        \
-        firstprivate(box_id, box_layer_index, iswap, sendtag, send_target_box_id)
-                {
-                    int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                    AtomBuffer *buf_send
-                        = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
-                    MPI_Comm *send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
-
-                    if (sizeof(double) == 4) {
-                        MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
-                            boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-                    } else {
-                        MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                            boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-                    }
-                }
-
-// Recv tasks already generated at start of function
-
-// Now do unpacks
-// We only depend on corresponding recvs here; no dependencies on send tasks.
-// Sends don't need to complete until after force/before initialIntegrate calculations
-#pragma oss task label("communicate_unpack") in(communicateRecvSentinels[box_id][swapnum]) out(                        \
-    communicateSentinels[box_id]) firstprivate(atom, box_id, box_layer_index, iswap)
-                {
-                    int neighbour = boxBufs[box_id].recvneigh[iswap];
-                    atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                        boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                        boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][neighbour].buf);
-                }
-
-            } // End of skip-MPI branch
-
-            // Counts total number of swaps over all box layers. i.e. value is 0 to 30 (3 box layers * 10 swaps per
-            // layer)
-            ++swapnum;
-
-        } // End of loop over number of swaps
-    } // End of loop over box layers
-} // End of function
-
-// Alltasks but using nonblocking communication to reduce task overhead
-void Comm::communicate_nonblocking_alltasks_tampi_iwait(Atom *atom, int box_id)
-{
-    // ID of box we're sending to and receiving from
-    int send_target_box_id, recv_target_box_id;
-    // Message tags
-    int sendtag, recvtag;
-    // Swap counter for this box
-    int swapnum = 0;
-
-    for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-
-        // Determine box IDs to send to/receive from on this layer
-        layer_to_targets(atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-        // DSM nswap (number of swaps) is a constant calculated in setup()
-        for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-            // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-            // task
-            if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-                continue;
-            }
-
-/* pack buffer */
-
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][swapnum]) firstprivate(atom, box_id, box_layer_index, iswap)
-            {
-                // Determine which buffers we are using in each communication
-                int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                AtomBuffer *buf_send
-                    = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour]);
-
-                // Added buffer size checks. Previously weren't necessary as buffers were reused from borders() (which
-                // ensured ensured sufficient size) but now independent buffers used for each function
-                if (boxBufs[box_id].comm_send_size[box_layer_index][iswap] > buf_send->maxsize) {
-                    buf_send->growsend(boxBufs[box_id].comm_send_size[box_layer_index][iswap]);
-                }
-
-                atom->pack_comm(boxBufs[box_id].sendnum[box_layer_index][iswap],
-                    boxBufs[box_id].sendlists[box_layer_index][sendNeighbour], buf_send->buf, buf_send->pbc_any,
-                    buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-            }
-
-            // Set tags
-            sendtag = swapnum;
-            recvtag = sendtag;
-
-            /* exchange with another proc
-               if self, set recv buffer to send buffer */
-
-            // DSM Multibox: Reverse order of this if statement and include box id
-            if (boxBufs[box_id].sendproc[iswap] == me && send_target_box_id == atom->box_id) {
-
-// Skip MPI communication to myself
-// This unpack task has dependencies on the packing task as we unpack our own send buffer.
-// Unpack task in other branch depends only on recv tasks
-#pragma oss task label("communicate_unpack_self") in(communicatePackSentinels[box_id][swapnum]) out(                   \
-    communicateSentinels[box_id]) firstprivate(atom, box_id, box_layer_index, iswap)
-                {
-                    // Sending to self. Just unpack the send buffer
-                    int neighbour = boxBufs[box_id].sendneigh[iswap];
-                    atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                        boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                        boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][neighbour].buf);
-                }
-
-            } else {
-#pragma oss task label("communicate_send")                                                                             \
-    in(communicatePackSentinels[box_id][swapnum]) out(communicateSendSentinel[box_id][swapnum])                        \
-        firstprivate(box_id, box_layer_index, iswap, sendtag, send_target_box_id)
-                {
-                    MPI_Request request;
-                    int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                    AtomBuffer *buf_send
-                        = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
-                    MPI_Comm *send_comm = &boxBufs[send_target_box_id].comm[COMMUNICATE_FUNCTION];
-
-                    if (sizeof(double) == 4) {
-                        MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
-                            boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &request);
-                    } else {
-                        MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                            boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &request);
-                    }
-
-                    // Allows task to return but dependencies are not released until MPI operations complete
-                    TAMPI_Iwait(&request, MPI_STATUS_IGNORE);
-                }
-
-// No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-#pragma oss task label("communicate_recv") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicateRecvSentinels[box_id][swapnum]) firstprivate(atom, box_id, box_layer_index, iswap, recvtag)
-                {
-                    MPI_Request request;
-                    int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-                    AtomBuffer *buf_recv
-                        = &boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour];
-                    MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[COMMUNICATE_FUNCTION];
-
-                    // Ensure recv buffer is large enough. Equivalent check for send buffer done in packing task
-                    if (boxBufs[box_id].comm_recv_size[box_layer_index][iswap] > buf_recv->maxsize) {
-                        buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
-                    }
-
-                    if (sizeof(double) == 4) {
-                        MPI_Irecv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
-                            boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, &request);
-                    } else {
-                        MPI_Irecv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_DOUBLE,
-                            boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, &request);
-                    }
-
-                    TAMPI_Iwait(&request, MPI_STATUS_IGNORE);
-                }
-
-// Now do unpacks
-// We only depend on corresponding recvs here; no dependencies on send tasks.
-// Sends don't need to complete until after force/before initialIntegrate calculations
-#pragma oss task label("communicate_unpack") in(communicateRecvSentinels[box_id][swapnum]) out(                        \
-    communicateSentinels[box_id]) firstprivate(atom, box_id, box_layer_index, iswap)
-                {
-                    int neighbour = boxBufs[box_id].recvneigh[iswap];
-                    atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                        boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                        boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][neighbour].buf);
-                }
-
-            } // End of skip-MPI branch
-
-            // Counts total number of swaps over all box layers. i.e. value is 0 to 30 (3 box layers * 10 swaps per
-            // layer)
-            ++swapnum;
-
-        } // End of loop over number of swaps
-    } // End of loop over box layers
-} // End of function
-
-// Buffer pack, send to neighbour, recv from neighbour and buffer unpack are their own tasks per neighbour
-void Comm::communicate_nonblocking_neighbourtasks(Atom *atom, int box_id)
-{
-    // ID of box we're sending to and receiving from
-    int send_target_box_id[3], recv_target_box_id[3];
-
-    // No outer loop over box layers this implementation. All 3 layers captured in each task
-
-    // Determine box IDs to send to/receive from on all layers
-    layer_to_targets(atom, 0, &send_target_box_id[0], &recv_target_box_id[0]);
-    layer_to_targets(atom, 1, &send_target_box_id[1], &recv_target_box_id[1]);
-    layer_to_targets(atom, 2, &send_target_box_id[2], &recv_target_box_id[2]);
-
-    // DSM nswap (number of swaps) is a constant calculated in setup()
-    for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-        // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-        // task
-        if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-            continue;
-        }
-
-/* pack buffer */
-
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][iswap]) firstprivate(atom, box_id, iswap)
-        {
-            int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Determine which buffers we are using in each communication
-                AtomBuffer *buf_send
-                    = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour]);
-
-                // Added buffer size checks. Previously weren't necessary as buffers were reused from borders() (which
-                // ensured ensured sufficient size) but now independent buffers used for each function
-                if (boxBufs[box_id].comm_send_size[box_layer_index][iswap] > buf_send->maxsize) {
-                    buf_send->growsend(boxBufs[box_id].comm_send_size[box_layer_index][iswap]);
-                }
-
-                atom->pack_comm(boxBufs[box_id].sendnum[box_layer_index][iswap],
-                    boxBufs[box_id].sendlists[box_layer_index][sendNeighbour], buf_send->buf, buf_send->pbc_any,
-                    buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-            }
-        }
-
-        /* exchange with another proc
-           if self, set recv buffer to send buffer */
-
-#pragma oss task label("communicate_send") in(communicatePackSentinels[box_id][iswap]) out(                            \
-    communicateSendSentinel[box_id][iswap]) firstprivate(box_id, iswap)
-        {
-            MPI_Request requests[] = { MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL };
-            int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
-                MPI_Comm *send_comm = &boxBufs[send_target_box_id[box_layer_index]].comm[COMMUNICATE_FUNCTION];
-
-                // Calculate send tag. In range 0 to 29, equivalent to sendnum from other implementations
-                int sendtag = box_layer_index * 10 + iswap;
-
-                if (sizeof(double) == 4) {
-                    MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
-                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
-                } else {
-                    MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
-                }
-            }
-
-            MPI_Waitall(3, requests, MPI_STATUSES_IGNORE);
-        }
-
-// No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-#pragma oss task label("communicate_recv") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicateRecvSentinels[box_id][iswap]) firstprivate(atom, box_id, iswap)
-        {
-            MPI_Request requests[] = { MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL };
-            int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                AtomBuffer *buf_recv = &boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour];
-                MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[COMMUNICATE_FUNCTION];
-
-                // Calculate recv tag. In range 0 to 29, equivalent to sendnum from other implementations
-                int recvtag = box_layer_index * 10 + iswap;
-
-                // Ensure recv buffer is large enough. Equivalent check for send buffer done in packing task
-                if (boxBufs[box_id].comm_recv_size[box_layer_index][iswap] > buf_recv->maxsize) {
-                    buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
-                }
-
-                if (sizeof(double) == 4) {
-                    MPI_Irecv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
-                        boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, &requests[box_layer_index]);
-                } else {
-                    MPI_Irecv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_DOUBLE,
-                        boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, &requests[box_layer_index]);
-                }
-            }
-
-            MPI_Waitall(3, requests, MPI_STATUSES_IGNORE);
-        }
-
-// Now do unpacks
-#pragma oss task label("communicate_unpack")                                                                           \
-    in(communicateRecvSentinels[box_id][iswap]) out(communicateSentinels[box_id]) firstprivate(atom, box_id, iswap)
-        {
-            int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                    boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                    boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour].buf);
-            }
-        }
-
-    } // End of loop over number of swaps
-} // End of function
-
-// One message per neighbour containing all three box layers' data
-// TODO: This approach is wrong. We're sending our single buffer to only one of the boxes on the neighbour. Would need a
-// task that unpacks data into multiple boxes, rather than just its own box_id
-void Comm::communicate_blocking_single_message_neighbourtasks(Atom *atom, int box_id)
-{
-    // ID of box we're sending to and receiving from
-    int send_target_box_id[3], recv_target_box_id[3];
-
-    // No outer loop over box layers this implementation. All 3 layers captured in each task
-
-    // Determine box IDs to send to/receive from on all layers
-    layer_to_targets(atom, 0, &send_target_box_id[0], &recv_target_box_id[0]);
-    layer_to_targets(atom, 1, &send_target_box_id[1], &recv_target_box_id[1]);
-    layer_to_targets(atom, 2, &send_target_box_id[2], &recv_target_box_id[2]);
-
-    // nswap (number of swaps) is a constant calculated in setup()
-    for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-        // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-        // task
-        if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-            continue;
-        }
-
-/* pack buffer */
-
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][iswap]) firstprivate(atom, box_id, iswap)
-        {
-            int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-
-            // Calculate the total we're sending over all 3 boxes layers and grow array as appropriate
-            int totalSend = boxBufs[box_id].comm_send_size[0][iswap] + boxBufs[box_id].comm_send_size[1][iswap]
-                + boxBufs[box_id].comm_send_size[2][iswap];
-            // Use layer 0's buffer for all 3 layers' data
-            AtomBuffer *buf_send = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][0][sendNeighbour]);
-            // Added buffer size checks. Previously weren't necessary as buffers were reused from borders() (which
-            // ensured ensured sufficient size) but now independent buffers used for each function
-            if (totalSend > buf_send->maxsize) {
-                buf_send->growsend(totalSend);
-            }
-
-            // Pack all data into single buffer: box layer 0 to 2, end-to-end.
-            // Update buffer offset every loop iteration by size of data packed
-            int bufferOffset = 0;
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Get PBC information from buffer we *would* be using in 3 messages-per-neighbour implementation
-                AtomBuffer *buf_send_pbc
-                    = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour]);
-                atom->pack_comm(boxBufs[box_id].sendnum[box_layer_index][iswap],
-                    boxBufs[box_id].sendlists[box_layer_index][sendNeighbour], &(buf_send->buf[bufferOffset]),
-                    buf_send_pbc->pbc_any, buf_send_pbc->pbc_x, buf_send_pbc->pbc_y, buf_send_pbc->pbc_z);
-                bufferOffset += boxBufs[box_id].comm_send_size[box_layer_index][iswap];
-            }
-        }
-
-#pragma oss task label("communicate_send") in(communicatePackSentinels[box_id][iswap]) out(                            \
-    communicateSendSentinel[box_id][iswap]) firstprivate(box_id, iswap)
-        {
-            int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-
-            // Calculate the total we're sending over all 3 boxes layers and pass to MPI send call
-            int totalSend = boxBufs[box_id].comm_send_size[0][iswap] + boxBufs[box_id].comm_send_size[1][iswap]
-                + boxBufs[box_id].comm_send_size[2][iswap];
-
-            // Calculate send tag. In range 0 to 8, equivalent to sendnum from other implementations
-            int sendtag = iswap;
-
-            // TODO: This is wrong. We're sending our single buffer to only one of the boxes on the neighbour. Would
-            // need a task that unpacks data into multiple boxes, rather than just its own box_id
-
-            // Use layer 0's buffer for all 3 layers' data
-            AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][0][sendNeighbour];
-            MPI_Comm *send_comm = &boxBufs[send_target_box_id[0]].comm[COMMUNICATE_FUNCTION];
-
-            // Perform the (single) send for this neighbour
-            if (sizeof(double) == 4) {
-                MPI_Send(buf_send->buf, totalSend, MPI_FLOAT, boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-            } else {
-                MPI_Send(buf_send->buf, totalSend, MPI_DOUBLE, boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-            }
-        }
-
-// No in-dependencies on pack or send tasks. Recvs can be posted as soon as any previous recvs are completed and the
-// buffers become free again
-#pragma oss task label("communicate_recv & unpack") inout(communicateSentinels[box_id])                                \
-    firstprivate(atom, box_id, iswap)
-        {
-            int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-
-            // Calculate the total we're receiving over all 3 boxes layers and pass to MPI recv call
-            int totalRecv = boxBufs[box_id].comm_send_size[0][iswap] + boxBufs[box_id].comm_send_size[1][iswap]
-                + boxBufs[box_id].comm_send_size[2][iswap];
-
-            // Calculate recv tag. In range 0 to 8, equivalent to sendnum from other implementations
-            int recvtag = iswap;
-
-            // Use layer 0's buffer for all 3 layers' data
-            AtomBuffer *buf_recv = &boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][0][recvNeighbour];
-            MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[COMMUNICATE_FUNCTION];
-
-            // Ensure recv buffer is large enough. Equivalent check for send buffer done in packing task
-            if (totalRecv > buf_recv->maxsize) {
-                buf_recv->growrecv(totalRecv);
-            }
-
-            // Perform the (single) receive
-            if (sizeof(double) == 4) {
-                MPI_Recv(buf_recv->buf, totalRecv, MPI_FLOAT, boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm,
-                    MPI_STATUS_IGNORE);
-            } else {
-                MPI_Recv(buf_recv->buf, totalRecv, MPI_DOUBLE, boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm,
-                    MPI_STATUS_IGNORE);
-            }
-
-            // Immediately unpack received buffer.
-            // Data is in single buffer: box layer 0 to 2, packed end-to-end.
-            // Update buffer offset every loop iteration by size of data unpacked
-            int bufferOffset = 0;
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                    boxBufs[box_id].firstrecv[box_layer_index][iswap], &(buf_recv->buf[bufferOffset]));
-                bufferOffset += boxBufs[box_id].comm_recv_size[box_layer_index][iswap];
-            }
-        }
-
-    } // End of loop over number of swaps
-} // End of function
-
 // Nonblocking_neighbourtasks but using TAMPI_Iwaitall
 // Combined recv+unpack tasks. Only sends are non-blocking now
 void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int box_id)
@@ -2133,14 +1195,23 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
             continue;
         }
 
-/* pack buffer */
+        /* pack buffer */
 
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][iswap]) firstprivate(atom, box_id, iswap)
+        // swapnum as index to communicate sentinels as depend on
+        // individual iterations of this loop
+        // No longer have 1:1 relationship between boxes and tasks in
+        // this implementation
+
+        /* Only depend on the position of the atoms in
+         * the box, as the force is not needed anymore */
+        #pragma oss task label("communicate_pack") \
+            in(atom->x) \
+            out(communicatePackSentinels[box_id][iswap]) \
+            firstprivate(atom, box_id, iswap)
         {
+            fprintf(stderr, "communicate_pack box=%d iswap=%d\n", box_id, iswap);
             int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
+
             for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
                 // Determine which buffers we are using in each communication
                 AtomBuffer *buf_send
@@ -2161,8 +1232,11 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
         /* exchange with another proc
            if self, set recv buffer to send buffer */
 
-#pragma oss task label("communicate_send") in(communicatePackSentinels[box_id][iswap]) out(                            \
-    communicateSendSentinel[box_id][iswap]) firstprivate(box_id, iswap)
+        #pragma oss task \
+            label("communicate_send") \
+            in(communicatePackSentinels[box_id][iswap]) \
+            out(communicateSendSentinel[box_id][iswap]) \
+            firstprivate(box_id, iswap)
         {
             MPI_Request requests[] = { MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL };
             int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
@@ -2173,22 +1247,20 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
                 // Calculate send tag. In range 0 to 29, equivalent to sendnum from other implementations
                 int sendtag = box_layer_index * 10 + iswap;
 
-                if (sizeof(double) == 4) {
-                    MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
-                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
-                } else {
-                    MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
-                }
+                MPI_Isend(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
+                    boxBufs[box_id].sendproc[iswap], sendtag, *send_comm, &requests[box_layer_index]);
             }
 
             TAMPI_Iwaitall(3, requests, MPI_STATUSES_IGNORE);
         }
 
-// No in-dependencies on pack or send tasks. Recvs can be posted as soon as any previous recvs are completed and the
-// buffers become free again
-#pragma oss task label("communicate_recv & unpack") inout(communicateSentinels[box_id])                                \
-    firstprivate(atom, box_id, iswap)
+        // No in-dependencies on pack or send tasks. Recvs can be posted
+        // as soon as any previous recvs are completed and the buffers
+        // become free again
+        #pragma oss task \
+            label("communicate_recv & unpack") \
+            inout(communicateSentinels[box_id]) \
+            firstprivate(atom, box_id, iswap)
         {
             MPI_Request requests[] = { MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL };
             int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
@@ -2217,129 +1289,8 @@ void Comm::communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int
                     boxBufs[box_id].firstrecv[box_layer_index][iswap], buf_recv->buf);
             }
         }
-
     } // End of loop over number of swaps
 } // End of function
-
-// Buffer pack, send to neighbour, recv from neighbour and buffer unpack are their own tasks per neighbour
-// Communication is blocking
-void Comm::communicate_blocking_neighbourtasks(Atom *atom, int box_id)
-{
-    // ID of box we're sending to and receiving from
-    int send_target_box_id[3], recv_target_box_id[3];
-
-    // No outer loop over box layers this implementation. All 3 layers captured in each task
-
-    // Determine box IDs to send to/receive from on all layers
-    layer_to_targets(atom, 0, &send_target_box_id[0], &recv_target_box_id[0]);
-    layer_to_targets(atom, 1, &send_target_box_id[1], &recv_target_box_id[1]);
-    layer_to_targets(atom, 2, &send_target_box_id[2], &recv_target_box_id[2]);
-
-    // DSM nswap (number of swaps) is a constant calculated in setup()
-    for (int iswap = 0; iswap < boxBufs[box_id].nswap; iswap++) {
-
-        // Skip MPI communication in y dimension. Internal memory copies between boxes on same proc done in separate
-        // task
-        if (iswap == 2 || iswap == 3) { // iswap=2 swap in y -ve direction, iswap=3 swap in y +ve direction
-            continue;
-        }
-
-/* pack buffer */
-
-// swapnum as index to communicate sentinels as depend on individual iterations of this loop
-// No longer have 1:1 relationship between boxes and tasks in this implementation
-#pragma oss task label("communicate_pack") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicatePackSentinels[box_id][iswap]) firstprivate(atom, box_id, iswap)
-        {
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Determine which buffers we are using in each communication
-                int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                AtomBuffer *buf_send
-                    = &(boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour]);
-
-                // Added buffer size checks. Previously weren't necessary as buffers were reused from borders() (which
-                // ensured ensured sufficient size) but now independent buffers used for each function
-                if (boxBufs[box_id].comm_send_size[box_layer_index][iswap] > buf_send->maxsize) {
-                    buf_send->growsend(boxBufs[box_id].comm_send_size[box_layer_index][iswap]);
-                }
-
-                atom->pack_comm(boxBufs[box_id].sendnum[box_layer_index][iswap],
-                    boxBufs[box_id].sendlists[box_layer_index][sendNeighbour], buf_send->buf, buf_send->pbc_any,
-                    buf_send->pbc_x, buf_send->pbc_y, buf_send->pbc_z);
-            }
-        }
-
-// Always use MPI to send in this implementation, even in case where sending to self
-// Simplifies dependencies, e.g. unpack task does not have to depend on pack task
-#pragma oss task label("communicate_send") in(communicatePackSentinels[box_id][iswap]) out(                            \
-    communicateSendSentinel[box_id][iswap]) firstprivate(box_id, iswap)
-        {
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                int sendNeighbour = boxBufs[box_id].sendneigh[iswap];
-                AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[COMMUNICATE_FUNCTION][box_layer_index][sendNeighbour];
-                MPI_Comm *send_comm = &boxBufs[send_target_box_id[box_layer_index]].comm[COMMUNICATE_FUNCTION];
-
-                // Calculate send tag. In range 0 to 29, equivalent to sendnum from other implementations
-                int sendtag = box_layer_index * 10 + iswap;
-
-                if (sizeof(double) == 4) {
-                    MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_FLOAT,
-                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-                } else {
-                    MPI_Send(buf_send->buf, boxBufs[box_id].comm_send_size[box_layer_index][iswap], MPI_DOUBLE,
-                        boxBufs[box_id].sendproc[iswap], sendtag, *send_comm);
-                }
-            }
-        }
-
-// No in-dependencies on pack or send tasks. Recvs can be posted as soon as communicate starts
-#pragma oss task label("communicate_recv") in(initialIntegrateSentinels[box_id]) out(                                  \
-    communicateRecvSentinels[box_id][iswap]) firstprivate(atom, box_id, iswap)
-        {
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-                AtomBuffer *buf_recv = &boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour];
-                MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[COMMUNICATE_FUNCTION];
-
-                // Calculate recv tag. In range 0 to 29, equivalent to sendnum from other implementations
-                int recvtag = box_layer_index * 10 + iswap;
-
-                // Ensure recv buffer is large enough. Equivalent check for send buffer done in packing task
-                if (boxBufs[box_id].comm_recv_size[box_layer_index][iswap] > buf_recv->maxsize) {
-                    buf_recv->growrecv(boxBufs[box_id].comm_recv_size[box_layer_index][iswap]);
-                }
-
-                if (sizeof(double) == 4) {
-                    MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_FLOAT,
-                        boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                } else {
-                    MPI_Recv(buf_recv->buf, boxBufs[box_id].comm_recv_size[box_layer_index][iswap], MPI_DOUBLE,
-                        boxBufs[box_id].recvproc[iswap], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                }
-            }
-        }
-
-// Now do unpacks. Unlike in borders(), unpack function cannot realloc coordinates array. Packs and unpacks
-// operate on entirely independent sections of the array:
-//   - packs on x[0:nlocal-1]
-//   - unpacks on x[nlocal:nghost-1]
-// Every unpack also uses an independent section (calculated in borders), hence unpack can be merged with recv
-// task, no need for separate commutative tasks
-// TODO: Merging greatly reduces performance. Why?
-#pragma oss task label("communicate_unpack")                                                                           \
-    in(communicateRecvSentinels[box_id][iswap]) out(communicateSentinels[box_id]) firstprivate(atom, box_id, iswap)
-        {
-            int recvNeighbour = boxBufs[box_id].recvneigh[iswap];
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                atom->unpack_comm(boxBufs[box_id].recvnum[box_layer_index][iswap],
-                    boxBufs[box_id].firstrecv[box_layer_index][iswap],
-                    boxBufs[box_id].bufs_recv[COMMUNICATE_FUNCTION][box_layer_index][recvNeighbour].buf);
-            }
-        }
-
-    } // End of loop over number of swaps
-} // End of function
-
 
 /* exchange:
    move atoms to correct proc boxes
@@ -2497,942 +1448,78 @@ void Comm::exchange_pack(
 // DSM: exchange() is always called before borders()
 void Comm::exchange(Atom *atoms[])
 {
-    // Select between blocking and non-blocking communication modes
-    if (nonblocking_enabled) {
-        exchange_nonblocking(atoms);
-
-        // After exchanges over all boxes completed with their off-process neighbours,
-        // perform internal exchanges with all boxes on this process.
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-            exchange_internal(*atoms[box_index], box_index);
-            atoms[box_index]->pbc();
-        }
-    } else {
-        // Call once per box instance
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// Pack all atoms into relevant buffers to be sent to new owners and update local atom count
-#pragma oss task label("exchange_pack") in(initialIntegrateSentinels[box_index]) out(exchangePackSentinels[box_index]) \
-    firstprivate(box_index)
+    // Call once per box instance
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // Pack all atoms into relevant buffers to be sent to new owners and update local atom count
+        #pragma oss task label("exchange_pack") \
+            in(atoms[box_index]->x) \
+            in(initialIntegrateSentinels[box_index]) \
+            out(exchangePackSentinels[box_index]) \
+            firstprivate(box_index)
+        {
+            fprintf(stderr, "exchange_pack box %d\n", box_index);
             exchange_pack(atoms[box_index], boxBufs[box_index].bufs_send[EXCHANGE_FUNCTION],
                 &boxBufs[box_index].internal_buf_send_up[EXCHANGE_FUNCTION],
                 &boxBufs[box_index].internal_buf_send_down[EXCHANGE_FUNCTION]);
         }
+    }
 
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
 
-            //#pragma oss task label("exchange_blocking") in(exchangePackSentinels[box_index])
-            // out(exchangeSentinels[box_index]) firstprivate(box_index)
-            // exchange_blocking(*atoms[box_index], box_index);
+        // Tasks created within these functions
+        // exchange_blocking_neighbourtasks(atoms[box_index], box_index);
+        exchange_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
+    }
 
-            // Tasks created within these functions
-            // exchange_blocking_neighbourtasks(atoms[box_index], box_index);
-            exchange_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
-        }
-
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// Generate tasks for internal swaps between boxes
-// Represent the pushing of data to both of this box's neighbours (i.e. "sends")
-// Unpacking of data done in separate loop following (i.e. "recvs")
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // Generate tasks for internal swaps between boxes
+        // Represent the pushing of data to both of this box's neighbours (i.e. "sends")
+        // Unpacking of data done in separate loop following (i.e. "recvs")
 #pragma oss task label("exchange_internal_send")                                                                       \
     in(exchangePackSentinels[box_index]) out(exchangeInternalSendSentinels[box_index]) firstprivate(box_index)
-            {
-                // To lower layer (usually box_id-1)
-                int box_neighbour = atoms[box_index]->boxneigh_negative;
-                exchange_internal_send(&boxBufs[box_index].internal_buf_send_down[EXCHANGE_FUNCTION],
-                    &boxBufs[box_neighbour].internal_buf_recv_down[EXCHANGE_FUNCTION]);
+        {
+            // To lower layer (usually box_id-1)
+            int box_neighbour = atoms[box_index]->boxneigh_negative;
+            exchange_internal_send(&boxBufs[box_index].internal_buf_send_down[EXCHANGE_FUNCTION],
+                &boxBufs[box_neighbour].internal_buf_recv_down[EXCHANGE_FUNCTION]);
 
-                // To upper layer (usually box_id+1)
-                box_neighbour = atoms[box_index]->boxneigh_positive;
-                exchange_internal_send(&boxBufs[box_index].internal_buf_send_up[EXCHANGE_FUNCTION],
-                    &boxBufs[box_neighbour].internal_buf_recv_up[EXCHANGE_FUNCTION]);
-            }
+            // To upper layer (usually box_id+1)
+            box_neighbour = atoms[box_index]->boxneigh_positive;
+            exchange_internal_send(&boxBufs[box_index].internal_buf_send_up[EXCHANGE_FUNCTION],
+                &boxBufs[box_neighbour].internal_buf_recv_up[EXCHANGE_FUNCTION]);
         }
+    }
 
-        // Receive half of internal swaps between boxes
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// Wait for my neighbours' send tasks to finish before unpacking
-// Also wait for my box's exchange task to complete. Avoids race condition with two tasks attempting to unpack
-// into position array concurrently
-// TODO: Break depedencies on non-internal sends
-// Is dependency on pack needed? Yes, what if unpack tries to grow array while a pack task is running
-// commutative with other unpack tasks to avoid concurrent unpacks into the same buffer
+    // Receive half of internal swaps between boxes
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // Wait for my neighbours' send tasks to finish before unpacking
+        // Also wait for my box's exchange task to complete. Avoids race condition with two tasks attempting to unpack
+        // into position array concurrently
+        // TODO: Break depedencies on non-internal sends
+        // Is dependency on pack needed? Yes, what if unpack tries to grow array while a pack task is running
+        // commutative with other unpack tasks to avoid concurrent unpacks into the same buffer
 #pragma oss task label("exchange_internal_recv") commutative(atoms[box_index]->nlocal)                                 \
     in(exchangePackSentinels[box_index]) in(exchangeInternalSendSentinels[atoms[box_index]->boxneigh_positive])        \
         in(exchangeInternalSendSentinels[atoms[box_index]->boxneigh_negative]) in(exchangeSentinels[box_index]) out(   \
             exchangeInternalRecvSentinels[box_index]) firstprivate(box_index)
-            {
-                exchange_internal_recv(atoms[box_index], &boxBufs[box_index].internal_buf_recv_down[EXCHANGE_FUNCTION]);
-                exchange_internal_recv(atoms[box_index], &boxBufs[box_index].internal_buf_recv_up[EXCHANGE_FUNCTION]);
-            }
+        {
+            exchange_internal_recv(atoms[box_index], &boxBufs[box_index].internal_buf_recv_down[EXCHANGE_FUNCTION]);
+            exchange_internal_recv(atoms[box_index], &boxBufs[box_index].internal_buf_recv_up[EXCHANGE_FUNCTION]);
         }
+    }
 
-        // TODO: Merge with sort task?
-        /* enforce PBC */
-        // Moved this to from the beginning of original exchange to here as would break new checks for 26-way
-        // communication e.g. An x coordinate of -1 would get corrected to +ve box length and erroneously be sent
-        // *RIGHT* instead of *LEFT* Correcting after all atoms have been received and unpacked addresses this
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+    // TODO: Merge with sort task?
+    /* enforce PBC */
+    // Moved this to from the beginning of original exchange to here as would break new checks for 26-way
+    // communication e.g. An x coordinate of -1 would get corrected to +ve box length and erroneously be sent
+    // *RIGHT* instead of *LEFT* Correcting after all atoms have been received and unpacked addresses this
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
 #pragma oss task label("atom->pbc") in(exchangeSentinels[box_index]) in(exchangeInternalRecvSentinels[box_index]) out( \
     exchangePBCSentinels[box_index]) firstprivate(box_index)
-            atoms[box_index]->pbc();
-        }
+        atoms[box_index]->pbc();
+    }
 
-    } // End of blocking branch
 } // End of function
-
-void Comm::exchange_nonblocking(Atom *atoms[])
-{
-    // Skip exchange entirely if running with only one process and one box
-    // Not just an optimisation; algorithm breaks otherwise.
-    if (threads->mpi_num_threads == 1 && atoms[0]->boxes_per_process == 1) {
-        return;
-    }
-
-    // Arrays for isend/irecv requests
-    // nswaps communications per box layer, 3 box layers per box on this process.
-    // Internal swaps in y-dimension are skipped => subtract 6 per box (2 y-swaps per box layer)
-    // /2 as swaps are split between -ve and +ve communications
-    // nswaps and boxes_per_process constant per box
-    int nrequests = (boxBufs[0].nswap * 3 * atoms[0]->boxes_per_process - 6 * atoms[0]->boxes_per_process) / 2;
-    int req_i = 0;
-    MPI_Request recv1_requests[nrequests];
-    MPI_Request recv2_requests[nrequests];
-    MPI_Request send1_requests[nrequests];
-    MPI_Request send2_requests[nrequests];
-    // Buffer sizes
-    int nrecvs1[nrequests];
-    int nrecvs2[nrequests];
-    int nsends1[nrequests];
-    int nsends2[nrequests];
-
-    MPI_Comm *send_comm, *recv_comm;
-
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        Atom &atom = *atoms[box_id];
-
-        if (do_safeexchange)
-            return exchange_all(atom);
-
-        int i, idim, nlocal, send_flag;
-        double *x;
-        AtomBuffer *buf_send = NULL, *buf_recv1 = NULL, *buf_recv2 = NULL;
-        int swapnum = 200; // to ensure tag is unique accross communicate, borders and exchange
-
-        // DSM Multibox: Reference buffers/variables specific to this box.
-        int &maxnlocal = boxBufs[box_id].maxnlocal;
-        int &maxthreads = boxBufs[box_id].maxthreads;
-        int *&nsend_thread = boxBufs[box_id].nsend_thread;
-        int *&nrecv_thread = boxBufs[box_id].nrecv_thread;
-        int *&nholes_thread = boxBufs[box_id].nholes_thread;
-        int *&maxsend_thread = boxBufs[box_id].maxsend_thread;
-        int **&exc_sendlist_thread = boxBufs[box_id].exc_sendlist_thread;
-        AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[EXCHANGE_FUNCTION];
-        AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[EXCHANGE_FUNCTION];
-        AtomBuffer &internal_buf_send_up = boxBufs[box_id].internal_buf_send_up[EXCHANGE_FUNCTION];
-        AtomBuffer &internal_buf_send_down = boxBufs[box_id].internal_buf_send_down[EXCHANGE_FUNCTION];
-        AtomBuffer &internal_buf_recv_up = boxBufs[box_id].internal_buf_recv_up[EXCHANGE_FUNCTION];
-        AtomBuffer &internal_buf_recv_down = boxBufs[box_id].internal_buf_recv_down[EXCHANGE_FUNCTION];
-
-        // DSM: This is the atom position array
-        x = atom.x;
-
-        // DSM: Do single loop over all atoms placing each in the appropriate send buffer. Replaces existing code's
-        // approach of multiple loops over all atoms (one per dimension/direction) DSM Checking whether each local atom
-        // is in our local box (not a slab boundary check as in borders()). Mark for exchange with neighbour if outside
-        // box Save current count of local atoms. Decrement in loop as atoms are marked for sending and deleted from
-        // local box. A while loop as i is not incremented on every iteration, only when an atom is _not_ marked for
-        // sending (follows the implementation in exchange_all)
-        nlocal = atom.nlocal;
-        i = 0;
-        while (i < nlocal) {
-            // Get atom's current coordinates
-            double xcoord, ycoord, zcoord;
-            xcoord = x[i * PAD];
-            ycoord = x[i * PAD + 1];
-            zcoord = x[i * PAD + 2];
-            // DSM Initially mark atom as not to be sent (0 indicates atom _is_ sent. 1 indicates it is _not_).
-            send_flag = 1;
-            // Indices into array of send/recv buffers
-            int atom_layer = SAME_LAYER; // box_id (same layer), box_id-1 (below), box_id+1 (above)
-            int neighbour = UP; // neighbours in clockwise direction from neighbour directly to the "back" or "front" (z
-                                // -ve/+ve directions)
-
-            // 26 exchanges = 8 process neighbours * 3 box layers + 2 internal exchanges between boxes on same process
-
-            // First, check which layer this atom is on
-            if (ycoord < atom.box.ylo) {
-                // Outside in -ve y direction: box_id-1 / "lower" layer.
-                atom_layer = LOWER_LAYER;
-                // Outside box, necessarily mark as to-be-sent
-                send_flag = 0;
-                // At first, assume sending to self (internal box below)
-                neighbour = ME;
-            } else if (ycoord >= atom.box.yhi) {
-                // Outside in +ve y direction: box_id+1 / "upper" layer
-                atom_layer = UPPER_LAYER;
-                // Outside box, necessarily mark as to-be-sent
-                send_flag = 0;
-                // At first, assume sending to self (internal box above)
-                neighbour = ME;
-            } else {
-                // Not outside in either y direction: box_id / "same" layer
-                atom_layer = SAME_LAYER;
-            }
-
-            if (xcoord < atom.box.xlo) { // Is atom outside box in x -ve direction?
-                // Yes, mark as to-be-sent and decide which left-hand side neighbour it is going to.
-                send_flag = 0;
-
-                // Outside in z -ve direction?
-                if (zcoord < atom.box.zlo) {
-                    // x-ve and z-ve: send to "bottom-left"
-                    neighbour = BOTTOM_LEFT;
-                } else if (zcoord >= atom.box.zhi) {
-                    // x-ve and z+ve: send to "top-left"
-                    neighbour = TOP_LEFT;
-                } else {
-                    // x-ve but within z: send "left"
-                    neighbour = LEFT;
-                }
-
-            } else if (xcoord >= atom.box.xhi) { // Is atom outside box in x +ve direction?
-                // Yes, mark as to-be-sent and decide which right-hand side neighbour it is going to.
-                send_flag = 0;
-
-                // Outside in z -ve direction?
-                if (zcoord < atom.box.zlo) {
-                    // x+ve and z-ve: send to "bottom-right"
-                    neighbour = BOTTOM_RIGHT;
-                } else if (zcoord >= atom.box.zhi) {
-                    // x+ve and z+ve: send to "top-right"
-                    neighbour = TOP_RIGHT;
-                } else {
-                    // x-ve but within z: send "left"
-                    neighbour = RIGHT;
-                }
-
-            } else if (zcoord < atom.box.zlo) { // Is atom outside box in z -ve direction?
-                // Within x but outside z-ve. Send down
-                send_flag = 0;
-                neighbour = DOWN;
-
-            } else if (zcoord >= atom.box.zhi) { // Is atom outside box in z +ve direction?
-                // Within x but outside z+ve. Send up
-                send_flag = 0;
-                neighbour = UP;
-            }
-
-            // All directions accounted for. If this atom marked for sending, copy into appropriate buffer
-            AtomBuffer *buf_send;
-            if (send_flag == 0) {
-
-                // Special case: use separate internal buffers if this is a copy between boxes on the same process
-                if (neighbour == ME) {
-                    if (atom_layer == LOWER_LAYER) {
-                        buf_send = &internal_buf_send_down;
-                    } else if (atom_layer == UPPER_LAYER) {
-                        buf_send = &internal_buf_send_up;
-                    } else {
-                        printf("ERROR: Rank %d attempting to exchange with its own box layer. Aborting.", me);
-                        MPI_Abort(MPI_COMM_WORLD, 1);
-                    }
-                }
-                // Otherwise use the buffer allocated for this specific off-process neighbour
-                else {
-                    buf_send = &bufs_send[atom_layer][neighbour];
-                }
-
-                // Increment number of atoms to be sent by this buffer
-                buf_send->natoms++;
-                // Increase size of buffer if cannot hold the current number of atoms
-                // *7 as sending 7 elements per atom: x,y,z coordinates; x,y,z velocities; and flag for atom type
-                if (buf_send->natoms * 7 > buf_send->maxsize) {
-                    buf_send->growsend(buf_send->natoms * 7);
-                }
-
-                // Now perform the packing
-                int buf_send_index = (buf_send->natoms - 1) * 7;
-                atom.pack_exchange(i, &(buf_send->buf[buf_send_index]));
-                // Delete atom from local box by copying over it with last atom. Do not increment i in this branch -
-                // immediately check the copied over atom in next iteration. Same implementation as in exchange_all()
-                atom.copy(nlocal - 1, i);
-                --nlocal;
-
-            } else {
-                // Atom was not marked for sending. Check the next one.
-                ++i;
-            }
-
-        } // end of loop over atoms
-
-        // Update count of atoms in this box with new total following removal of atoms marked for exchange
-        atom.nlocal = nlocal;
-
-        // Loop over box layers: box_id, box_id-1, box_id+1
-        for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-            // DSM: Additionally, now loop over 5 dimensions (sides + corners) rather than only 3 (sides)
-            for (idim = 0; idim < 5; idim++) {
-
-                // DSM: Do not perform MPI communication in the y / idim==1 dimension
-                // Instead, perform memory copy into neighbouring box on this proc's recv buffer.
-                // The exchange_internal function, called following completion of all exchange operations, will then
-                // pull this data into each box's atoms list.
-                if (idim == 1) {
-                    // Only perform this copy step once
-                    if (box_layer_index == 0) {
-
-                        // First exchange to lower layer (usually box_id-1 but periodic)
-                        int box_neighbour = atom.boxneigh_negative;
-                        buf_send = &internal_buf_send_down;
-                        buf_recv1 = &(boxBufs[box_neighbour].internal_buf_recv_down[EXCHANGE_FUNCTION]);
-                        int nsend = buf_send->natoms * 7; // *7 as 7 doubles per atom
-                        // Increase size of receive buffers if receiving more than can be held
-                        if (nsend > buf_recv1->maxsize) {
-                            buf_recv1->growrecv(nsend);
-                        }
-                        // Push to neighbour.
-                        memcpy(buf_recv1->buf, buf_send->buf, nsend * sizeof(double));
-                        // Set receiving buffer sizes
-                        buf_recv1->natoms = buf_send->natoms;
-                        // Reset atom counter for next use of this buffer
-                        buf_send->natoms = 0;
-
-                        // Second exchange to upper layer (usually box_id+1)
-                        box_neighbour = atom.boxneigh_positive;
-                        buf_send = &internal_buf_send_up;
-                        buf_recv2 = &(boxBufs[box_neighbour].internal_buf_recv_up[EXCHANGE_FUNCTION]);
-                        nsend = buf_send->natoms * 7;
-                        if (nsend > buf_recv2->maxsize) {
-                            buf_recv2->growrecv(nsend);
-                        }
-                        memcpy(buf_recv2->buf, buf_send->buf, nsend * sizeof(double));
-                        buf_recv2->natoms = buf_send->natoms;
-                        buf_send->natoms = 0;
-                    }
-                    continue; // Skip to next dimension
-                }
-
-                /* only exchange if more than one proc in this dimension */
-                /*if (idim < 3) { // Only applies to non-corner, non-y dimensions
-                  if (procgrid[idim] == 1) {
-                    continue;
-                  }
-                }*/
-
-                //#pragma omp barrier
-                //#pragma omp master
-                {
-                    int sendDirection, send_target_box_id, recv_target_box_id, sendtag, recvtag;
-                    layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-                    // Determine which buffers we are using in first communication
-                    // Map from idim to UP, TOP_RIGHT, etc. neighbour ID
-                    sendDirection = dim_to_neigh(idim, 0);
-                    buf_send = &bufs_send[box_layer_index][sendDirection];
-                    nsends1[req_i] = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
-                    buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-                    send_comm = &boxBufs[send_target_box_id].comm[EXCHANGE_FUNCTION];
-                    recv_comm = &boxBufs[atom.box_id].comm[EXCHANGE_FUNCTION];
-                    sendtag = swapnum;
-                    recvtag = sendtag;
-                    ++swapnum;
-
-                    /* send/recv atoms in both directions
-                       only if neighboring procs are different */
-
-                    nrecvs1[req_i] = 0;
-                    nrecvs2[req_i] = 0;
-
-                    // DSM First send/recv number of elements we're expecting to/from every neighbour
-                    // Differs from blocking implementation in that data is only sent after size exchanges with every
-                    // neighbour
-                    MPI_Irecv(
-                        &nrecvs1[req_i], 1, MPI_INT, procneigh[idim][1], recvtag, *recv_comm, &recv1_requests[req_i]);
-                    MPI_Isend(
-                        &nsends1[req_i], 1, MPI_INT, procneigh[idim][0], sendtag, *send_comm, &send1_requests[req_i]);
-
-                    // Determine which buffers we are using in second communication
-                    sendDirection = dim_to_neigh(idim, 1);
-                    buf_send = &bufs_send[box_layer_index][sendDirection];
-                    nsends2[req_i] = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
-                    buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-                    sendtag = swapnum;
-                    recvtag = sendtag;
-                    ++swapnum;
-                    // TODO: Do we need to swap send/recv target box IDs and communicators here?
-
-                    // Update: Unconditionally do second swap now. Required by 26-way communication
-                    MPI_Irecv(
-                        &nrecvs2[req_i], 1, MPI_INT, procneigh[idim][0], recvtag, *recv_comm, &recv2_requests[req_i]);
-                    MPI_Isend(
-                        &nsends2[req_i], 1, MPI_INT, procneigh[idim][1], sendtag, *send_comm, &send2_requests[req_i]);
-
-                    req_i++;
-                } // end of omp master region
-            } // end of loop over dims
-        } // end of loop over box layers
-    } // end of loop over boxes per process
-
-    // All buffer size messages posted to all neighbours, wait for completion
-    // Using req_i instead of nrequests here as we might not be using the maximum length of the array, e.g. if skipped
-    // any exchanges due to procgrid==1. req_i has the actual number of exchanges
-    MPI_Waitall(req_i, recv1_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(req_i, send1_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(req_i, recv2_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(req_i, send2_requests, MPI_STATUSES_IGNORE);
-
-    // Now post the actual data
-    req_i = 0;
-    // Individual indices for buffers as sends/recv are conditional (do not post messages if buffer sizes are 0)
-    int recv1_req_i = 0, send1_req_i = 0, recv2_req_i = 0, send2_req_i = 0;
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        Atom &atom = *atoms[box_id];
-        AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[EXCHANGE_FUNCTION];
-        AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[EXCHANGE_FUNCTION];
-        int swapnum = 200; // to ensure tag is unique accross communicate, borders and exchange
-
-        for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-            for (int idim = 0; idim < 5; idim++) {
-
-                AtomBuffer *buf_send = NULL, *buf_recv1 = NULL, *buf_recv2 = NULL;
-
-                // Skip y-dimension and any other non-corner dimensions with only a single process
-                if (idim == 1) {
-                    continue;
-                }
-                // if (idim < 3 && procgrid[idim] == 1) { continue; }
-
-                // Redetermine buffers and directions
-                int sendDirection, recvDirection, send_target_box_id, recv_target_box_id, sendtag, recvtag;
-                layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-                sendDirection = dim_to_neigh(idim, 0);
-                buf_send = &bufs_send[box_layer_index][sendDirection];
-                recvDirection = dim_to_neigh(idim, 1);
-                buf_recv1 = &bufs_recv[box_layer_index][recvDirection];
-                send_comm = &boxBufs[send_target_box_id].comm[EXCHANGE_FUNCTION];
-                recv_comm = &boxBufs[atom.box_id].comm[EXCHANGE_FUNCTION];
-                sendtag = swapnum;
-                recvtag = sendtag;
-                ++swapnum;
-
-                // Increase size of receive buffer if receiving more than it can hold
-                if (nrecvs1[req_i] > buf_recv1->maxsize) {
-                    buf_recv1->growrecv(nrecvs1[req_i]);
-                }
-
-                // Perform exchange with first neighbour
-                // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
-                if (sizeof(double) == 4) {
-                    if (nrecvs1[req_i] != 0) {
-                        MPI_Irecv(buf_recv1->buf, nrecvs1[req_i], MPI_FLOAT, procneigh[idim][1], recvtag, *recv_comm,
-                            &recv1_requests[recv1_req_i]);
-                        recv1_req_i++;
-                    }
-
-                    if (nsends1[req_i] != 0) {
-                        MPI_Isend(buf_send->buf, nsends1[req_i], MPI_FLOAT, procneigh[idim][0], sendtag, *send_comm,
-                            &send1_requests[send1_req_i]);
-                        send1_req_i++;
-                    }
-                } else {
-                    if (nrecvs1[req_i] != 0) {
-                        MPI_Irecv(buf_recv1->buf, nrecvs1[req_i], MPI_DOUBLE, procneigh[idim][1], recvtag, *recv_comm,
-                            &recv1_requests[recv1_req_i]);
-                        recv1_req_i++;
-                    }
-
-                    if (nsends1[req_i] != 0) {
-                        MPI_Isend(buf_send->buf, nsends1[req_i], MPI_DOUBLE, procneigh[idim][0], sendtag, *send_comm,
-                            &send1_requests[send1_req_i]);
-                        send1_req_i++;
-                    }
-                }
-
-                // The second exchange
-                sendDirection = dim_to_neigh(idim, 1);
-                buf_send = &bufs_send[box_layer_index][sendDirection];
-                recvDirection = dim_to_neigh(idim, 0);
-                buf_recv2 = &bufs_recv[box_layer_index][recvDirection];
-                sendtag = swapnum;
-                recvtag = sendtag;
-                ++swapnum;
-                // TODO: Do we need to swap send/recv target box IDs and communicators here?
-
-                if (nrecvs2[req_i] > buf_recv2->maxsize) {
-                    buf_recv2->growrecv(nrecvs2[req_i]);
-                }
-
-                if (sizeof(double) == 4) {
-                    if (nrecvs2[req_i] != 0) {
-                        MPI_Irecv(buf_recv2->buf, nrecvs2[req_i], MPI_FLOAT, procneigh[idim][0], recvtag, *recv_comm,
-                            &recv2_requests[recv2_req_i]);
-                        recv2_req_i++;
-                    }
-
-                    if (nsends2[req_i] != 0) {
-                        MPI_Isend(buf_send->buf, nsends2[req_i], MPI_FLOAT, procneigh[idim][1], sendtag, *send_comm,
-                            &send2_requests[send2_req_i]);
-                        send2_req_i++;
-                    }
-                } else {
-                    if (nrecvs2[req_i] != 0) {
-                        MPI_Irecv(buf_recv2->buf, nrecvs2[req_i], MPI_DOUBLE, procneigh[idim][0], recvtag, *recv_comm,
-                            &recv2_requests[recv2_req_i]);
-                        recv2_req_i++;
-                    }
-
-                    if (nsends2[req_i] != 0) {
-                        MPI_Isend(buf_send->buf, nsends2[req_i], MPI_DOUBLE, procneigh[idim][1], sendtag, *send_comm,
-                            &send2_requests[send2_req_i]);
-                        send2_req_i++;
-                    }
-                }
-
-                req_i++;
-            } // end of loop over dims
-        } // end of loop over box layers
-    } // end of loop over boxes per process
-
-    // All buffers posted to all neighbours, wait for completion
-    // Using individual req_is as we might not be using the maximum length of the array, e.g. if skipped any exchanges
-    // due to buffer size == 0
-    MPI_Waitall(recv1_req_i, recv1_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(send1_req_i, send1_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(recv2_req_i, recv2_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(send2_req_i, send2_requests, MPI_STATUSES_IGNORE);
-
-    // Now unpack all buffers
-    req_i = 0;
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        Atom &atom = *atoms[box_id];
-        AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[EXCHANGE_FUNCTION];
-
-        for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-            for (int idim = 0; idim < 5; idim++) {
-
-                // Skip y-dimension and any other non-corner dimensions with only a single process
-                if (idim == 1) {
-                    continue;
-                }
-                // if (idim < 3 && procgrid[idim] == 1) { continue; }
-
-                // Again, /7 as 7 doubles per atom received (position, velocity and type)
-                nrecvs1[req_i] /= 7;
-                nrecvs2[req_i] /= 7;
-
-                // Determine buffer pointers
-                int recvDirection1 = dim_to_neigh(idim, 1);
-                int recvDirection2 = dim_to_neigh(idim, 0);
-                AtomBuffer *buf_recv1 = &bufs_recv[box_layer_index][recvDirection1];
-                AtomBuffer *buf_recv2 = &bufs_recv[box_layer_index][recvDirection2];
-
-                // Add new atoms from each buffer to end of list. Update local count of atoms after each unpack loop.
-                for (int i = 0; i < nrecvs1[req_i]; ++i) {
-                    atom.unpack_exchange(atom.nlocal + i, &buf_recv1->buf[i * 7]);
-                }
-                atom.nlocal += nrecvs1[req_i];
-
-                for (int i = 0; i < nrecvs2[req_i]; ++i) {
-                    atom.unpack_exchange(atom.nlocal + i, &buf_recv2->buf[i * 7]);
-                }
-                atom.nlocal += nrecvs2[req_i];
-
-                req_i++;
-            } // end of loop over dims
-        } // end of loop over box layers
-    } // end of loop over boxes per process
-} // end of function
-
-void Comm::exchange_blocking(Atom &atom, int box_id)
-{
-    // Skip exchange entirely if running with only one process and one box
-    // Not just an optimisation; algorithm breaks otherwise.
-    if (threads->mpi_num_threads == 1 && atom.boxes_per_process == 1) {
-        return;
-    }
-
-    if (do_safeexchange)
-        return exchange_all(atom);
-
-    int i, idim, nlocal, nsend, nrecv1, nrecv2;
-    double *x;
-    AtomBuffer *buf_send = NULL, *buf_recv1 = NULL, *buf_recv2 = NULL;
-
-    MPI_Request request;
-    MPI_Status status;
-    MPI_Comm *send_comm, *recv_comm;
-
-    // DSM Multibox: Reference buffers/variables specific to this box.
-    int &maxnlocal = boxBufs[box_id].maxnlocal;
-    int &maxthreads = boxBufs[box_id].maxthreads;
-    int *&nsend_thread = boxBufs[box_id].nsend_thread;
-    int *&nrecv_thread = boxBufs[box_id].nrecv_thread;
-    int *&nholes_thread = boxBufs[box_id].nholes_thread;
-    int *&maxsend_thread = boxBufs[box_id].maxsend_thread;
-    int **&exc_sendlist_thread = boxBufs[box_id].exc_sendlist_thread;
-    AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[EXCHANGE_FUNCTION];
-    AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[EXCHANGE_FUNCTION];
-    AtomBuffer &internal_buf_recv_up = boxBufs[box_id].internal_buf_recv_up[EXCHANGE_FUNCTION];
-    AtomBuffer &internal_buf_recv_down = boxBufs[box_id].internal_buf_recv_down[EXCHANGE_FUNCTION];
-
-    // Loop over box layers: box_id, box_id-1, box_id+1
-    // swapnum starts at 100 to ensure tag is unique across communicate, borders and exchange.
-    // Messages from incorrect functions may match otherwise
-    int swapnum = 100;
-    for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-        // DSM: Additionally, now loop over 5 dimensions (sides + corners) rather than only 3 (sides)
-        for (idim = 0; idim < 5; idim++) {
-
-            // Skip y-dimension. This is internal swap between boxes on this process and handled outside this function
-            if (idim == 1) {
-                continue;
-            }
-
-            //#pragma omp barrier
-            //#pragma omp master
-            {
-                int sendDirection, recvDirection, send_target_box_id, recv_target_box_id, sendtag, recvtag;
-                layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-                // Determine which buffers we are using in first communication
-                // Map from idim to UP, TOP_RIGHT, etc. neighbour ID
-                sendDirection = dim_to_neigh(idim, 0);
-                recvDirection = dim_to_neigh(idim, 1);
-                buf_send = &bufs_send[box_layer_index][sendDirection];
-                buf_recv1 = &bufs_recv[box_layer_index][recvDirection];
-                send_comm = &boxBufs[send_target_box_id].comm[EXCHANGE_FUNCTION];
-                recv_comm = &boxBufs[atom.box_id].comm[EXCHANGE_FUNCTION];
-                sendtag = swapnum;
-                recvtag = sendtag;
-                ++swapnum;
-                nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
-                buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-
-                /* send/recv atoms in both directions
-                   only if neighboring procs are different */
-
-                nrecv1 = nrecv2 = 0;
-
-                // DSM First send/recv number of elements we're expecting to/from neighbour, then irecv/send the actual
-                // data. DSM: Fixed this to be Irecv/send pair. Had a chance of deadlock in the original code.
-                MPI_Irecv(&nrecv1, 1, MPI_INT, procneigh[idim][1], recvtag, *recv_comm, &request);
-                MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][0], sendtag, *send_comm);
-                MPI_Wait(&request, &status);
-
-                // Increase size of receive buffer if receiving more than it can hold
-                if (nrecv1 > buf_recv1->maxsize) {
-                    buf_recv1->growrecv(nrecv1);
-                }
-
-                // Perform exchange with first neighbour
-                // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
-                if (sizeof(double) == 4) {
-                    if (nrecv1 != 0) {
-                        MPI_Irecv(buf_recv1->buf, nrecv1, MPI_FLOAT, procneigh[idim][1], recvtag, *recv_comm, &request);
-                    }
-
-                    if (nsend != 0) {
-                        MPI_Send(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][0], sendtag, *send_comm);
-                    }
-                } else {
-                    if (nrecv1 != 0) {
-                        MPI_Irecv(
-                            buf_recv1->buf, nrecv1, MPI_DOUBLE, procneigh[idim][1], recvtag, *recv_comm, &request);
-                    }
-
-                    if (nsend != 0) {
-                        MPI_Send(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][0], sendtag, *send_comm);
-                    }
-                }
-
-                if (nrecv1 != 0) {
-                    MPI_Wait(&request, &status); // End of first exchange
-                }
-
-                // Determine which buffers we are using in second communication
-                sendDirection = dim_to_neigh(idim, 1);
-                recvDirection = dim_to_neigh(idim, 0);
-                buf_send = &bufs_send[box_layer_index][sendDirection];
-                buf_recv2 = &bufs_recv[box_layer_index][recvDirection];
-                sendtag = swapnum;
-                recvtag = sendtag;
-                ++swapnum;
-                // TODO: Do we need to reverse send/recv target IDs and comms here?
-                nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
-                buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-
-                // DSM: This branch is checking procgrid[idim]!=2. Can't ==1 as that is checked at start of loop
-                // (continue if true) and can't <=0 as all dimensions need at least 1 processor. DSM: i.e. We don't need
-                // to do a second send/recv exchange in the case where there are only 2 processors in this dimension. Do
-                // not need to do exchanges in both directions every time. This communication is for exchanging
-                // ownership of atoms, not updating atom coordinates - PBC do not apply.
-                // if(procgrid[idim] > 2) {
-                // Update: Unconditionally do second swap now. Required by 26-way communication
-                MPI_Irecv(&nrecv2, 1, MPI_INT, procneigh[idim][0], recvtag, *recv_comm, &request);
-                MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][1], sendtag, *send_comm);
-                MPI_Wait(&request, &status);
-
-                // Increase size of receive buffer if receiving more than it can hold
-                if (nrecv2 > buf_recv2->maxsize) {
-                    buf_recv2->growrecv(nrecv2);
-                }
-
-                // DSM: The second exchange,
-                if (sizeof(double) == 4) {
-                    if (nrecv2 != 0) {
-                        MPI_Irecv(buf_recv2->buf, nrecv2, MPI_FLOAT, procneigh[idim][0], recvtag, *recv_comm, &request);
-                    }
-
-                    if (nsend != 0) {
-                        MPI_Send(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][1], sendtag, *send_comm);
-                    }
-                } else {
-                    if (nrecv2 != 0) {
-                        MPI_Irecv(
-                            buf_recv2->buf, nrecv2, MPI_DOUBLE, procneigh[idim][0], recvtag, *recv_comm, &request);
-                    }
-
-                    if (nsend != 0) {
-                        MPI_Send(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][1], sendtag, *send_comm);
-                    }
-                }
-
-                if (nrecv2 != 0) {
-                    MPI_Wait(&request, &status); // End of second exchange
-                }
-            }
-
-            /* check incoming atoms to see if they are in my box
-               if they are, add to my list */
-            // DSM: Removed this check as all atoms received now must be in my box (otherwise they would not have been
-            // sent)
-
-            // Again, /7 as 7 doubles per atom received (position, velocity and type)
-            nrecv1 /= 7;
-            nrecv2 /= 7;
-
-            // Add new atoms from each buffer to end of list. Update local count of atoms after each unpack loop.
-            for (i = 0; i < nrecv1; ++i) {
-                atom.unpack_exchange(atom.nlocal + i, &buf_recv1->buf[i * 7]);
-            }
-            atom.nlocal += nrecv1;
-
-            for (i = 0; i < nrecv2; ++i) {
-                atom.unpack_exchange(atom.nlocal + i, &buf_recv2->buf[i * 7]);
-            }
-            atom.nlocal += nrecv2;
-
-            // #pragma omp barrier
-
-        } // end of loop over dims
-    } // end of loop over box layers
-}
-
-void Comm::exchange_blocking_neighbourtasks(Atom *atom, int box_id)
-{
-    // Skip exchange entirely if running with only one process and one box
-    // Not just an optimisation; algorithm breaks otherwise.
-    if (threads->mpi_num_threads == 1 && atom->boxes_per_process == 1) {
-        return;
-    }
-
-    if (do_safeexchange)
-        return exchange_all(*atom);
-
-    // No outer loop over box layers this implementation. All 3 layers captured in each task
-
-    // Determine box IDs to send to/receive from on all layers
-    int send_target_box_id[3], recv_target_box_id[3];
-    layer_to_targets(atom, 0, &send_target_box_id[0], &recv_target_box_id[0]);
-    layer_to_targets(atom, 1, &send_target_box_id[1], &recv_target_box_id[1]);
-    layer_to_targets(atom, 2, &send_target_box_id[2], &recv_target_box_id[2]);
-
-    // swapnum starts at 100 to ensure tag is unique across communicate, borders and exchange.
-    // Messages from incorrect functions may match otherwise
-    int swapnum = 100; // to ensure tag is unique across communicate, borders and exchange
-    // Loop over 5 dimensions (sides + corners) rather than original 3 (sides)
-    for (int idim = 0; idim < 5; idim++) {
-
-        // Skip y-dimension. This is internal swap between boxes on this process and handled outside this function
-        if (idim == 1) {
-            continue;
-        }
-
-// Perform send with first neighbour
-#pragma oss task label("exchange_send_1") in(exchangePackSentinels[box_id]) out(exchangeSend1Sentinels[box_id][idim])  \
-    firstprivate(atom, box_id, idim, swapnum, send_target_box_id)
-        {
-
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Determine which buffers we are using in first communication
-                // Map from idim to UP, TOP_RIGHT, etc. neighbour ID
-                int sendDirection = dim_to_neigh(idim, 0);
-                AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[EXCHANGE_FUNCTION][box_layer_index][sendDirection];
-                MPI_Comm *send_comm = &boxBufs[send_target_box_id[box_layer_index]].comm[EXCHANGE_FUNCTION];
-                int sendtag = swapnum;
-                ++swapnum;
-                int nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
-                buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-
-                MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][0], sendtag, *send_comm);
-
-                // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
-                if (nsend != 0) {
-                    if (sizeof(double) == 4) {
-                        MPI_Send(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][0], sendtag, *send_comm);
-                    } else {
-                        MPI_Send(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][0], sendtag, *send_comm);
-                    }
-                }
-            }
-        }
-
-// Perform recv with first neighbour
-// Recvs can be started even before packing tasks are finished
-#pragma oss task label("exchange_recv_1") in(initialIntegrateSentinels[box_id]) out(                                   \
-    exchangeRecv1Sentinels[box_id][idim]) firstprivate(atom, box_id, idim, swapnum)
-        {
-
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Determine which buffers we are using in first communication
-                // Map from idim to UP, TOP_RIGHT, etc. neighbour ID
-                int recvDirection = dim_to_neigh(idim, 1);
-                AtomBuffer *buf_recv1 = &boxBufs[box_id].bufs_recv[EXCHANGE_FUNCTION][box_layer_index][recvDirection];
-                MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[EXCHANGE_FUNCTION];
-                int recvtag = swapnum;
-                ++swapnum;
-
-                boxBufs[box_id].nrecvs1[box_layer_index][idim] = 0;
-                MPI_Recv(&boxBufs[box_id].nrecvs1[box_layer_index][idim], 1, MPI_INT, procneigh[idim][1], recvtag,
-                    *recv_comm, MPI_STATUS_IGNORE);
-
-                // Increase size of receive buffer if receiving more than it can hold
-                if (boxBufs[box_id].nrecvs1[box_layer_index][idim] > buf_recv1->maxsize) {
-                    buf_recv1->growrecv(boxBufs[box_id].nrecvs1[box_layer_index][idim]);
-                }
-
-                // Perform exchange with first neighbour
-                // DSM TODO: Could we not make this a static check? #define MMD_MPI_FLOAT as MPI_FLOAT or MPI_DOUBLE?
-                if (boxBufs[box_id].nrecvs1[box_layer_index][idim] != 0) {
-                    if (sizeof(double) == 4) {
-                        MPI_Recv(buf_recv1->buf, boxBufs[box_id].nrecvs1[box_layer_index][idim], MPI_FLOAT,
-                            procneigh[idim][1], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    } else {
-                        MPI_Recv(buf_recv1->buf, boxBufs[box_id].nrecvs1[box_layer_index][idim], MPI_DOUBLE,
-                            procneigh[idim][1], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    }
-                }
-
-                // Save recv buffer pointer for use in unpack task
-                boxBufs[box_id].buf_recvs1[box_layer_index][idim] = buf_recv1;
-            }
-        }
-
-        // 3 send/recv pair completes
-        swapnum += 3;
-
-// Perform second set of exchanges
-#pragma oss task label("exchange_send_2") in(exchangePackSentinels[box_id]) out(exchangeSend2Sentinels[box_id][idim])  \
-    firstprivate(atom, box_id, idim, swapnum, send_target_box_id)
-        {
-
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Determine which buffers we are using in second communication
-                int sendDirection = dim_to_neigh(idim, 1);
-                AtomBuffer *buf_send = &boxBufs[box_id].bufs_send[EXCHANGE_FUNCTION][box_layer_index][sendDirection];
-                MPI_Comm *send_comm = &boxBufs[send_target_box_id[box_layer_index]].comm[EXCHANGE_FUNCTION];
-                int sendtag = swapnum;
-                ++swapnum;
-                // TODO: Do we need to reverse send/recv target IDs and comms here?
-                int nsend = buf_send->natoms * 7; // *7 to represent how many doubles are due to be sent
-                buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-
-                MPI_Send(&nsend, 1, MPI_INT, procneigh[idim][1], sendtag, *send_comm);
-
-                // DSM: The second exchange,
-                if (nsend != 0) {
-                    if (sizeof(double) == 4) {
-                        MPI_Send(buf_send->buf, nsend, MPI_FLOAT, procneigh[idim][1], sendtag, *send_comm);
-                    } else {
-                        MPI_Send(buf_send->buf, nsend, MPI_DOUBLE, procneigh[idim][1], sendtag, *send_comm);
-                    }
-                }
-            }
-        }
-
-#pragma oss task label("exchange_recv_2") in(initialIntegrateSentinels[box_id]) out(                                   \
-    exchangeRecv2Sentinels[box_id][idim]) firstprivate(atom, box_id, idim, swapnum)
-        {
-
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                // Determine which buffers we are using in second communication
-                int recvDirection = dim_to_neigh(idim, 0);
-                AtomBuffer *buf_recv2 = &boxBufs[box_id].bufs_recv[EXCHANGE_FUNCTION][box_layer_index][recvDirection];
-                MPI_Comm *recv_comm = &boxBufs[atom->box_id].comm[EXCHANGE_FUNCTION];
-                int recvtag = swapnum;
-                ++swapnum;
-
-                boxBufs[box_id].nrecvs2[box_layer_index][idim] = 0;
-                MPI_Recv(&boxBufs[box_id].nrecvs2[box_layer_index][idim], 1, MPI_INT, procneigh[idim][0], recvtag,
-                    *recv_comm, MPI_STATUS_IGNORE);
-
-                // Increase size of receive buffer if receiving more than it can hold
-                if (boxBufs[box_id].nrecvs2[box_layer_index][idim] > buf_recv2->maxsize) {
-                    buf_recv2->growrecv(boxBufs[box_id].nrecvs2[box_layer_index][idim]);
-                }
-
-                if (boxBufs[box_id].nrecvs2[box_layer_index][idim] != 0) {
-                    if (sizeof(double) == 4) {
-                        MPI_Recv(buf_recv2->buf, boxBufs[box_id].nrecvs2[box_layer_index][idim], MPI_FLOAT,
-                            procneigh[idim][0], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    } else {
-                        MPI_Recv(buf_recv2->buf, boxBufs[box_id].nrecvs2[box_layer_index][idim], MPI_DOUBLE,
-                            procneigh[idim][0], recvtag, *recv_comm, MPI_STATUS_IGNORE);
-                    }
-                }
-
-                boxBufs[box_id].buf_recvs2[box_layer_index][idim] = buf_recv2;
-            }
-        }
-
-        // Second set of 3 send/recv pairs completed
-        swapnum += 3;
-
-// Unpack both neighbours' buffers. Commutative so multiple unpack tasks for same box do not
-// overwrite the x array concurrently
-// Is dependency on pack needed? Yes, what if unpack tries to grow array while a pack task is running
-#pragma oss task label("exchange_unpack") commutative(atom->nlocal) in(exchangePackSentinels[box_id]) in(              \
-    exchangeRecv1Sentinels[box_id][idim]) in(exchangeRecv2Sentinels[box_id][idim]) out(exchangeSentinels[box_id])      \
-    firstprivate(atom, idim)
-        {
-            for (int box_layer_index = 0; box_layer_index < 3; ++box_layer_index) {
-                AtomBuffer *buf_recv1 = boxBufs[box_id].buf_recvs1[box_layer_index][idim];
-                int nrecv1 = boxBufs[box_id].nrecvs1[box_layer_index][idim];
-                AtomBuffer *buf_recv2 = boxBufs[box_id].buf_recvs2[box_layer_index][idim];
-                int nrecv2 = boxBufs[box_id].nrecvs2[box_layer_index][idim];
-
-                // Again, /7 as 7 doubles per atom received (position, velocity and type)
-                nrecv1 /= 7;
-                nrecv2 /= 7;
-
-                // Add new atoms from each buffer to end of list. Update local count of atoms after each unpack loop.
-                for (int i = 0; i < nrecv1; ++i) {
-                    atom->unpack_exchange(atom->nlocal + i, &buf_recv1->buf[i * 7]);
-                }
-                atom->nlocal += nrecv1;
-
-                for (int i = 0; i < nrecv2; ++i) {
-                    atom->unpack_exchange(atom->nlocal + i, &buf_recv2->buf[i * 7]);
-                }
-                atom->nlocal += nrecv2;
-            }
-        }
-    } // end of loop over dims
-}
 
 void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int box_id)
 {
@@ -3442,8 +1529,7 @@ void Comm::exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int bo
         return;
     }
 
-    if (do_safeexchange)
-        return exchange_all(*atom);
+    // FIXME: exchange all needed?
 
     // No outer loop over box layers this implementation. All 3 layers captured in each task
 
@@ -3800,50 +1886,69 @@ void Comm::communicate_internal_send(
 // DSM: exchange() is always called before borders()
 void Comm::borders(Atom *atoms[])
 {
-    // Select between blocking and non-blocking communication modes
-    if (nonblocking_enabled) {
-        borders_nonblocking(atoms);
-    } else {
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// Dependencies on both sort and exchange completing as sort operation may be skipped
-#pragma oss task label("borders_pack") in(sortSentinels[box_index]) in(exchangePBCSentinels[box_index]) out(           \
-    bordersPackSentinels[box_index]) firstprivate(box_index)
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // Dependencies on both sort and exchange completing as sort
+        // operation may be skipped
+        #pragma oss \
+            task label("borders_pack") \
+            in(sortSentinels[box_index]) \
+            in(exchangePBCSentinels[box_index]) \
+            out(bordersPackSentinels[box_index]) \
+            firstprivate(box_index)
+        {
+            fprintf(stderr, "packing border for box %d\n", box_index);
             borders_pack(atoms[box_index]);
         }
-
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-            //#pragma oss task label("borders_blocking") in(bordersPackSentinels[box_index])
-            // out(bordersSentinels[box_index]) firstprivate(box_index)
-            // borders_blocking(*atoms[box_index], box_index);
-
-            // Tasks created within this function
-            // borders_blocking_neighbourtasks(atoms[box_index], box_index);
-            blocking_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
-        }
-
-        for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// Internal swaps between boxes
-#pragma oss task label("borders_internal_send")                                                                        \
-    in(bordersPackSentinels[box_index]) out(bordersInternalSendSentinels[box_index]) firstprivate(box_index)
-            borders_internal_send(atoms[box_index]);
-        }
-    } // End of blocking/nonblocking branch
+    }
 
     for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-// After swaps over all boxes completed with their off-process neighbours,
-// perform internal exchanges with all boxes on this process.
-// Commutative on other unpack tasks on this box to avoid multiple concurrent attempts to write into x array
-// TODO: Why does this need to depend on send? Crashes if only depends on pack
-#pragma oss task label("borders_internal_recv") commutative(atoms[box_index]->nghost)                                  \
-    in(bordersInternalSendSentinels[atoms[box_index]->boxneigh_positive])                                              \
-        in(bordersInternalSendSentinels[atoms[box_index]->boxneigh_negative]) in(bordersSentinels[box_index]) in(      \
-            bordersSendSentinels[box_index]) out(bordersInternalSentinels[box_index]) firstprivate(box_index)
+        //#pragma oss task label("borders_blocking") in(bordersPackSentinels[box_index])
+        // out(bordersSentinels[box_index]) firstprivate(box_index)
+        // borders_blocking(*atoms[box_index], box_index);
+        // Tasks created within this function
+        // borders_blocking_neighbourtasks(atoms[box_index], box_index);
+        {
+            fprintf(stderr, "blocking waitall for box %d\n", box_index);
+            blocking_nonblocking_neighbourtasks_tampi_iwaitall(atoms[box_index], box_index);
+        }
+    }
+
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // Internal swaps between boxes
+        #pragma oss task \
+            label("borders_internal_send") \
+            in(bordersPackSentinels[box_index]) \
+            out(bordersInternalSendSentinels[box_index]) \
+            firstprivate(box_index)
+        {
+            fprintf(stderr, "sending internal border for box %d\n", box_index);
+            borders_internal_send(atoms[box_index]);
+        }
+    }
+
+    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+        // After swaps over all boxes completed with their off-process
+        // neighbours, perform internal exchanges with all boxes on this
+        // process. Commutative on other unpack tasks on this box to
+        // avoid multiple concurrent attempts to write into x array
+        // TODO: Why does this need to depend on send? Crashes if only
+        // depends on pack
+        #pragma oss task \
+            label("borders_internal_recv") \
+            commutative(atoms[box_index]->nghost) \
+            in(bordersInternalSendSentinels[atoms[box_index]->boxneigh_positive]) \
+            in(bordersInternalSendSentinels[atoms[box_index]->boxneigh_negative]) \
+            in(bordersSentinels[box_index]) \
+            in(bordersSendSentinels[box_index]) \
+            out(bordersInternalSentinels[box_index]) \
+            firstprivate(box_index)
         borders_internal(*atoms[box_index], box_index);
     }
 }
 
-// Determine which slabs, if any, all atoms are currently within. Copy atoms within a slab to the appropriate send
-// buffers for those directions.
+// Determine which slabs, if any, all atoms are currently within. Copy
+// atoms within a slab to the appropriate send buffers for those
+// directions.
 void Comm::borders_pack(Atom *atom)
 {
 
@@ -3870,12 +1975,9 @@ void Comm::borders_pack(Atom *atom)
     // Dissimilar from exchange() calculations: per slab rather than per box and each atom can be packed into multiple
     // buffers. An atom in the top-left corner slab will also need to be sent directly left, for example.
     // 26 exchanges = 8 process neighbours * 3 box layers + 2 internal exchanges between boxes on same process
-    int nfirst = 0;
-    int nlast = atom->nlocal
-        + atom->nghost; // DSM: nghost will always be 0 here, we sort all local atoms in a single pass now
     double xcoord, ycoord, zcoord;
     int type;
-    for (int i = nfirst; i < nlast; i++) { // DSM: From 0 to atom.nlocal+atom.nghost
+    for (int i = 0; i < atom->nlocal; i++) {
         // Get atom's current coordinates and type (needed for packing)
         xcoord = atom->x[i * PAD];
         ycoord = atom->x[i * PAD + 1];
@@ -4468,330 +2570,6 @@ void Comm::blocking_nonblocking_neighbourtasks_tampi_iwaitall(Atom *atom, int bo
     } // DSM End of loop over dimensions
 }
 
-void Comm::borders_nonblocking(Atom *atoms[])
-{
-    // Arrays for isend/irecv requests
-    // nswaps communications per box layer, 3 box layers per box on this process.
-    // Internal swaps in y-dimension are skipped => subtract 6 per box (2 y-swaps per box layer)
-    // nswaps and boxes_per_process constant per box
-    int nrequests = boxBufs[0].nswap * 3 * atoms[0]->boxes_per_process - 6 * atoms[0]->boxes_per_process;
-    int req_i = 0;
-    MPI_Request recv_requests[nrequests];
-    MPI_Request send_requests[nrequests];
-    MPI_Comm *send_comm, *recv_comm;
-
-    // Pack all atoms in slab boundaries into buffers
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-        borders_pack(atoms[box_id]);
-    }
-
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        Atom &atom = *atoms[box_id];
-
-        int i, m, n, iswap, idim, ineed, nall, nfirst, nlast, type;
-        AtomBuffer *buf_send = NULL, *buf_recv = NULL;
-        double *x;
-        double xcoord, ycoord, zcoord;
-        // Swap counter for this box
-        int swapnum = 200; // to ensure tag is unique accross communicate, borders and exchange
-
-        // DSM Multibox: Reference buffers/variables specific to this box.
-        int &nswap = boxBufs[box_id].nswap;
-        int &maxnlocal = boxBufs[box_id].maxnlocal;
-        int *&sendproc = boxBufs[box_id].sendproc;
-        int *&recvproc = boxBufs[box_id].recvproc;
-        int *&sendneigh = boxBufs[box_id].sendneigh;
-        int *&recvneigh = boxBufs[box_id].recvneigh;
-        int &nrecv_atoms = boxBufs[box_id].nrecv_atoms;
-        int *(&sendnum)[3] = boxBufs[box_id].sendnum;
-        int *(&recvnum)[3] = boxBufs[box_id].recvnum;
-        int *(&firstrecv)[3] = boxBufs[box_id].firstrecv;
-        int *(&comm_send_size)[3] = boxBufs[box_id].comm_send_size;
-        int *(&comm_recv_size)[3] = boxBufs[box_id].comm_recv_size;
-        int *(&reverse_send_size)[3] = boxBufs[box_id].reverse_send_size;
-        int *(&reverse_recv_size)[3] = boxBufs[box_id].reverse_recv_size;
-        AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[BORDERS_FUNCTION];
-        AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[BORDERS_FUNCTION];
-        int *(&sendlists)[3][8] = boxBufs[box_id].sendlists;
-        int(&maxsendlists)[3][8] = boxBufs[box_id].maxsendlists;
-        AtomBuffer &internal_buf_send_up = boxBufs[box_id].internal_buf_send_up[BORDERS_FUNCTION];
-        AtomBuffer &internal_buf_send_down = boxBufs[box_id].internal_buf_send_down[BORDERS_FUNCTION];
-        AtomBuffer &internal_buf_recv_up = boxBufs[box_id].internal_buf_recv_up[BORDERS_FUNCTION];
-        AtomBuffer &internal_buf_recv_down = boxBufs[box_id].internal_buf_recv_down[BORDERS_FUNCTION];
-        int *&internal_sendlist_up = boxBufs[box_id].internal_sendlist_up;
-        int &internal_maxsendlist_up = boxBufs[box_id].internal_maxsendlist_up;
-        int *&internal_sendlist_down = boxBufs[box_id].internal_sendlist_down;
-        int &internal_maxsendlist_down = boxBufs[box_id].internal_maxsendlist_down;
-
-        // DSM: This is the atom position array
-        x = atom.x;
-
-        // Loop over box layers: box_id, box_id-1, box_id+1
-        for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-            iswap = 0;
-            // Loop over 5 dimensions x, y, z, diagonal-right, diagonal-left
-            for (idim = 0; idim < 5; idim++) {
-
-                // DSM: Do not perform MPI communication in the y / idim==1 dimension
-                // Instead, perform memory copy into neighbouring box on this proc's recv buffer.
-                // The borders_internal function, called following completion of all borders operations, will then pull
-                // this data into each box's atoms list.
-                if (idim == 1) {
-                    // Only perform this copy step once
-                    if (box_layer_index == 0) {
-                        // First exchange to lower layer (usually box_id-1 but periodic)
-                        int box_neighbour = atom.boxneigh_negative;
-                        buf_send = &internal_buf_send_down;
-                        buf_recv = &(boxBufs[box_neighbour].internal_buf_recv_down[BORDERS_FUNCTION]);
-                        int nsend
-                            = buf_send->natoms * atom.border_size; // natoms * num doubles per atom (e.g. 4: x,y,z,type)
-                        // Increase size of receive buffers if receiving more than can be held
-                        if (nsend > buf_recv->maxsize) {
-                            buf_recv->growrecv(nsend);
-                        }
-                        // Push to neighbour.
-                        memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
-                        // Update relevant pointers and counters for this swap
-                        // Recv side done in seperate internal swaps function
-                        sendnum[box_layer_index][iswap] = buf_send->natoms;
-                        comm_send_size[box_layer_index][iswap] = buf_send->natoms * atom.comm_size;
-                        // Set receiving buffer sizes
-                        buf_recv->natoms = buf_send->natoms;
-                        // Reset atom counter for next use of this buffer
-                        buf_send->natoms = 0;
-                        iswap++;
-
-                        // Second exchange to upper layer (usually box_id+1)
-                        box_neighbour = atom.boxneigh_positive;
-                        buf_send = &internal_buf_send_up;
-                        buf_recv = &(boxBufs[box_neighbour].internal_buf_recv_up[BORDERS_FUNCTION]);
-                        nsend = buf_send->natoms * atom.border_size;
-                        if (nsend > buf_recv->maxsize) {
-                            buf_recv->growrecv(nsend);
-                        }
-                        memcpy(buf_recv->buf, buf_send->buf, nsend * sizeof(double));
-                        sendnum[box_layer_index][iswap] = buf_send->natoms;
-                        comm_send_size[box_layer_index][iswap] = buf_send->natoms * atom.comm_size;
-                        buf_recv->natoms = buf_send->natoms;
-                        buf_send->natoms = 0;
-                        iswap++;
-
-                    } else {
-                        iswap += 2; // Skip over both sides of the y dimension swap here
-                    }
-                    continue; // Skip to next dimension
-                }
-
-                for (ineed = 0; ineed < 2 * need[idim];
-                     ineed++) { // DSM Multibox: Will always be ineed < 2 here, need guaranteed to be 1.
-
-                    /* swap atoms with other proc
-                    put incoming ghosts at end of my atom arrays
-                    if swapping with self, simply copy, no messages */
-
-                    //#pragma omp master
-                    {
-                        // DSM Two send/recv pairs per dimension
-                        int send_target_box_id, recv_target_box_id, sendtag, recvtag;
-                        layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-                        // Determine which buffers we are using in communication
-                        int sendNeighbour = sendneigh[iswap];
-                        buf_send = &bufs_send[box_layer_index][sendNeighbour];
-                        sendnum[box_layer_index][iswap]
-                            = buf_send->natoms; // Number of atoms to send (*not* MMD_Floats)
-                        buf_send->natoms = 0; // Reset atom counter for next use of this buffer
-                        send_comm = &boxBufs[send_target_box_id].comm[BORDERS_FUNCTION];
-                        recv_comm = &boxBufs[atom.box_id].comm[BORDERS_FUNCTION];
-                        sendtag = swapnum;
-                        recvtag = sendtag;
-                        ++swapnum;
-
-                        if (sendproc[iswap] == me && send_target_box_id == atom.box_id) {
-                            // Simply copy if swapping with yourself
-                            recvnum[box_layer_index][iswap] = sendnum[box_layer_index][iswap];
-                        } else {
-                            // DSM: Changed to Irecv/Send pair from Send/Recv. No guarantee original code progresses
-                            // (likely will due to buffered send) DSM TODO: Double check the comm index makes sense -
-                            // should the receive be box_comms[sender_id]? What happens if we have multiple
-                            // sends/receives to the same box at the same time? DSM TODO: Optimise this - we can skip a
-                            // send/recv pair if our nsend/nrecv == 0
-                            MPI_Irecv(&recvnum[box_layer_index][iswap], 1, MPI_INT, recvproc[iswap], recvtag,
-                                *recv_comm, &recv_requests[req_i]);
-                            MPI_Isend(&sendnum[box_layer_index][iswap], 1, MPI_INT, sendproc[iswap], sendtag,
-                                *send_comm, &send_requests[req_i]);
-                            req_i++;
-                        } // End of branch
-                        iswap++;
-                    } // End of omp block
-                } // End of loop over swaps (ineed)
-            } // End of loop over dimensions (idim)
-        } // End of loop over box layers
-    } // End of loop over boxes per process
-
-    // All size messages posted. Wait for completion
-    // req_i rather than nrequests as may have skipped requests if sending to self
-    MPI_Waitall(req_i, recv_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(req_i, send_requests, MPI_STATUSES_IGNORE);
-
-    // Now post actual data
-    req_i = 0;
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-
-        Atom &atom = *atoms[box_id];
-        // Swap counter for this box
-        int swapnum = 200; // to ensure tag is unique accross communicate, borders and exchange
-
-        for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-
-            int iswap = 0;
-            int *&sendproc = boxBufs[box_id].sendproc;
-            int *&recvproc = boxBufs[box_id].recvproc;
-            int *&sendneigh = boxBufs[box_id].sendneigh;
-            int *&recvneigh = boxBufs[box_id].recvneigh;
-            int *(&sendnum)[3] = boxBufs[box_id].sendnum;
-            int *(&recvnum)[3] = boxBufs[box_id].recvnum;
-            AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[BORDERS_FUNCTION];
-            AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[BORDERS_FUNCTION];
-            AtomBuffer *buf_send = NULL, *buf_recv = NULL;
-
-            for (int idim = 0; idim < 5; idim++) {
-
-                // Skip y-dimension
-                if (idim == 1) {
-                    iswap += 2;
-                    continue;
-                }
-
-                for (int ineed = 0; ineed < 2 * need[idim]; ineed++) {
-
-                    int nsend = sendnum[box_layer_index][iswap];
-                    int nrecv = recvnum[box_layer_index][iswap];
-                    int send_target_box_id, recv_target_box_id, sendtag, recvtag;
-                    layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-                    // Determine which buffers we are using in communication
-                    int sendNeighbour = sendneigh[iswap];
-                    int recvNeighbour = recvneigh[iswap];
-                    buf_send = &bufs_send[box_layer_index][sendNeighbour];
-                    buf_recv = &bufs_recv[box_layer_index][recvNeighbour];
-                    send_comm = &boxBufs[send_target_box_id].comm[BORDERS_FUNCTION];
-                    recv_comm = &boxBufs[atom.box_id].comm[BORDERS_FUNCTION];
-                    sendtag = swapnum;
-                    recvtag = sendtag;
-                    ++swapnum;
-
-                    // Skip sending to self (data will be unpacked directly from send buffer in next step)
-                    if (sendproc[iswap] == me && send_target_box_id == atom.box_id) {
-                        iswap++;
-                        continue;
-                    }
-
-                    // Increase receiving buffer size if needed
-                    if (nrecv * atom.border_size > buf_recv->maxsize)
-                        buf_recv->growrecv(nrecv * atom.border_size);
-
-                    if (sizeof(double) == 4) {
-                        MPI_Irecv(buf_recv->buf, nrecv * atom.border_size, MPI_FLOAT, recvproc[iswap], recvtag,
-                            *recv_comm, &recv_requests[req_i]);
-                        MPI_Isend(buf_send->buf, nsend * atom.border_size, MPI_FLOAT, sendproc[iswap], sendtag,
-                            *send_comm, &send_requests[req_i]);
-                    } else {
-                        MPI_Irecv(buf_recv->buf, nrecv * atom.border_size, MPI_DOUBLE, recvproc[iswap], recvtag,
-                            *recv_comm, &recv_requests[req_i]);
-                        MPI_Isend(buf_send->buf, nsend * atom.border_size, MPI_DOUBLE, sendproc[iswap], sendtag,
-                            *send_comm, &send_requests[req_i]);
-                    }
-                    iswap++;
-                    req_i++;
-                } // End of loop over ineed (swaps)
-            } // End of loop over idim
-        } // End of loop over box layers
-    } // End of loop over boxes per process
-
-    // Wait for all data communication to complete
-    // req_i rather than nrequests as may have skipped requests if sending to self
-    MPI_Waitall(req_i, recv_requests, MPI_STATUSES_IGNORE);
-    MPI_Waitall(req_i, send_requests, MPI_STATUSES_IGNORE);
-
-    // Now unpack data
-    for (int box_id = 0; box_id < atoms[0]->boxes_per_process; ++box_id) {
-        Atom &atom = *atoms[box_id];
-        for (int box_layer_index = 0; box_layer_index < 3; box_layer_index++) {
-
-            int iswap = 0;
-            int *&sendproc = boxBufs[box_id].sendproc;
-            int *&recvproc = boxBufs[box_id].recvproc;
-            int *&sendneigh = boxBufs[box_id].sendneigh;
-            int *&recvneigh = boxBufs[box_id].recvneigh;
-            int *(&sendnum)[3] = boxBufs[box_id].sendnum;
-            int *(&recvnum)[3] = boxBufs[box_id].recvnum;
-            AtomBuffer(&bufs_send)[3][8] = boxBufs[box_id].bufs_send[BORDERS_FUNCTION];
-            AtomBuffer(&bufs_recv)[3][8] = boxBufs[box_id].bufs_recv[BORDERS_FUNCTION];
-            int *(&firstrecv)[3] = boxBufs[box_id].firstrecv;
-            int *(&comm_send_size)[3] = boxBufs[box_id].comm_send_size;
-            int *(&comm_recv_size)[3] = boxBufs[box_id].comm_recv_size;
-            int *(&reverse_send_size)[3] = boxBufs[box_id].reverse_send_size;
-            int *(&reverse_recv_size)[3] = boxBufs[box_id].reverse_recv_size;
-
-            AtomBuffer *buf = NULL, *buf_send = NULL;
-
-            for (int idim = 0; idim < 5; idim++) {
-
-                // Skip y-dimension
-                if (idim == 1) {
-                    iswap += 2;
-                    continue;
-                }
-
-                for (int ineed = 0; ineed < 2 * need[idim]; ineed++) {
-
-                    int nsend = sendnum[box_layer_index][iswap];
-                    int nrecv = recvnum[box_layer_index][iswap];
-                    int send_target_box_id, recv_target_box_id;
-                    layer_to_targets(&atom, box_layer_index, &send_target_box_id, &recv_target_box_id);
-
-                    // Determine which buffers we are using in communication
-                    int sendNeighbour = sendneigh[iswap];
-                    int recvNeighbour = recvneigh[iswap];
-                    buf_send = &bufs_send[box_layer_index][sendNeighbour];
-                    buf = &bufs_recv[box_layer_index][recvNeighbour];
-
-                    // Sending to self. Just unpack the send buffer
-                    if (sendproc[iswap] == me && send_target_box_id == atom.box_id) {
-                        buf = buf_send;
-                    }
-
-                    int n = atom.nlocal + atom.nghost;
-
-                    //#pragma omp for
-                    for (int i = 0; i < nrecv; i++) {
-                        atom.unpack_border(
-                            n + i, &buf->buf[i * 4]); // DSM TODO: Shouldn't this be atom.border_size instead of "4"?
-                    }
-
-                    /* set all pointers & counters */
-
-                    //#pragma omp master
-                    {
-                        // DSM: * atom.comm_size (constant '3' defined in constructor) since need 3 doubles per atom
-                        // (x,y,z coordinates)
-                        comm_send_size[box_layer_index][iswap] = nsend * atom.comm_size;
-                        comm_recv_size[box_layer_index][iswap] = nrecv * atom.comm_size;
-                        reverse_send_size[box_layer_index][iswap] = nrecv * atom.reverse_size;
-                        reverse_recv_size[box_layer_index][iswap] = nsend * atom.reverse_size;
-                        firstrecv[box_layer_index][iswap] = atom.nlocal + atom.nghost;
-                        atom.nghost += nrecv;
-                    }
-
-                    iswap++;
-                } // End of loop over ineed (swaps)
-            } // End of loop over idim
-        } // End of loop over box layers
-    } // End of loop over boxes per process
-} // End of function
-
 // DSM Multibox: changed below buffer reallocation functions to work per box
 
 /* realloc the size of the send buffer as needed with BUFFACTOR & BUFEXTRA */
@@ -4800,13 +2578,14 @@ void AtomBuffer::growsend(int n)
 {
     maxsize = static_cast<int>(BUFFACTOR * n);
     buf = (double *) realloc(buf, (maxsize + BUFEXTRA) * sizeof(double));
+    fprintf(stderr, "growsend(%d)\n", n);
 
-    /*
     if (!buf) {
-      printf("Failed to grow send buffer by %d! Out of memory? Aborting!\n", n);
-      MPI_Abort(MPI_COMM_WORLD, 1);
+        fprintf(stderr, "Failed to grow send buffer by %d: %s\n",
+                n, strerror(errno));
+
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
-    */
 }
 
 /* free/malloc the size of the recv buffer as needed with BUFFACTOR */

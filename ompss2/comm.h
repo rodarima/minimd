@@ -153,7 +153,6 @@ public:
         double, int, int, Atom *[], int); // DSM Multibox: Array, two process grid int and nonblocking flag arguments
     // Communicate
     void communicate(Atom **); // DSM Multibox: Now takes array of Atom** structs, one per box
-    void communicate_nonblocking(Atom **); // Nonblocking implementation
     void communicate_blocking(Atom &, int); // DSM Multibox: Blocking implementation. Now also takes int box_id
     void communicate_blocking_isend(Atom &, int);
     void communicate_blocking_alltasks(Atom *, int);
@@ -165,18 +164,13 @@ public:
     void communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *, int);
     void communicate_internal(Atom &, int); // communicate() equivalent of exchange_internal()
     void communicate_internal_send(Atom *, AtomBuffer *, AtomBuffer *, int *, int, int);
-    void reverse_communicate(Atom &);
     // Exchange
     void exchange(Atom **);
-    void exchange_nonblocking(Atom **);
-    void exchange_blocking(Atom &, int);
-    void exchange_blocking_neighbourtasks(Atom *, int);
     void exchange_nonblocking_neighbourtasks_tampi_iwaitall(Atom *, int);
     void exchange_pack(Atom *, AtomBuffer bufs_send[3][8], AtomBuffer *, AtomBuffer *);
     void exchange_internal(Atom &, int); // DSM Multibox: New function that performs exchange between boxes on same proc
     void exchange_internal_send(AtomBuffer *, AtomBuffer *);
     void exchange_internal_recv(Atom *, AtomBuffer *);
-    void exchange_all(Atom &);
     // Borders
     void borders(Atom **);
     void borders_nonblocking(Atom **);
