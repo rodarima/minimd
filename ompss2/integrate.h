@@ -52,9 +52,6 @@ public:
     Integrate();
     ~Integrate();
     void setup();
-    // DSM Multibox: These functions signatures changes as x, v, f and xold are no longer class attributes
-    void initialIntegrate(double *x, double *v, double *f, int nlocal);
-    void finalIntegrate(double *v, double *f, int nlocal);
     // DSM Multibox change: Atom now an array of atoms[] and Neighbor now an attribute of atoms
     void run(Atom *atoms[], Force *, Comm &, Thermo &, Timer &);
 
