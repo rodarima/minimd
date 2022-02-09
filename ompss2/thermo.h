@@ -48,18 +48,19 @@ public:
     int nstat;
     int mstat;
     int ntimes;
-    int *steparr;
-    double *tmparr;
-    double *engarr;
-    double *prsarr;
+
+    int **steparr;
+    double **tmparr;
+    double **engarr;
+    double **prsarr;
 
     Thermo();
     ~Thermo();
     void setup(double, Integrate &integrate, Atom &atom, int);
-    double temperature(Atom **); // DSM Multibox change
-    double energy(Atom **, Force *); // DSM Multibox change
-    double pressure(double, Force *);
-    // DSM Multibox change: now takes atom array and no longer takes comm (was unused)
+    void temperature(Atom **, int slot);
+    double get_global_temperature(Atom *atoms[]);
+    void energy(Atom **, Force *, int slot);
+    void pressure(Atom *atoms[], Force *force, int slot);
     void compute(int, Atom **, Force *, Timer &);
 
     double t_act, p_act, e_act;

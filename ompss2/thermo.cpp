@@ -35,6 +35,7 @@
 #include "mpi.h"
 #include "stdio.h"
 #include "stdlib.h"
+#include "math.h"
 
 Thermo::Thermo() { }
 Thermo::~Thermo() { }
@@ -51,10 +52,23 @@ void Thermo::setup(double rho_in, Integrate &integrate, Atom &atom, int units)
     else
         maxstat = ntimes / nstat + 2;
 
-    steparr = (int *) malloc(maxstat * sizeof(int));
-    tmparr = (double *) malloc(maxstat * sizeof(double));
-    engarr = (double *) malloc(maxstat * sizeof(double));
-    prsarr = (double *) malloc(maxstat * sizeof(double));
+    int nboxes = atom.boxes_per_process;
+
+    /* Store the local values per box during the simulation and perform
+     * the reductions at the end. Not critical for performance, so we
+     * can just use 2 level arrays */
+
+    steparr = (int **) malloc(maxstat * sizeof(int *));
+    tmparr  = (double **) malloc(maxstat * sizeof(double *));
+    engarr  = (double **) malloc(maxstat * sizeof(double *));
+    prsarr  = (double **) malloc(maxstat * sizeof(double *));
+
+    for (int i = 0; i < maxstat; i++) {
+        steparr[i] = (int *) malloc(nboxes * sizeof(int));
+        tmparr[i]  = (double *) malloc(nboxes * sizeof(double));
+        engarr[i]  = (double *) malloc(nboxes * sizeof(double));
+        prsarr[i]  = (double *) malloc(nboxes * sizeof(double));
+    }
 
     if (units == LJ) {
         mvv2e = 1.0;
@@ -84,129 +98,164 @@ void Thermo::compute(int iflag, Atom *atoms[], Force *force, Timer &timer)
         return;
 
     t_act = 0;
-    e_act = 0;
     p_act = 0;
-    t = temperature(atoms); // DSM Multibox change
-    {
-        eng = energy(atoms, force);
 
-        p = pressure(t, force);
+    int istep = iflag;
 
-        int istep = iflag;
+    if (iflag == -1)
+        istep = ntimes;
 
-        if (iflag == -1)
-            istep = ntimes;
+    if (iflag == 0)
+        mstat = 0;
 
-        if (iflag == 0)
-            mstat = 0;
+    temperature(atoms, mstat);
+    energy(atoms, force, mstat);
+    pressure(atoms, force, mstat);
 
-        steparr[mstat] = istep;
-        tmparr[mstat] = t;
-        engarr[mstat] = eng;
-        prsarr[mstat] = p;
+    mstat++;
 
-        mstat++;
-
-        double oldtime = timer.array[TIME_TOTAL];
-        timer.barrier_stop(TIME_TOTAL);
-
-        if (threads->mpi_me == 0) {
-            fprintf(stdout, "%i %e %e %e %6.3lf\n", istep, t, eng, p, istep == 0 ? 0.0 : timer.array[TIME_TOTAL]);
-        }
-
-        timer.array[TIME_TOTAL] = oldtime;
-    }
+    /* TODO: Print table at the end */
 }
 
 /* reduced potential energy */
 
-double Thermo::energy(Atom *atoms[], Force *force)
+void Thermo::energy(Atom *atoms[], Force *force, int slot)
 {
+    int nboxes = atoms[0]->boxes_per_process;
 
-    double eng, eng_local_sum = 0;
+    for (int ib = 0; ib < nboxes; ++ib) {
+        #pragma oss task \
+            label("Thermo::energy") \
+            in(force->eng_vdwl[ib]) \
+            in(atoms[ib])
+        {
+            Neighbor &neighbor = *atoms[ib]->neighbor;
+            double e_local = force->eng_vdwl[ib];
 
-    // DSM Multibox: loop over all boxes on this process to compute local sum then contribute that to the AllReduce
-    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
+            if (neighbor.halfneigh) {
+                e_local *= 2.0;
+            }
 
-        Neighbor &neighbor = *atoms[box_index]->neighbor;
-        e_act = force->eng_vdwl[box_index];
-
-        if (neighbor.halfneigh) {
-            e_act *= 2.0;
+            engarr[slot][ib] = e_local * e_scale;
         }
-
-        e_act *= e_scale;
-        eng_local_sum += e_act;
     }
-
-    if (sizeof(double) == 4)
-        MPI_Allreduce(&eng_local_sum, &eng, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    else
-        MPI_Allreduce(&eng_local_sum, &eng, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-    // DSM: natoms is a constant == all atoms in the simulation. Not to be confused with nlocal == atoms in this box
-    return eng / atoms[0]->natoms;
 }
 
 /*  reduced temperature */
 
 // DSM Multibox implementation
-double Thermo::temperature(Atom *atoms[])
+void Thermo::temperature(Atom *atoms[], int slot)
 {
-    int i;
-    double vx, vy, vz;
+    int nboxes = atoms[0]->boxes_per_process;
 
-    double t;
-    t_act = 0;
-    //#pragma omp barrier
+    for (int ib = 0; ib < nboxes; ib++) {
+        Atom *a = atoms[ib];
 
-    // DSM Calculate local sum over all boxes on this process for contribution to the Allreduce.
-    for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
-        Atom &atom = *atoms[box_index];
-        double *v = atom.v;
-        t = 0.0;
+        #pragma oss task \
+            label("Thermo::temperature") \
+            in(a->v)
+        {
+            double *v = a->v;
+            double t_local = 0.0;
 
-        for (i = 0; i < atom.nlocal; i++) {
-            vx = v[i * PAD + 0];
-            vy = v[i * PAD + 1];
-            vz = v[i * PAD + 2];
-            t += (vx * vx + vy * vy + vz * vz) * atom.mass;
+            for (int i = 0; i < a->nlocal; i++) {
+                double vx = v[i * PAD + 0];
+                double vy = v[i * PAD + 1];
+                double vz = v[i * PAD + 2];
+                
+                t_local += (vx * vx + vy * vy + vz * vz) * a->mass;
+            }
+
+
+            tmparr[slot][ib] = t_local * t_scale;
         }
-
-        t_act += t;
     }
-
-    double t1;
-    {
-        if (sizeof(double) == 4)
-            MPI_Allreduce(&t_act, &t1, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        else
-            MPI_Allreduce(&t_act, &t1, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    }
-
-    return t1 * t_scale; // DSM t_scale is a constant calculated in thermo:setup.
 }
 
 /* reduced pressure from virial
    virial = Fi dot Ri summed over own and ghost atoms, since PBC info is
    stored correctly in force array before reverse_communicate is performed */
 
-double Thermo::pressure(double t, Force *force)
+void Thermo::pressure(Atom *atoms[], Force *force, int slot)
 {
-    // DSM Multibox: calculate local sum over all boxes and contribute that to the Allreduce
-    for (int box_index = 0; box_index < force->boxes_per_process; ++box_index) {
-        // DSM p_act is set to 0 in Thermo.compute(). No need to do it here unless pressure() is called from elsewhere.
-        p_act += force->virial[box_index];
+    int nboxes = atoms[0]->boxes_per_process;
+
+    /* FIXME: Merge the local collection into the force loop */
+
+    for (int ib = 0; ib < nboxes; ++ib) {
+        #pragma oss task \
+            label("Thermo::pressure") \
+            in(force->virial[ib]) \
+            out(prsarr[slot][ib])
+        {
+            Neighbor &neighbor = *atoms[ib]->neighbor;
+            prsarr[slot][ib] = force->virial[ib];
+        }
+    }
+}
+
+/* Used at setup to normalize all velocities to set the temperature of
+ * the simulation. Not critical. */
+
+double Thermo::get_global_temperature(Atom *atoms[])
+{
+    int nboxes = atoms[0]->boxes_per_process;
+    double t_local_sum = 0.0;
+
+    for (int ib = 0; ib < nboxes; ib++) {
+        Atom *a = atoms[ib];
+        double *v = a->v;
+
+//        fprintf(stderr, "velocity=%e %e %e for first atom in box %d\n",
+//                    v[0], v[1], v[2], ib);
+//        fprintf(stderr, "velocity=%e %e %e for last atom in box %d\n",
+//                    v[(a->nlocal-1)*PAD + 0],
+//                    v[(a->nlocal-1)*PAD + 1],
+//                    v[(a->nlocal-1)*PAD + 2], ib);
+
+        /* The input dependency in(a->v) creates the dependency for
+         * &a->v, the address of the pointer a->v, thus it works as a
+         * sentinel, which is invariant to relocations or changes in
+         * size of a->v. The other tasks that modify the velocity must
+         * use out(a->v) as well. */
+        #pragma oss task \
+            label("Thermo::get_global_temperature() reduction") \
+            in(a->v) reduction(+:t_local_sum)
+        {
+            double t_local = 0.0;
+
+            for (int i = 0; i < a->nlocal; i++) {
+                double vx = v[i * PAD + 0];
+                double vy = v[i * PAD + 1];
+                double vz = v[i * PAD + 2];
+                
+                t_local += (vx * vx + vy * vy + vz * vz) * a->mass;
+            }
+
+            if (isnan(t_local)) {
+                fprintf(stderr, "local temp is nan in box %d\n", ib);
+                exit(1);
+            }
+
+//            fprintf(stderr, "reducing temperature %e for box %d\n",
+//                    t_local, ib);
+
+            t_local_sum += t_local;
+        }
     }
 
-    double virial = 0;
+    /* Wait until the reduction has finished */
+    #pragma oss taskwait in(t_local_sum)
 
-    if (sizeof(double) == 4)
-        MPI_Allreduce(&p_act, &virial, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    else
-        MPI_Allreduce(&p_act, &virial, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    double temp = 0.0;
+    MPI_Allreduce(&t_local_sum, &temp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-    // printf("Pres: %e %e %e %e\n",t,dof_boltz,virial,p_scale);
-    return (t * dof_boltz + virial)
-        * p_scale; // DSM: Other than virial & t, these are all constants calculated at setup
+    fprintf(stderr, "reduced temperature is %e\n", temp);
+
+    /* Adjust temperature units */
+    temp *= t_scale;
+
+    fprintf(stderr, "corrected temperature is %e\n", temp);
+
+    return temp;
 }
