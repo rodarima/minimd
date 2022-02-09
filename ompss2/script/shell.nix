@@ -8,7 +8,9 @@ let
 in
   pkgs.mkShell {
     name = "minimd";
-    buildInputs = with pkgs.bsc; [ nanos6 extrae impi icc mcxx tampi rWrapper ];
+    NIX_HARDENING_ENABLE = "";
+    buildInputs = with pkgs.bsc; [ nanos6 extrae openmpi icc mcxx
+    rWrapper (tampi.override {mpi=openmpi;}) ];
     shellHook = ''
       export LANG=C
     '';
