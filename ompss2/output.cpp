@@ -170,7 +170,19 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
         fprintf(fp, "\n\nthermodynamic_output:\n");
 
         for (i = 0; i < thermo.mstat; i++) {
-            conserve = (1.5 * thermo.tmparr[i] + thermo.engarr[i]) / (1.5 * thermo.tmparr[0] + thermo.engarr[0]);
+            /* Here we compute the change in total energy between
+             * the beginning of the simulation t=0 and at the end t=i.
+             * The total energy is the sum of kinetic (3/2 T) and
+             * potential energy (U). That's why the 1.5 factor is used.
+             *
+             * The total energy must be constant during the simulation.
+             * Unfortunately, the total energy at the beginning
+             * fluctuates a lot, so this technique is not very
+             * accurate. */
+
+            /* FIXME: Reduce local arrays */
+            conserve = 666.0;
+            //conserve = (1.5 * thermo.tmparr[i] + thermo.engarr[i]) / (1.5 * thermo.tmparr[0] + thermo.engarr[0]);
 
             if (screen_yaml) {
                 fprintf(stdout, "  timestep: %d \n", thermo.steparr[i]);
