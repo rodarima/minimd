@@ -48,6 +48,10 @@
 
 #define MAXLINE 256
 
+#ifndef USE_TAMPI
+# define MPI_TASK_MULTIPLE MPI_THREAD_MULTIPLE
+#endif
+
 int input(In &, const char *);
 void create_box(Atom &, int, int, int, double);
 int create_atoms(Atom &, int, int, int, double);
@@ -96,11 +100,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    fprintf(stderr, "MPI_Init_thread ok\n");
+
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     int error = 0;
 
+    fprintf(stderr, "parsing input\n");
     if (input_file == NULL)
         error = input(in, "in.lj.miniMD");
     else
@@ -270,10 +277,13 @@ int main(int argc, char **argv)
         }
     }
 
+    fprintf(stderr, "creating atoms\n");
+
     // DSM: Atom coordinates, velocities, forces (x, v, f arrays), counts. Methods for packing arrays into MPI buffers.
     Atom *atoms[in.boxes_per_process];
     // DSM: Multibox change. Dynamically allocate the memory for all boxes on this process.
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
+        fprintf(stderr, "creating atoms for box %d\n", box_index);
         atoms[box_index] = new Atom(ntypes, in.boxes_per_process);
         atoms[box_index]->neighbor = new Neighbor(ntypes);
 
@@ -284,6 +294,7 @@ int main(int argc, char **argv)
             }
         }
     }
+    fprintf(stderr, "creating atoms ok\n");
     // DSM: Multibox change - now have one neighbourlist/Neighbor instance per Atom instance
     // Neighbor neighbor(ntypes);               // DSM: Generating and holding neighbour lists. TODO: Bins vs boxes?
 
@@ -296,6 +307,7 @@ int main(int argc, char **argv)
 
     Force *force = NULL; // DSM: LJ/EAM force calculation. force.compute() is application hotspot.
 
+    fprintf(stderr, "creating force\n");
     if (in.forcetype == FORCELJ) {
         force = (Force *) new ForceLJ(ntypes, in.boxes_per_process);
     } else {
@@ -527,6 +539,12 @@ int main(int argc, char **argv)
         fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(double));
     }
 
+    if (in.nonblocking_enabled) {
+        fprintf(stderr, "non-blocking not supported\n");
+        MPI_Finalize();
+        exit(1);
+    }
+
     /*if (me == 0 && !in.nonblocking_enabled && in.boxes_per_process > 1) {
       printf("ERROR: Using >1 box per process in blocking mode. Aborting to avoid deadlock!\n");
       MPI_Abort(MPI_COMM_WORLD, 1);
@@ -537,6 +555,14 @@ int main(int argc, char **argv)
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
+    if (comm.do_safeexchange) {
+        fprintf(stderr, "safe exchange not supported\n");
+        MPI_Finalize();
+        exit(1);
+    }
+
+    fprintf(stderr, "doing first comm exchange\n");
+
     comm.exchange(atoms);
 #pragma oss taskwait
 
@@ -545,6 +571,8 @@ int main(int argc, char **argv)
             // TODO DSM: We could remove the neighbor parameter now it's an attribute of the atom class
             atoms[box_index]->sort(*atoms[box_index]->neighbor);
     }
+
+    fprintf(stderr, "doing first comm borders\n");
 
     comm.borders(atoms);
 #pragma oss taskwait
@@ -569,11 +597,17 @@ int main(int argc, char **argv)
         }
     }
 
+    if (halfneigh) {
+        fprintf(stderr, "halfneigh not supported\n");
+        MPI_Finalize();
+        exit(1);
+    }
+
     // DSM TODO: Changed to get code to compile - this path will be broken for multibox
     if (atoms[0]->neighbor->halfneigh && atoms[0]->neighbor->ghost_newton) {
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            comm.reverse_communicate(*atoms[box_index]);
-        }
+        fprintf(stderr, "halfneigh and ghost_newton not supported\n");
+        MPI_Finalize();
+        exit(1);
     }
 
     if (me == 0)
@@ -612,9 +646,9 @@ int main(int argc, char **argv)
 
     // DSM TODO: Changed to get code to compile - this path will be broken for multibox
     if (atoms[0]->neighbor->halfneigh && atoms[0]->neighbor->ghost_newton) {
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            comm.reverse_communicate(*atoms[box_index]);
-        }
+        fprintf(stderr, "halfneigh and ghost_newton not supported\n");
+        MPI_Finalize();
+        exit(1);
     }
 
     thermo.compute(-1, atoms, force, timer);
