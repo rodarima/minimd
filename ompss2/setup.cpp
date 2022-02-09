@@ -35,6 +35,7 @@
 #include "neighbor.h"
 #include "thermo.h"
 #include "types.h"
+#include <float.h>
 #include <cmath>
 #include <cstdio>
 
@@ -224,6 +225,8 @@ void create_velocity(double t_request, Atom *atoms[], Thermo &thermo)
     double vytot = 0.0;
     double vztot = 0.0;
 
+    /* FIXME: Use tasks? */
+
     // DSM Multibox change: Perform local sum over all boxes
     for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
         for (i = 0; i < atoms[box_index]->nlocal; i++) {
@@ -233,6 +236,11 @@ void create_velocity(double t_request, Atom *atoms[], Thermo &thermo)
         }
     }
 
+    if (isnan(vxtot + vytot + vztot)) {
+        fprintf(stderr, "local sum of velocities is nan\n");
+        exit(1);
+    }
+
     double tmp;
     MPI_Allreduce(&vxtot, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     vxtot = tmp / atoms[0]->natoms; // natoms is constant over all boxes
@@ -240,6 +248,9 @@ void create_velocity(double t_request, Atom *atoms[], Thermo &thermo)
     vytot = tmp / atoms[0]->natoms;
     MPI_Allreduce(&vztot, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     vztot = tmp / atoms[0]->natoms;
+
+    fprintf(stderr, "v/natoms = (%e %e %e)\n",
+            vxtot, vytot, vztot);
 
     // DSM Multibox change
     for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
@@ -252,8 +263,11 @@ void create_velocity(double t_request, Atom *atoms[], Thermo &thermo)
 
     /* rescale velocities, including old ones */
     thermo.t_act = 0;
-    double t = thermo.temperature(atoms);
+    double t = thermo.get_global_temperature(atoms);
     double factor = sqrt(t_request / t);
+
+    fprintf(stderr, "correcting temperature from %e to %e\n",
+            t, t_request);
 
     // DSM Multibox change
     for (int box_index = 0; box_index < atoms[0]->boxes_per_process; ++box_index) {
@@ -262,6 +276,21 @@ void create_velocity(double t_request, Atom *atoms[], Thermo &thermo)
             atoms[box_index]->v[i * PAD + 1] *= factor;
             atoms[box_index]->v[i * PAD + 2] *= factor;
         }
+    }
+
+    /* Ensure the temperature is now correct */
+    double t2 = thermo.get_global_temperature(atoms);
+    fprintf(stderr, "corrected temperature from %e to %e (requested %e)\n",
+            t, t2, t_request);
+
+    double relerr = fabs(t2 - t_request) / fabs(t_request);
+    fprintf(stderr, "initial temperature relative error %e\n", relerr);
+
+    /* This holds when relerr is nan too */
+    if (! (relerr < 10 * DBL_EPSILON)) {
+        fprintf(stderr, "temperature relative error %e (t=%e vs treq=%e)\n",
+                relerr, t2, t_request);
+        exit(1);
     }
 }
 
