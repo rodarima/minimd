@@ -47,6 +47,10 @@ public:
     void compute(Atom &, Neighbor &, Comm &, int);
 
 protected:
+
+    void update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool update_energy);
+    void update_force_bin(int ibin, Neighbor *nei, Atom *atomdata);
+    void update_force_box(Neighbor *nei, Atom *atomdata);
     template <int EVFLAG> void compute_original(Atom &, Neighbor &, int);
     template <int EVFLAG, int GHOST_NEWTON> void compute_halfneigh(Atom &, Neighbor &, int);
     template <int EVFLAG, int GHOST_NEWTON> void compute_halfneigh_threaded(Atom &, Neighbor &, int);

@@ -47,7 +47,8 @@ Atom::Atom(int ntypes_, int boxes_per_process_)
     copy_size = 0;
     boxes_per_process = boxes_per_process_;
 
-    x = v = f = xold = x_copy = v_copy = NULL;
+    x = v = xold = x_copy = v_copy = NULL;
+    f = NULL;
     type = type_copy = NULL;
     comm_size = 3;
     reverse_size = 3;
@@ -67,7 +68,7 @@ Atom::~Atom()
     if (nmax) {
         destroy_2d_double_array(x);
         destroy_2d_double_array(v);
-        destroy_2d_double_array(f);
+        destroy_2d_double_array((double *) f);
         destroy_2d_double_array(xold);
         destroy_1d_int_array(type);
     }
@@ -79,7 +80,7 @@ void Atom::growarray()
     nmax += DELTA;
     x = (double *) realloc_2d_double_array(x, nmax, PAD, PAD * nold);
     v = (double *) realloc_2d_double_array(v, nmax, PAD, PAD * nold);
-    f = (double *) realloc_2d_double_array(f, nmax, PAD, PAD * nold);
+    f = (double (*)[PAD]) realloc_2d_double_array((double *) f, nmax, PAD, PAD * nold);
     type = realloc_1d_int_array(type, nmax, nold);
     xold = (double *) realloc_2d_double_array(xold, nmax, PAD, PAD * nold);
 
@@ -197,9 +198,9 @@ void Atom::pack_reverse(int n, int first, double *buf)
 
     //#pragma omp for schedule(static)
     for (i = 0; i < n; i++) {
-        buf[3 * i] = f[(first + i) * PAD + 0];
-        buf[3 * i + 1] = f[(first + i) * PAD + 1];
-        buf[3 * i + 2] = f[(first + i) * PAD + 2];
+        buf[3 * i + 0] = f[first + i][0];
+        buf[3 * i + 1] = f[first + i][1];
+        buf[3 * i + 2] = f[first + i][2];
     }
 }
 
@@ -210,9 +211,9 @@ void Atom::unpack_reverse(int n, int *list, double *buf)
     //#pragma omp for schedule(static)
     for (i = 0; i < n; i++) {
         j = list[i];
-        f[j * PAD + 0] += buf[3 * i];
-        f[j * PAD + 1] += buf[3 * i + 1];
-        f[j * PAD + 2] += buf[3 * i + 2];
+        f[j][0] += buf[3 * i + 0];
+        f[j][1] += buf[3 * i + 1];
+        f[j][2] += buf[3 * i + 2];
     }
 }
 

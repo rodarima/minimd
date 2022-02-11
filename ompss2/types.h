@@ -50,4 +50,9 @@ enum ForceStyle { FORCELJ, FORCEEAM };
 #ifndef RESTRICT
 #define RESTRICT
 #endif
-#endif
+
+#define X 0
+#define Y 1
+#define Z 2
+
+#endif /* TYPES_H */

@@ -68,7 +68,7 @@ public:
 
     double *x;
     double *v;
-    double *f;
+    double (*f)[PAD];
 
     int ntypes;
     int *type;

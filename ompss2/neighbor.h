@@ -66,7 +66,7 @@ public:
 
     int *bincount; // ptr to 1st atom in each bin
     int *bins; // ptr to next atom in each bin
-    int mbins; // binning parameters
+    int mbins; // total number of bins per box
     int atoms_per_bin;
 
 private:

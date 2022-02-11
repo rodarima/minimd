@@ -237,6 +237,7 @@ void Neighbor::binatoms(Atom &atom, int count)
         for (int i = 0; i < nall; i++) {
             const int ibin = coord2bin(x[i * PAD + 0], x[i * PAD + 1], x[i * PAD + 2]);
 
+            /* FIXME: Race */
             if (bincount[ibin] < atoms_per_bin) {
                 int ac;
                 ac = __sync_fetch_and_add(bincount + ibin, 1);

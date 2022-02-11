@@ -62,6 +62,7 @@ ForceLJ::ForceLJ(int ntypes_, int boxes_per_process_)
         boxes_per_process_ * sizeof(double)); // DSM One of the outputs of compute(). Used in pressure()
     evflag = (int *) malloc(boxes_per_process_ * sizeof(int));
 }
+
 ForceLJ::~ForceLJ()
 {
     // DSM Multibox
@@ -82,103 +83,100 @@ void ForceLJ::setup()
         cutforcesq[i] = cutforce * cutforce;
 }
 
-// DSM: Decides which compute implementation to call.
-// DSM: Simplified function to ensure full neighborlist compute implementation is called regardless of input parameters.
-// DSM: "me" is an unused parameter - no MPI calls made in this force implementation
-void ForceLJ::compute(Atom &atom, Neighbor &neighbor, Comm &comm, int me)
+static double
+dotprod(double *v, int n)
 {
-    // DSM: Multibox change. These are now arrays indexed by box id
-    eng_vdwl[atom.box_id] = 0;
-    virial[atom.box_id] = 0;
+    double sum = 0.0;
 
-    if (evflag[atom.box_id]) {
-        return compute_fullneigh(atom, neighbor, me, 1);
-    } else {
-        return compute_fullneigh(atom, neighbor, me, 0);
+    for (int i=0; i<n; i++) {
+        sum += v[i] * v[i];
+    }
+
+    return sum;
+}
+
+/* Updates the force acting on a given atom at index `i` by taking
+ * into account all `n` neighboring atoms in `ineigh` */
+void
+ForceLJ::update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool update_energy)
+{
+    int type_offset = atomdata->type[i] * atomdata->ntypes;
+    double local_f[3] = { 0.0, 0.0, 0.0 };
+
+    /* Current atom position vector */
+    double ri[3] = {
+        atomdata->x[i * PAD + X],
+        atomdata->x[i * PAD + Y],
+        atomdata->x[i * PAD + Z]
+    };
+
+    /* This loop is performance critical */
+    for (int k = 0; k < n; k++) {
+        int j = ineigh[k];
+
+        /* Get neighbor atom position */
+        double rj[3] = {
+            atomdata->x[j * PAD + X],
+            atomdata->x[j * PAD + Y],
+            atomdata->x[j * PAD + Z]
+        };
+
+        /* Compute distance vector */
+        double delta[3] = { rj[X] - ri[X], rj[Y] - ri[Y], rj[Z] - ri[Z] };
+        double sqdist = dotprod(delta, 3);
+        int type_ij = type_offset + atomdata->type[j];
+
+        /* Ignore far away atoms */
+        if (sqdist >= cutforcesq[type_ij])
+            continue;
+
+        double sr2 = 1.0 / sqdist;
+        double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
+        double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
+
+        /* Accumulate force for this neighbor */
+        local_f[X] += delta[X] * force;
+        local_f[Y] += delta[Y] * force;
+        local_f[Z] += delta[Z] * force;
+
+        if (update_energy) {
+//            /* FIXME: Prevents further decomposition within a box */
+//            t_eng_vdwl += sr6 * (sr6 - 1.0) * epsilon[type_ij];
+//            t_virial += sqdist * force;
+        }
+    }
+
+    double *f = atomdata->f[i];
+
+    f[X] = local_f[X];
+    f[Y] = local_f[Y];
+    f[Z] = local_f[Z];
+}
+
+/* Update force for all atoms in the given bin */
+void
+ForceLJ::update_force_bin(int ibin, Neighbor *nei, Atom *atomdata)
+{
+    int natoms = nei->bincount[ibin];
+    int *bins = nei->bins;
+    for (int i = 0; i < natoms; i++) {
+        int *neighs = &nei->neighbors[i * nei->maxneighs];
+        int numneighs = nei->numneigh[i];
+        update_force_atom(bins[i], numneighs, neighs, atomdata, 0);
     }
 }
 
-// DSM: These compute functions are the hotspots according to the 2015 intel webinar:
-// https://software.intel.com/en-us/videos/correct-to-correct-and-efficient-a-case-study-with-minimd
-
-// optimised version of compute
-//   -MPI + OpenMP (using full neighborlists)
-//   -gets rid of fj update (read/write to memory)
-//   -use temporary variable for summing up fi
-//   -enables vectorization by:
-//     -get rid of 2d pointers
-//     -use pragma simd to force vectorization of inner loop
-// template<int EVFLAG>
-void ForceLJ::compute_fullneigh(Atom &atom, Neighbor &neighbor, int me, int EVFLAG)
+/* Update force for all atoms in a box */
+void
+ForceLJ::update_force_box(Neighbor *nei, Atom *atomdata)
 {
-    double t_eng_vdwl = 0;
-    double t_virial = 0;
-
-    const int nlocal = atom.nlocal;
-    const int nall = atom.nlocal + atom.nghost;
-    const double *const x = atom.x;
-    double *const f = atom.f;
-    const int *const type = atom.type;
-
-    // clear force on own and ghost atoms
-
-    for (int i = 0; i < nlocal; i++) {
-        f[i * PAD + 0] = 0.0;
-        f[i * PAD + 1] = 0.0;
-        f[i * PAD + 2] = 0.0;
+    for (int i = 0; i < nei->mbins; i++) {
+        update_force_bin(i, nei, atomdata);
     }
+}
 
-    // loop over all neighbors of my atoms
-    // store force on atom i
-
-    for (int i = 0; i < nlocal; i++) {
-        const int *const neighs = &neighbor.neighbors[i * neighbor.maxneighs];
-        const int numneighs = neighbor.numneigh[i];
-        const double xtmp = x[i * PAD + 0];
-        const double ytmp = x[i * PAD + 1];
-        const double ztmp = x[i * PAD + 2];
-        const int type_i = type[i];
-        double fix = 0;
-        double fiy = 0;
-        double fiz = 0;
-
-        // pragma simd forces vectorization (ignoring the performance objections of the compiler)
-        // also give hint to use certain vectorlength for MIC, Sandy Bridge and WESTMERE this should be be 8 here
-        // give hint to compiler that fix, fiy and fiz are used for reduction only
-
-        for (int k = 0; k < numneighs; k++) {
-            const int j = neighs[k];
-            const double delx = xtmp - x[j * PAD + 0];
-            const double dely = ytmp - x[j * PAD + 1];
-            const double delz = ztmp - x[j * PAD + 2];
-            const int type_j = type[j];
-            const double rsq = delx * delx + dely * dely + delz * delz;
-
-            int type_ij = type_i * ntypes + type_j;
-            if (rsq < cutforcesq[type_ij]) {
-                const double sr2 = 1.0 / rsq;
-                const double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
-                const double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
-                fix += delx * force;
-                fiy += dely * force;
-                fiz += delz * force;
-
-                if (EVFLAG) {
-                    t_eng_vdwl += sr6 * (sr6 - 1.0) * epsilon[type_ij];
-                    t_virial += (delx * delx + dely * dely + delz * delz) * force;
-                }
-            }
-        }
-
-        f[i * PAD + 0] += fix;
-        f[i * PAD + 1] += fiy;
-        f[i * PAD + 2] += fiz;
-    }
-
-    t_eng_vdwl *= 4.0;
-    t_virial *= 0.5;
-
-    // DSM: Multibox change. These are now arrays
-    eng_vdwl[atom.box_id] += t_eng_vdwl;
-    virial[atom.box_id] += t_virial;
+void
+ForceLJ::compute(Atom &atom, Neighbor &nei, Comm &comm, int me)
+{
+    update_force_box(&nei, &atom);
 }

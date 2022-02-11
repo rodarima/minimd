@@ -54,16 +54,16 @@ void initial_integrate(Atom *atoms[], double dt, double dtforce)
         {
             double *x = a->x;
             double *v = a->v;
-            double *f = a->f;
+            double (*f)[PAD] = a->f;
             size_t n = a->nlocal;
             size_t pad = PAD;
 
             fprintf(stderr, "initial_integrate for box %d\n", ib);
 
             for (int i = 0; i < n; i++) {
-                v[i * PAD + 0] += dtforce * f[i * PAD + 0];
-                v[i * PAD + 1] += dtforce * f[i * PAD + 1];
-                v[i * PAD + 2] += dtforce * f[i * PAD + 2];
+                v[i * PAD + 0] += dtforce * f[i][X];
+                v[i * PAD + 1] += dtforce * f[i][Y];
+                v[i * PAD + 2] += dtforce * f[i][Z];
 
                 x[i * PAD + 0] += dt * v[i * PAD + 0];
                 x[i * PAD + 1] += dt * v[i * PAD + 1];
@@ -88,15 +88,15 @@ void final_integrate(Atom *atoms[], double dtforce)
         {
             double *x = a->x;
             double *v = a->v;
-            double *f = a->f;
+            double (*f)[PAD] = a->f;
             size_t n = a->nlocal;
             size_t pad = PAD;
             fprintf(stderr, "final_integrate for box %d\n", ib);
 
             for (int i = 0; i < n; i++) {
-                v[i * PAD + 0] += dtforce * f[i * PAD + 0];
-                v[i * PAD + 1] += dtforce * f[i * PAD + 1];
-                v[i * PAD + 2] += dtforce * f[i * PAD + 2];
+                v[i * PAD + 0] += dtforce * f[i][X];
+                v[i * PAD + 1] += dtforce * f[i][Y];
+                v[i * PAD + 2] += dtforce * f[i][Z];
             }
         }
     }
