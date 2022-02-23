@@ -184,23 +184,23 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
             conserve = 666.0;
             //conserve = (1.5 * thermo.tmparr[i] + thermo.engarr[i]) / (1.5 * thermo.tmparr[0] + thermo.engarr[0]);
 
-            if (screen_yaml) {
-                fprintf(stdout, "  timestep: %d \n", thermo.steparr[i]);
-                fprintf(stdout, "      T*:           %15.10g \n", thermo.tmparr[i]);
-                // fprintf(stdout,"      U*:           %15.10g \n", thermo.engarr[i]+engcorr);
-                // fprintf(stdout,"      P*:           %15.10g \n", thermo.prsarr[i]+prscorr);
-                fprintf(stdout, "      U*:           %15.10g \n", thermo.engarr[i]);
-                fprintf(stdout, "      P*:           %15.10g \n", thermo.prsarr[i]);
-                fprintf(stdout, "      Conservation: %15.10g \n", conserve);
-            }
-
-            fprintf(fp, "  timestep: %d \n", thermo.steparr[i]);
-            fprintf(fp, "      T*:           %15.10g \n", thermo.tmparr[i]);
-            // fprintf(fp    ,"      U*:           %15.10g \n", thermo.engarr[i]+engcorr);
-            // fprintf(fp    ,"      P*:           %15.10g \n", thermo.prsarr[i]+prscorr);
-            fprintf(fp, "      U*:           %15.10g \n", thermo.engarr[i]);
-            fprintf(fp, "      P*:           %15.10g \n", thermo.prsarr[i]);
-            fprintf(fp, "      Conservation: %15.10g \n", conserve);
+//            if (screen_yaml) {
+//                fprintf(stdout, "  timestep: %d \n", thermo.steparr[i]);
+//                fprintf(stdout, "      T*:           %15.10g \n", thermo.tmparr[i]);
+//                // fprintf(stdout,"      U*:           %15.10g \n", thermo.engarr[i]+engcorr);
+//                // fprintf(stdout,"      P*:           %15.10g \n", thermo.prsarr[i]+prscorr);
+//                fprintf(stdout, "      U*:           %15.10g \n", thermo.engarr[i]);
+//                fprintf(stdout, "      P*:           %15.10g \n", thermo.prsarr[i]);
+//                fprintf(stdout, "      Conservation: %15.10g \n", conserve);
+//            }
+//
+//            fprintf(fp, "  timestep: %d \n", thermo.steparr[i]);
+//            fprintf(fp, "      T*:           %15.10g \n", thermo.tmparr[i]);
+//            // fprintf(fp    ,"      U*:           %15.10g \n", thermo.engarr[i]+engcorr);
+//            // fprintf(fp    ,"      P*:           %15.10g \n", thermo.prsarr[i]+prscorr);
+//            fprintf(fp, "      U*:           %15.10g \n", thermo.engarr[i]);
+//            fprintf(fp, "      P*:           %15.10g \n", thermo.prsarr[i]);
+//            fprintf(fp, "      Conservation: %15.10g \n", conserve);
         }
     }
 

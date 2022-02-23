@@ -36,7 +36,7 @@
 #include "thermo.h"
 #include "types.h"
 #include <float.h>
-#include <cmath>
+#include <math.h>
 #include <cstdio>
 
 #include <cstdio>
@@ -61,15 +61,40 @@ void create_box(Atom &atom, int nx, int ny, int nz, double rho)
     atom.box.xprd = nx * lattice;
     atom.box.yprd = ny * lattice;
     atom.box.zprd = nz * lattice;
+
+//    atom.box.len[X] = lattice;
+//    atom.box.len[Y] = lattice;
+//    atom.box.len[Z] = lattice;
+
+//    atom.box.dom[X][LO] = (nx + 0) * lattice;
+//    atom.box.dom[Y][LO] = (ny + 0) * lattice;
+//    atom.box.dom[Z][LO] = (nz + 0) * lattice;
+//
+//    atom.box.dom[X][HI] = (nx + 1) * lattice;
+//    atom.box.dom[Y][HI] = (ny + 1) * lattice;
+//    atom.box.dom[Z][HI] = (nz + 1) * lattice;
 }
 
 /* initialize atoms on fcc lattice in parallel fashion */
 
-int create_atoms(Atom &atom, int nx, int ny, int nz, double rho)
+int create_atoms(Atom &atom, int nx, int ny, int nz, double rho,
+        double maxdist)
 {
     /* total # of atoms */
     // DSM: Why 4*? Is this related to crystal latice structure?
-    // RAM: There are 4 species of atoms (types)
+    /*
+     * Given the total number of points in the grid N = nx * ny * nz the
+     * total number of atoms can be computed as 4*N. This is a face
+     * centered cubic lattice (FCC).
+     *
+     *     *---------*
+     *    /    *    /|
+     *   * --------* |
+     *   |         |*|
+     *   |    *    | *
+     *   |         |/
+     *   *---------*
+     */
     atom.natoms = 4 * nx * ny * nz;
     atom.nlocal = 0;
 
@@ -77,6 +102,13 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho)
        insure loop bounds do not exceed nx,ny,nz */
 
     double alat = pow((4.0 / rho), (1.0 / 3.0));
+    double interatom_distance = 0.5 * alat;
+
+    if (interatom_distance >= maxdist) {
+        fprintf(stderr, "fatal: atoms are too far away to interact\n");
+        exit(1);
+    }
+
     int ilo = static_cast<int>(atom.box.xlo / (0.5 * alat) - 1);
     int ihi = static_cast<int>(atom.box.xhi / (0.5 * alat) + 1);
     int jlo = static_cast<int>(atom.box.ylo / (0.5 * alat) - 1);
@@ -125,6 +157,8 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho)
             xtmp = 0.5 * alat * i;
             ytmp = 0.5 * alat * j;
             ztmp = 0.5 * alat * k;
+            //fprintf(stderr, "ijk=%d %d %d, xyz=%e %e %e\n",
+            //        i, j, k, xtmp, ytmp, ztmp);
 
             // DSM: "only store atoms that fall in my box" = no need to coordinate atom ownership via MPI.
             if (xtmp >= atom.box.xlo && xtmp < atom.box.xhi && ytmp >= atom.box.ylo && ytmp < atom.box.yhi

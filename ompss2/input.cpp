@@ -44,7 +44,7 @@
 
 #define MAXLINE 256
 
-static void safe_fgets(char *restrict s, int size, FILE *restrict stream)
+static void safe_fgets(char *s, int size, FILE *stream)
 {
     if (fgets(s, size, stream) == NULL) {
         fprintf(stderr, "fgets() failed\n");
@@ -130,7 +130,10 @@ int input(In &in, const char *filename)
     safe_fgets(line, MAXLINE, fp);
     sscanf(line, "%d", &in.neigh_every);
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%le %le", &in.force_cut, &in.neigh_cut);
+    double neigh_skin;
+    sscanf(line, "%le %le", &in.force_cut, &neigh_skin);
+    in.neigh_cut = in.force_cut + neigh_skin;
+
     safe_fgets(line, MAXLINE, fp);
     sscanf(line, "%d", &in.thermo_nstat);
     // DSM Multibox changes
@@ -147,7 +150,6 @@ int input(In &in, const char *filename)
     sscanf(line, "%d", &in.nonblocking_enabled);
     fclose(fp);
 
-    in.neigh_cut += in.force_cut;
     MPI_Barrier(MPI_COMM_WORLD);
 
     return 0;

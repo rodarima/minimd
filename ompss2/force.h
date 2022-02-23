@@ -49,12 +49,13 @@ public:
     double *virial; // DSM One of the outputs of compute(). Used in pressure()
     int *evflag; // DSM Controls whether eng_vdwl and virial are set in a compute() call or not
     int boxes_per_process; // DSM: Multibox change
+    int bpp; // DSM: Multibox change
 
     Force() {};
     virtual ~Force() {};
     virtual void setup() {};
     virtual void finalise() {};
-    virtual void compute(Atom &, Neighbor &, Comm &, int) {};
+    virtual void compute(Atom &, Neighbor &) {};
 
     int use_sse; // DSM Flag/constant in main() - signals use of vectorised compute function
     int use_oldcompute; // DSM Flag/constant in main() - signals use of unoptimised compute function

@@ -51,8 +51,21 @@ enum ForceStyle { FORCELJ, FORCEEAM };
 #define RESTRICT
 #endif
 
+/* Dimensions */
 #define X 0
 #define Y 1
 #define Z 2
+#define NDIM 3
+
+/* Limits per dimension */
+#define LO 0
+#define HI 1
+#define NLIM 2
+
+typedef double Vec[NDIM];
+typedef double Domain[NDIM][NLIM];
+typedef int    Range[NDIM][NLIM];
+
+#define MIN_DISTSQ 0.03
 
 #endif /* TYPES_H */

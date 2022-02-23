@@ -56,6 +56,7 @@ public:
     ~Neighbor();
     int setup(Atom &); // setup bins based on box and cutoff
     void build(Atom &); // create neighbor list
+    void check(Atom &);
 
     Timer *timer;
 
@@ -66,8 +67,16 @@ public:
 
     int *bincount; // ptr to 1st atom in each bin
     int *bins; // ptr to next atom in each bin
+    int binchanges;
     int mbins; // total number of bins per box
     int atoms_per_bin;
+
+    /* Number of bins in each dimension */
+    int nbins[NDIM];
+
+    /* Number of total bins accounting all dimensions */
+    int ntotbins;
+    int coord2bin(double, double, double); // mapping atom coord to a bin
 
 private:
     double xprd, yprd, zprd; // box size
@@ -85,8 +94,23 @@ private:
 
     int resize;
 
+    /* Inner core range in bins. Used to partition the box into two
+     * groups of bins: core and shell. So the atoms in the core can
+     * begin the force computation without waiting for the exchange of
+     * ghosts atoms in the shell */
+    Range core_range;
+
+    /* Size of each bin in space units */
+    double binlen[NDIM];
+
+    /* Size of each box in space units */
+    double boxlen[NDIM];
+
     double bindist(int, int, int); // distance between binx
-    int coord2bin(double, double, double); // mapping atom coord to a bin
+
+    void create_groups();
+    void group_bins();
+    int find_group(int index[NDIM]);
 };
 
 #endif

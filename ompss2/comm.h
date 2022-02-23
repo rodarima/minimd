@@ -162,6 +162,7 @@ public:
     void communicate_blocking_single_message_neighbourtasks(Atom *, int);
     void communicate_nonblocking_alltasks_tampi_iwait(Atom *, int);
     void communicate_nonblocking_neighbourtasks_tampi_iwaitall(Atom *, int);
+    void communicate_mpi(Atom *atom, int box_id);
     void communicate_internal(Atom &, int); // communicate() equivalent of exchange_internal()
     void communicate_internal_send(Atom *, AtomBuffer *, AtomBuffer *, int *, int, int);
     // Exchange

@@ -36,11 +36,19 @@
 #include "types.h"
 
 class Neighbor;
+
 struct Box {
+    /* Box dimensions in space units */
+    Vec len;
+
+    /* Extension of the box with the center being 0 */
+    Domain dom;
+
     double xprd, yprd, zprd;
     double xlo, xhi;
     double ylo, yhi;
     double zlo, zhi;
+
 
     // DSM 26-way communication change: Replace comm's slablo/slabhi arrays with these constants (set in comm.setup())
     // The comm.borders() function uses these to determine whether atoms are in the slab region before updating
@@ -51,6 +59,7 @@ struct Box {
     double yneg_slab_lo, yneg_slab_hi, ypos_slab_lo, ypos_slab_hi;
     double zneg_slab_lo, zneg_slab_hi, zpos_slab_lo, zpos_slab_hi;
 };
+
 
 class Atom {
 public:
@@ -120,5 +129,7 @@ private:
     int *type_copy;
     int copy_size;
 };
+
+void check_ghost_overlap(Atom *a);
 
 #endif

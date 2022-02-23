@@ -46,6 +46,8 @@
 #include "timer.h"
 #include "variant.h"
 
+#include <fenv.h>
+
 #define MAXLINE 256
 
 #ifndef USE_TAMPI
@@ -54,7 +56,7 @@
 
 int input(In &, const char *);
 void create_box(Atom &, int, int, int, double);
-int create_atoms(Atom &, int, int, int, double);
+int create_atoms(Atom &, int, int, int, double, double);
 void create_velocity(double, Atom **, Thermo &);
 void output(In &, Atom &, Force *, Neighbor &, Comm &, Thermo &, Integrate &, Timer &, int);
 
@@ -117,6 +119,9 @@ int main(int argc, char **argv)
         MPI_Finalize();
         exit(0);
     }
+
+    /* First, enable all floating point exceptions */
+    feenableexcept(FE_INVALID|FE_OVERFLOW);
 
     srand(5413);
 
@@ -489,7 +494,7 @@ int main(int argc, char **argv)
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
         Atom *atoms_ptr = atoms[box_index]; // HACK: Mercurium compiler fails if variable length array used in task
 #pragma oss task label("create_atoms") firstprivate(atoms_ptr)
-        create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho); // DSM: addatom() calls done here
+        create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho, in.force_cut); // DSM: addatom() calls done here
     }
 #pragma oss taskwait
 
@@ -593,7 +598,7 @@ int main(int argc, char **argv)
         // DSM: Despite taking comm as an argument, no MPI calls here for LJ (different story for EAM)
         // DSM: Multibox change. Needs to be called per Atom instance
         for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            force->compute(*atoms[box_index], *atoms[box_index]->neighbor, comm, comm.me);
+            force->compute(*atoms[box_index], *atoms[box_index]->neighbor);
         }
     }
 
@@ -641,7 +646,7 @@ int main(int argc, char **argv)
     // DSM: Multibox change. Needs to be called per Atom instance
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
         force->evflag[box_index] = 1;
-        force->compute(*atoms[box_index], *atoms[box_index]->neighbor, comm, me);
+        force->compute(*atoms[box_index], *atoms[box_index]->neighbor);
     }
 
     // DSM TODO: Changed to get code to compile - this path will be broken for multibox

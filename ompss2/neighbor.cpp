@@ -33,9 +33,12 @@
 #include "stdlib.h"
 
 #include "neighbor.h"
+#include <math.h>
 
 #define FACTOR 0.999
 #define SMALL 1.0e-6
+
+enum { CORE = 0, SHELL = 1, NGROUPS };
 
 Neighbor::Neighbor(int ntypes_)
 {
@@ -48,6 +51,7 @@ Neighbor::Neighbor(int ntypes_)
     nmax = 0;
     bincount = NULL;
     bins = NULL;
+    binchanges = -1;
     atoms_per_bin = 8;
     stencil = NULL;
     threads = NULL;
@@ -75,6 +79,30 @@ Neighbor::~Neighbor()
 
     if (bins)
         free(bins);
+}
+
+/* Ensure that the current atom is not contained in the neighbor list */
+void Neighbor::check(Atom &atom)
+{
+    /* Iterate through all local atoms (not ghosts) */
+    for (int i = 0; i < atom.nlocal; i++) {
+        int n = this->numneigh[i];
+        int *ineigh = &this->neighbors[this->maxneighs * i];
+        int contains1352 = 0;
+        for (int j = 0; j < n; j++) {
+            int neigh = ineigh[j];
+            if (i == neigh) {
+                abort();
+            }
+            if (neigh == 1352) {
+                contains1352 = 1;
+            }
+        }
+
+        if (atom.box_id == 3 && i == 1047) {
+            fprintf(stderr, "XXX check atom %d neigh contains 1352 = %d\n", i, contains1352);
+        }
+    }
 }
 
 /* binned neighbor list construction with full Newton's 3rd law
@@ -172,10 +200,19 @@ void Neighbor::build(Atom &atom)
 
                         if ((rsq <= cutneighsq[type_i * ntypes + type_j]))
                             neighptr[n++] = j;
+
+                        if (rsq < MIN_DISTSQ) {
+                            fprintf(stderr, "box %d: atom %d too close to neighbor %d\n",
+                                    atom.box_id, i, j);
+                            abort();
+                        }
                     }
                 else {
                     for (int m = 0; m < bincount[jbin]; m++) {
                         const int j = loc_bin[m];
+
+                        if (i == j)
+                            abort();
 
                         if (halfneigh && !ghost_newton && (j < i))
                             continue;
@@ -188,6 +225,12 @@ void Neighbor::build(Atom &atom)
 
                         if ((rsq <= cutneighsq[type_i * ntypes + type_j]))
                             neighptr[n++] = j;
+
+                        if (rsq < MIN_DISTSQ) {
+                            fprintf(stderr, "box %d: atom %d too close to neighbor %d\n",
+                                    atom.box_id, i, j);
+                            abort();
+                        }
                     }
                 }
             }
@@ -215,10 +258,13 @@ void Neighbor::build(Atom &atom)
             }
         }
     }
+
+    check(atom);
 }
 
 void Neighbor::binatoms(Atom &atom, int count)
 {
+    binchanges = 1;
     const int nlocal = atom.nlocal;
     const int nall = count < 0 ? atom.nlocal + atom.nghost : count;
     const double *const x = atom.x;
@@ -231,7 +277,7 @@ void Neighbor::binatoms(Atom &atom, int count)
 
     while (resize > 0) {
         resize = 0;
-        for (int i = 0; i < mbins; i++)
+        for (int i = 0; i < ntotbins; i++)
             bincount[i] = 0;
 
         for (int i = 0; i < nall; i++) {
@@ -242,16 +288,19 @@ void Neighbor::binatoms(Atom &atom, int count)
                 int ac;
                 ac = __sync_fetch_and_add(bincount + ibin, 1);
                 bins[ibin * atoms_per_bin + ac] = i;
-            } else
+            } else {
                 resize = 1;
+                break;
+            }
         }
 
         if (resize) {
             free(bins);
             atoms_per_bin *= 2;
-            bins = (int *) malloc(mbins * atoms_per_bin * sizeof(int));
+            bins = (int *) malloc(ntotbins * atoms_per_bin * sizeof(int));
         }
     }
+    binchanges = 0;
 }
 
 /* convert xyz atom coords into local bin #
@@ -261,6 +310,9 @@ void Neighbor::binatoms(Atom &atom, int count)
 inline int Neighbor::coord2bin(double x, double y, double z)
 {
     int ix, iy, iz;
+
+    if (isnan(x) || isnan(y) || isnan(z))
+        abort();
 
     if (x >= xprd)
         ix = (int) ((x - xprd) * bininvx) + nbinx - mbinxlo;
@@ -283,7 +335,12 @@ inline int Neighbor::coord2bin(double x, double y, double z)
     else
         iz = (int) (z * bininvz) - mbinzlo - 1;
 
-    return (iz * mbiny * mbinx + iy * mbinx + ix + 1);
+    int ret = (iz * mbiny * mbinx + iy * mbinx + ix + 1);
+
+    if (ret < 0 || ret >= ntotbins)
+        abort();
+
+    return ret;
 }
 
 /*
@@ -316,6 +373,10 @@ int Neighbor::setup(Atom &atom)
     yprd = atom.box.yprd;
     zprd = atom.box.zprd;
 
+    boxlen[X] = atom.box.len[X];
+    boxlen[Y] = atom.box.len[Y];
+    boxlen[Z] = atom.box.len[Z];
+
     /*
     c bins must evenly divide into box size,
     c   becoming larger than cutneigh if necessary
@@ -334,9 +395,20 @@ int Neighbor::setup(Atom &atom)
     binsizex = xprd / nbinx;
     binsizey = yprd / nbiny;
     binsizez = zprd / nbinz;
+    binlen[X] = binsizex;
+    binlen[Y] = binsizey;
+    binlen[Z] = binsizez;
     bininvx = 1.0 / binsizex;
     bininvy = 1.0 / binsizey;
     bininvz = 1.0 / binsizez;
+
+    for (int d = X; d <= Z; d++) {
+        if (cutneigh * 2.0 > boxlen[d]) {
+            fprintf(stderr, "fatal: the len of the box in %c (%e) is too small for Rneigh %e\n",
+                    "XYZ"[d], boxlen[d], cutneigh);
+            abort();
+        }
+    }
 
     coord = atom.box.xlo - cutneigh - SMALL * xprd;
     // DSM: Multiplying by the inverse is equivalent to coord/binsizex. Is this a premature optimisation or is it
@@ -380,6 +452,10 @@ int Neighbor::setup(Atom &atom)
     mbinzlo = mbinzlo - 1;
     mbinzhi = mbinzhi + 1;
     mbinz = mbinzhi - mbinzlo + 1;
+
+    nbins[X] = mbinx;
+    nbins[Y] = mbiny;
+    nbins[Z] = mbinz;
 
     /*
     compute bin stencil of all bins whose closest corner to central bin
@@ -435,17 +511,119 @@ int Neighbor::setup(Atom &atom)
     }
 
     mbins = mbinx * mbiny * mbinz;
+    ntotbins = mbins;
 
     if (bincount)
         free(bincount);
 
-    bincount = (int *) malloc(mbins * num_omp_threads * sizeof(int));
+    bincount = (int *) malloc(ntotbins * num_omp_threads * sizeof(int));
 
     if (bins)
         free(bins);
 
-    bins = (int *) malloc(mbins * num_omp_threads * atoms_per_bin * sizeof(int));
+    bins = (int *) malloc(ntotbins * num_omp_threads * atoms_per_bin * sizeof(int));
+
+    group_bins();
+
     return 0;
+}
+
+/* Return 1 if the given 3D index is inside the range, 0 otherwise. The
+ * range contains both limits */
+int in_range(int index[NDIM], Range range)
+{
+    enum { MIN = 0, MAX = 1 };
+    for (int d = X; d <= Z; d++) {
+        if (index[d] < range[MIN][d] || index[d] > range[MIN][d])
+            return 0;
+    }
+
+    return 1;
+}
+
+/* Given a bin index in 3D, return its group index */
+int Neighbor::find_group(int index[NDIM])
+{
+    int group;
+
+    if (in_range(index, core_range)) {
+        group = CORE;
+    } else {
+        group = SHELL;
+    }
+
+    return group;
+}
+
+/* For now we only have two: shell and core */
+void Neighbor::create_groups()
+{
+    int radius = 1;
+
+    for (int d = X; d <= Z; d++) {
+        int skip = (int) ceil(cutneigh / binlen[d]);
+        core_range[d][LO] = 0 + skip;
+        core_range[d][HI] = nbins[d] - skip;
+    }
+}
+
+/* Divide bins into groups so each group can be processed in parallel.
+ * Currently there only two groups: shell or core of the box */
+void Neighbor::group_bins()
+{
+    enum { MIN = 0, MAX = 1 };
+    enum { CORE = 0, SHELL = 1, NGROUPS };
+    int group_nbins[NGROUPS] = { 0 };
+    int group_offset[NGROUPS] = { 0 };
+
+    create_groups();
+
+    /* We already know how many bins we have */
+    int *group_bins = (int *) calloc(ntotbins, sizeof(int));
+    if (group_bins == NULL) {
+        perror("calloc failed");
+        abort();
+    }
+
+    int index[NDIM];
+    int totalbins = 0;
+
+    /* Just count the number of bins in each group */
+    for (index[Z] = 0; index[Z] < mbinz; index[Z]++) {
+        for (index[Y] = 0; index[Y] < mbiny; index[Y]++) {
+            for (index[X] = 0; index[X] < mbinx; index[X]++) {
+                int group = find_group(index);
+                group_nbins[group]++;
+            }
+        }
+    }
+
+    /* Set the offset to the first bin in each group and reset the
+     * number of bins to zero */
+    for (int group = 0, offset = 0; group < NGROUPS; group++) {
+        group_offset[group] = offset;
+        offset += group_nbins[group];
+        group_nbins[group] = 0;
+    }
+
+    /* Now we know the offsets and can store the bins */
+    int j = 0;
+    for (index[Z] = 0; index[Z] < mbinz; index[Z]++) {
+        for (index[Y] = 0; index[Y] < mbiny; index[Y]++) {
+            for (index[X] = 0; index[X] < mbinx; index[X]++) {
+                int group = find_group(index);
+                int offset = group_offset[group] + group_nbins[group];
+                group_bins[offset] = j++;
+                group_nbins[group]++;
+                totalbins++;
+            }
+        }
+    }
+
+    if (totalbins != ntotbins) {
+        fprintf(stderr, "unexpected mismatch in number of bins\n");
+        abort();
+    }
 }
 
 /* compute closest distance between central bin (0,0,0) and bin (i,j,k) */

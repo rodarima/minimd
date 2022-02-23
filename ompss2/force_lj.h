@@ -44,12 +44,16 @@ public:
     ForceLJ(int ntypes_, int boxes_per_process_);
     virtual ~ForceLJ();
     void setup();
-    void compute(Atom &, Neighbor &, Comm &, int);
+    void compute(Atom &, Neighbor &);
+
+    int **forcehist;
+    double *forcehistmin;
+    double forcehistdelta;
 
 protected:
 
-    void update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool update_energy);
-    void update_force_bin(int ibin, Neighbor *nei, Atom *atomdata);
+    void update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool update_energy, int *m);
+    void update_force_bin(int ibin, Neighbor *nei, Atom *atomdata, int *m);
     void update_force_box(Neighbor *nei, Atom *atomdata);
     template <int EVFLAG> void compute_original(Atom &, Neighbor &, int);
     template <int EVFLAG, int GHOST_NEWTON> void compute_halfneigh(Atom &, Neighbor &, int);
