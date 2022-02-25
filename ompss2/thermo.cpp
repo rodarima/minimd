@@ -30,7 +30,7 @@
 ---------------------------------------------------------------------- */
 
 #include "thermo.h"
-#include "force_lj.h"
+#include "force.h"
 #include "integrate.h"
 #include "mpi.h"
 #include "stdio.h"

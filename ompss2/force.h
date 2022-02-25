@@ -33,6 +33,7 @@
 #define FORCE_H
 
 #include "types.h"
+#include "atom.h"
 
 void force_init(Force *force, Input *in);
 void force_free(Force *force);

@@ -36,7 +36,6 @@
 #include "atom.h"
 #include "comm.h"
 #include "force.h"
-#include "force_lj.h"
 #include "integrate.h"
 #include "ljs.h"
 #include "neighbor.h"

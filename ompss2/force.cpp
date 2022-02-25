@@ -29,9 +29,10 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "force_lj.h"
-#include "math.h"
-#include "stdio.h"
+#include "force.h"
+#include "neighbor.h"
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 /* Extra checks: these allow early catch of problems but introduce large
