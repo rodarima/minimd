@@ -39,6 +39,66 @@
 
 #define DELTA 20000
 
+/* Ensure that no new atom is too close to a local atom (slow) */
+//#define ENABLE_NEW_ATOM_CHECK
+
+/* Ensure that no ghost atom is too close to a local atom (slow) */
+//#define ENABLE_GHOST_ATOM_CHECK
+
+void check_new_atom(Atom *a, int iatom, Vec ri) {
+#ifdef ENABLE_NEW_ATOM_CHECK
+
+    /* Compare with all local atoms */
+
+    for (int j = 0; j < a->nlocal; j++) {
+        /* Cannot be */
+        if (iatom == j)
+            abort();
+
+        double *rj = &a->x[j * PAD];
+        double distsq = 0.0;
+        for (int d = X; d <= Z; d++) {
+            distsq += (ri[d] - rj[d]) * (ri[d] - rj[d]);
+        }
+
+        if (distsq < MIN_DISTSQ) {
+            fprintf(stderr, "box %d: new atom %d(%d) too close to local atom %d\n",
+                    a->box_id, iatom, iatom - a->nlocal, j);
+            abort();
+        }
+    }
+#endif
+}
+
+/* Ensures that ghost atoms are far from local atoms in O(n^2) */
+void check_ghost_overlap(Atom *a)
+{
+#ifdef ENABLE_GHOST_ATOM_CHECK
+    /* Compare with all local atoms */
+    for (int i = 0; i < a->nlocal; i++) {
+        double *ri = &a->x[i * PAD];
+        for (int j = a->nlocal; j < a->nlocal + a->nghost; j++) {
+            /* Cannot be */
+            if (i == j)
+                abort();
+
+            double *rj = &a->x[j * PAD];
+            double distsq = 0.0;
+
+            for (int d = X; d <= Z; d++) {
+                distsq += (ri[d] - rj[d]) * (ri[d] - rj[d]);
+            }
+
+            if (distsq < MIN_DISTSQ) {
+                fprintf(stderr, "box %d: local atom %d too close to ghost atom %d\n",
+                        a->box_id, i, j);
+                abort();
+            }
+        }
+    }
+#endif
+}
+
 Atom::Atom(int ntypes_, int boxes_per_process_)
 {
     natoms = 0;
@@ -62,6 +122,8 @@ Atom::Atom(int ntypes_, int boxes_per_process_)
     // DSM: Multibox change - need one neighborlist per box rather than per process
     Neighbor _neighbor(ntypes_);
     neighbor = &_neighbor;
+
+    memset(&box, 0, sizeof(Box));
 }
 
 Atom::~Atom()
@@ -151,30 +213,6 @@ void Atom::copy(int i, int j)
     type[j] = type[i];
 }
 
-
-int is_inside_domain(Vec ri, Domain dom) {
-
-    for (int d = X; d <= Z; d++) {
-        if (ri[d] < dom[d][LO] || ri[d] > dom[d][HI]) {
-            return 0;
-        }
-    }
-
-    return 1;
-}
-
-void check_local_atoms(Atom *a) {
-    for (int i = 0; i < a->nlocal; i++) {
-        double *r = &a->x[i * PAD];
-        if (!is_inside_domain(r, a->box.dom)) {
-            //fprintf(stderr, "warning: box %d: local atom %d is at %e %e %e, outside the box domain\n",
-            //        a->box_id, i, r[X], r[Y], r[Z]);
-            //abort();
-        }
-    }
-}
-
-
 // DSM: Packs box's position array x into buf for use in MPI_Send. PBC corrections applied here.
 // DSM: Parameters:
 //   - n          number of atoms/size of list
@@ -184,7 +222,6 @@ void check_local_atoms(Atom *a) {
 void Atom::pack_comm(int n, int *list, double *buf, int pbc_any, double pbc_x, double pbc_y, double pbc_z)
 {
     int i, j;
-    check_local_atoms(this);
 
     // DSM: Why does this branch exist? pbc_flags[1-3] can be -1, 1 or 0 depending on whether the box length is to be
     // subtracted, added or not included in the calculation (i.e. atom is within the box). Top and bottom branches give
@@ -212,96 +249,10 @@ void Atom::pack_comm(int n, int *list, double *buf, int pbc_any, double pbc_x, d
 //                    this->box_id, j, i, buf[3*i], buf[3*i+1], buf[3*i+2]);
         }
     }
-    check_local_atoms(this);
-}
-
-void check_new_atom(Atom *a, int iatom, Vec ri) {
-
-    /* Compare with all local atoms */
-
-    for (int j = 0; j < a->nlocal; j++) {
-        /* Cannot be */
-        if (iatom == j)
-            abort();
-
-        double *rj = &a->x[j * PAD];
-        double distsq = 0.0;
-        for (int d = X; d <= Z; d++) {
-            distsq += (ri[d] - rj[d]) * (ri[d] - rj[d]);
-        }
-
-        if (distsq < MIN_DISTSQ) {
-            fprintf(stderr, "box %d: new atom %d(%d) too close to local atom %d\n",
-                    a->box_id, iatom, iatom - a->nlocal, j);
-            abort();
-        }
-    }
-
-//    Neighbor *nei = a->neighbor;
-//    int ibin = nei->coord2bin(ri[X], ri[Y], ri[Z]);
-//
-//    int n = nei->bincount[ibin];
-//    int *local_bin = &nei->bins[ibin * nei->atoms_per_bin];
-//
-//    if (is_inside_domain(ri, a->box.dom)) {
-//        //fprintf(stderr, "box %d: new atom %d is inside the box domain\n",
-//        //        a->box_id, iatom);
-//        //abort();
-//    }
-//
-//    for (int i = 0; i < n; i++) {
-//        int j = local_bin[i];
-//
-//        if (j >= a->nlocal) {
-//            //fprintf(stderr, "box %d: new atom %d has ghost atom %d in bin\n",
-//            //        a->box_id, iatom, j);
-//            //abort();
-//        }
-//
-//        double *rj = &a->x[j * PAD];
-//        double distsq = 0.0;
-//        for (int d = X; d <= Z; d++) {
-//            distsq += (ri[d] - rj[d]) * (ri[d] - rj[d]);
-//        }
-//
-//        if (distsq < MIN_DISTSQ) {
-//            //fprintf(stderr, "box %d: new atom %d too close to %d\n",
-//            //        a->box_id, iatom, j);
-//            //abort();
-//        }
-//    }
-}
-
-/* Ensures that ghost atoms are far from local atoms in O(n^2) */
-void check_ghost_overlap(Atom *a)
-{
-    /* Compare with all local atoms */
-    for (int i = 0; i < a->nlocal; i++) {
-        double *ri = &a->x[i * PAD];
-        for (int j = a->nlocal; j < a->nlocal + a->nghost; j++) {
-            /* Cannot be */
-            if (i == j)
-                abort();
-
-            double *rj = &a->x[j * PAD];
-            double distsq = 0.0;
-
-            for (int d = X; d <= Z; d++) {
-                distsq += (ri[d] - rj[d]) * (ri[d] - rj[d]);
-            }
-
-            if (distsq < MIN_DISTSQ) {
-                fprintf(stderr, "box %d: local atom %d too close to ghost atom %d\n",
-                        a->box_id, i, j);
-                abort();
-            }
-        }
-    }
 }
 
 void Atom::unpack_comm(int n, int first, double *buf)
 {
-    check_local_atoms(this);
     int i;
 
     //#pragma omp for schedule(static)
@@ -309,24 +260,6 @@ void Atom::unpack_comm(int n, int first, double *buf)
         x[(first + i) * PAD + 0] = buf[3 * i];
         x[(first + i) * PAD + 1] = buf[3 * i + 1];
         x[(first + i) * PAD + 2] = buf[3 * i + 2];
-
-        if (this->box_id == 3 && first + i == 1352) {
-            fprintf(stderr, "XXX atom 1352 now at %e %e %e\n",
-                    buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
-            int j = 1047;
-            fprintf(stderr, "XXX atom %d now at %e %e %e\n",
-                    j, x[PAD * j], x[PAD * j + 1], x[PAD * j + 2]);
-
-            double *ri = &x[(first + i) * PAD];
-            double *rj = &x[j * PAD];
-            double distsq = 0.0;
-
-            for (int d = X; d <= Z; d++) {
-                distsq += (ri[d] - rj[d]) * (ri[d] - rj[d]);
-            }
-
-            fprintf(stderr, "XXX sq distance = %e\n", distsq);
-        }
     }
 
     /* Ensure the new received atoms are not too close to any existing
@@ -526,7 +459,6 @@ void Atom::destroy_1d_int_array(int *array)
 
 void Atom::sort(Neighbor &neighbor)
 {
-    check_local_atoms(this);
     fprintf(stderr, "sorting atoms for box %d\n", this->box_id);
     neighbor.binatoms(*this, nlocal);
     //#pragma omp barrier
@@ -591,5 +523,4 @@ void Atom::sort(Neighbor &neighbor)
         type_copy = type_tmp;
     }
     //#pragma omp barrier
-    check_local_atoms(this);
 }

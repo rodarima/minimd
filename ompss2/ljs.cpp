@@ -54,15 +54,17 @@
 # define MPI_TASK_MULTIPLE MPI_THREAD_MULTIPLE
 #endif
 
-int input(In &, const char *);
+int input(Input &, const char *);
 void create_box(Atom &, int, int, int, double);
 int create_atoms(Atom &, int, int, int, double, double);
 void create_velocity(double, Atom **, Thermo &);
-void output(In &, Atom &, Force *, Neighbor &, Comm &, Thermo &, Integrate &, Timer &, int);
+void output(Input &, Atom &, Neighbor &, Comm &, Thermo &, Integrate &, Timer &, int);
+
+Sim sim;
 
 int main(int argc, char **argv)
 {
-    In in;
+    Input &in = sim.input;
     in.datafile = NULL;
     int me = 0; // local MPI rank
     int nprocs = 1; // number of MPI ranks
@@ -86,7 +88,6 @@ int main(int argc, char **argv)
     char *input_file = NULL;
     int ghost_newton = 1;
     int sort = -1;
-    int ntypes = 4;
 
     for (int i = 0; i < argc; i++) {
         if ((strcmp(argv[i], "-i") == 0) || (strcmp(argv[i], "--input_file") == 0)) {
@@ -163,7 +164,7 @@ int main(int argc, char **argv)
         }
 
         if ((strcmp(argv[i], "--ntypes") == 0)) {
-            ntypes = atoi(argv[++i]);
+            in.ntypes = atoi(argv[++i]);
             continue;
         }
 
@@ -289,8 +290,8 @@ int main(int argc, char **argv)
     // DSM: Multibox change. Dynamically allocate the memory for all boxes on this process.
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
         fprintf(stderr, "creating atoms for box %d\n", box_index);
-        atoms[box_index] = new Atom(ntypes, in.boxes_per_process);
-        atoms[box_index]->neighbor = new Neighbor(ntypes);
+        atoms[box_index] = new Atom(in.ntypes, in.boxes_per_process);
+        atoms[box_index]->neighbor = new Neighbor(in.ntypes);
 
         if (!atoms[box_index] || !atoms[box_index]->neighbor) {
             if (me == 0) {
@@ -310,16 +311,12 @@ int main(int argc, char **argv)
     Timer timer; // DSM: Benchmarking/profiling
     ThreadData threads; // DSM: Struct for holding MPI/OpenMP rank/ID and world size/thread count
 
-    Force *force = NULL; // DSM: LJ/EAM force calculation. force.compute() is application hotspot.
-
-    fprintf(stderr, "creating force\n");
-    if (in.forcetype == FORCELJ) {
-        force = (Force *) new ForceLJ(ntypes, in.boxes_per_process);
-    } else {
+    if (in.forcetype != FORCELJ) {
         fprintf(stderr, "Only FJ force supported\n");
-        MPI_Finalize();
-        exit(1);
+        abort();
     }
+
+    force_init(&sim.force, &sim.input);
 
     // DSM: threads object only used to hold MPI/OpenMP details - effectively a struct
     threads.mpi_me = me;
@@ -334,19 +331,8 @@ int main(int argc, char **argv)
         atoms[box_index]->neighbor->threads = &threads;
     }
     comm.threads = &threads;
-    force->threads = &threads;
     integrate.threads = &threads;
     thermo.threads = &threads;
-
-    // DSM: Lennard-Jones potential
-    // = 4*epsilon * ((sigma/r)^12 - (sigma/r)^6)
-    if (in.forcetype == FORCELJ) {
-        for (int i = 0; i < ntypes * ntypes; i++) {
-            force->epsilon[i] = in.epsilon;
-            force->sigma[i] = in.sigma;
-            force->sigma6[i] = in.sigma * in.sigma * in.sigma * in.sigma * in.sigma * in.sigma;
-        }
-    }
 
     // DSM: Multibox change - various neighbor attributes now set per box
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
@@ -358,13 +344,8 @@ int main(int argc, char **argv)
     // OpenMP disabled for TAMPI version
     // omp_set_num_threads(num_threads);
 
-    force->timer = &timer;
     comm.check_safeexchange = check_safeexchange;
     comm.do_safeexchange = do_safeexchange;
-    force->use_sse = use_sse;
-
-    if (halfneigh < 0)
-        force->use_oldcompute = 1;
 
     if (use_sse) {
 #ifdef VARIANT_REFERENCE
@@ -445,13 +426,12 @@ int main(int argc, char **argv)
     integrate.ntimes = in.ntimes;
     integrate.dt = in.dt;
     integrate.sort_every = sort > 0 ? sort : (sort < 0 ? in.neigh_every : 0);
-    force->cutforce = in.force_cut;
     thermo.nstat = in.thermo_nstat;
 
     // DSM: Multibox change - various neighbor attributes now set per box
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
         atoms[box_index]->neighbor->every = in.neigh_every;
-        atoms[box_index]->neighbor->cutneigh = in.neigh_cut;
+        atoms[box_index]->neighbor->cutneigh = in.R_neigh;
     }
 
     if (me == 0)
@@ -477,24 +457,11 @@ int main(int argc, char **argv)
     // DSM: This entire function is just "dtforce = 0.5 * dt;"
     integrate.setup();
 
-    // DSM: Only caring about default LJ force for now. This function is just setting the cutoff distance for all
-    // atoms in neighbour list:
-    // for(int i = 0; i<ntypes*ntypes; i++)
-    //    cutforcesq[i] = cutforce * cutforce;
-    force->setup();
-
-    if (in.forcetype == FORCEEAM) {
-        // DSM: Multibox change. Needs to be called per Atom instance
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            atoms[box_index]->mass = force->mass;
-        }
-    }
-
     // DSM Multibox: Called per Atom instance (removed MPI_Allreduce calls in this function)
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
         Atom *atoms_ptr = atoms[box_index]; // HACK: Mercurium compiler fails if variable length array used in task
 #pragma oss task label("create_atoms") firstprivate(atoms_ptr)
-        create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho, in.force_cut); // DSM: addatom() calls done here
+        create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho, in.R_force); // DSM: addatom() calls done here
     }
 #pragma oss taskwait
 
@@ -524,11 +491,11 @@ int main(int argc, char **argv)
         fprintf(stdout, "\t# Force Parameters: %2.2lf %2.2lf\n", in.epsilon, in.sigma);
         fprintf(stdout, "\t# Units: %s\n", in.units == 0 ? "LJ" : "METAL");
         fprintf(stdout, "\t# Atoms: %i\n", atoms[0]->natoms); // DSM Multibox change
-        fprintf(stdout, "\t# Atom types: %i\n", atoms[0]->ntypes); // DSM Multibox change
+        fprintf(stdout, "\t# Atom types: %i\n", in.ntypes); // DSM Multibox change
         fprintf(stdout, "\t# System size: %2.2lf %2.2lf %2.2lf (unit cells: %i %i %i)\n", atoms[0]->box.xprd,
             atoms[0]->box.yprd, atoms[0]->box.zprd, in.nx, in.ny, in.nz); // DSM Multibox change
         fprintf(stdout, "\t# Density: %lf\n", in.rho);
-        fprintf(stdout, "\t# Force cutoff: %lf\n", force->cutforce);
+        fprintf(stdout, "\t# Force cutoff: %lf\n", in.R_force);
         fprintf(stdout, "\t# Timestep size: %lf\n", integrate.dt);
         fprintf(stdout, "# Technical Settings: \n");
         fprintf(stdout, "\t# Neigh cutoff: %lf\n", atoms[0]->neighbor->cutneigh); // DSM Multibox Change
@@ -539,7 +506,7 @@ int main(int argc, char **argv)
         fprintf(stdout, "\t# Sorting frequency: %i\n", integrate.sort_every);
         fprintf(stdout, "\t# Thermo frequency: %i\n", thermo.nstat);
         fprintf(stdout, "\t# Ghost Newton: %i\n", ghost_newton);
-        fprintf(stdout, "\t# Use intrinsics: %i\n", force->use_sse);
+        fprintf(stdout, "\t# Use intrinsics: %i\n", 0);
         fprintf(stdout, "\t# Do safe exchange: %i\n", comm.do_safeexchange);
         fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(double));
     }
@@ -582,10 +549,6 @@ int main(int argc, char **argv)
     comm.borders(atoms);
 #pragma oss taskwait
 
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        force->evflag[box_index] = 1;
-    }
-
     //#pragma omp parallel
     {
         // DSM: Multibox change. Needs to be called per Atom instance
@@ -595,11 +558,7 @@ int main(int argc, char **argv)
             atoms[box_index]->neighbor->build(*atoms[box_index]); // DSM: No MPI calls here.
         }
 
-        // DSM: Despite taking comm as an argument, no MPI calls here for LJ (different story for EAM)
-        // DSM: Multibox change. Needs to be called per Atom instance
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            force->compute(*atoms[box_index], *atoms[box_index]->neighbor);
-        }
+        force_update(&sim, atoms);
     }
 
     if (halfneigh) {
@@ -625,12 +584,12 @@ int main(int argc, char **argv)
     {
         // DSM Multibox: Called once per box
         // DSM: Three MPI_Allreduces here (temperature, energy and pressure). All done by #omp master
-        thermo.compute(0, atoms, force, timer);
+        thermo.compute(0, atoms, NULL, timer);
     }
 
     // DSM: Main loop over time steps located here.
     timer.barrier_start(TIME_TOTAL);
-    integrate.run(atoms, force, comm, thermo, timer);
+    integrate.run(atoms, NULL, comm, thermo, timer);
     timer.barrier_stop(TIME_TOTAL);
 
     // DSM Multibox: Sum nlocal over all boxes in this process and contribute that to the Allreduce.
@@ -642,12 +601,7 @@ int main(int argc, char **argv)
     }
     MPI_Allreduce(&all_boxes_nlocal, &natoms, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
-    // DSM: Despite taking comm as an argument, no MPI calls here for LJ (different story for EAM)
-    // DSM: Multibox change. Needs to be called per Atom instance
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        force->evflag[box_index] = 1;
-        force->compute(*atoms[box_index], *atoms[box_index]->neighbor);
-    }
+    force_update(&sim, atoms);
 
     // DSM TODO: Changed to get code to compile - this path will be broken for multibox
     if (atoms[0]->neighbor->halfneigh && atoms[0]->neighbor->ghost_newton) {
@@ -656,7 +610,7 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    thermo.compute(-1, atoms, force, timer);
+    thermo.compute(-1, atoms, NULL, timer);
 
     if (me == 0) {
         double time_other
@@ -673,7 +627,7 @@ int main(int argc, char **argv)
 
     // DSM TODO: Changed to get code to compile - this path will be broken for multibox
     if (yaml_output)
-        output(in, *atoms[0], force, *atoms[0]->neighbor, comm, thermo, integrate, timer, screen_yaml);
+        output(in, *atoms[0], *atoms[0]->neighbor, comm, thermo, integrate, timer, screen_yaml);
 
     // DSM Multibox change: free all Atoms memory
     for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
@@ -684,7 +638,6 @@ int main(int argc, char **argv)
     // being called following MPI_Finalize.
     // comm.free_box_comms();
 
-    delete force;
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;

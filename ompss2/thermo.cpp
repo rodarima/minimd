@@ -126,11 +126,11 @@ void Thermo::energy(Atom *atoms[], Force *force, int slot)
     for (int ib = 0; ib < nboxes; ++ib) {
         #pragma oss task \
             label("Thermo::energy") \
-            in(force->eng_vdwl[ib]) \
             in(atoms[ib])
+            //in(force->eng_vdwl[ib])
         {
             Neighbor &neighbor = *atoms[ib]->neighbor;
-            double e_local = force->eng_vdwl[ib];
+            double e_local = 0.0; //force->eng_vdwl[ib];
 
             if (neighbor.halfneigh) {
                 e_local *= 2.0;
@@ -185,11 +185,11 @@ void Thermo::pressure(Atom *atoms[], Force *force, int slot)
     for (int ib = 0; ib < nboxes; ++ib) {
         #pragma oss task \
             label("Thermo::pressure") \
-            in(force->virial[ib]) \
             out(prsarr[slot][ib])
+            //in(force->virial[ib])
         {
             Neighbor &neighbor = *atoms[ib]->neighbor;
-            prsarr[slot][ib] = force->virial[ib];
+            //prsarr[slot][ib] = force->virial[ib];
         }
     }
 }

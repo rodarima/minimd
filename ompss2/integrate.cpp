@@ -96,7 +96,7 @@ void initial_integrate(Atom *atoms[], double dt, double dtforce)
             size_t n = a->nlocal;
             size_t pad = PAD;
 
-            fprintf(stderr, "initial_integrate for box %d\n", ib);
+            //fprintf(stderr, "initial_integrate for box %d\n", ib);
 
             for (int i = 0; i < n; i++) {
 
@@ -107,17 +107,6 @@ void initial_integrate(Atom *atoms[], double dt, double dtforce)
                 x[i * PAD + 0] += dt * v[i * PAD + 0];
                 x[i * PAD + 1] += dt * v[i * PAD + 1];
                 x[i * PAD + 2] += dt * v[i * PAD + 2];
-
-                if (i == 1047 && ib == 3) {
-                    fprintf(stderr, "XXX initial integrate v = %e %e %e\n",
-                            v[i * PAD + 0],
-                            v[i * PAD + 1],
-                            v[i * PAD + 2]);
-                    fprintf(stderr, "XXX initial integrate f = %e %e %e\n",
-                            f[i][X],
-                            f[i][Y],
-                            f[i][Z]);
-                }
 
                 check_position(&x[i * PAD + 0], a);
                 check_velocity(&v[i * PAD + 0], dt, a);
@@ -144,7 +133,7 @@ void final_integrate(Atom *atoms[], double dtforce)
             double (*f)[PAD] = a->f;
             size_t n = a->nlocal;
             size_t pad = PAD;
-            fprintf(stderr, "final_integrate for box %d\n", ib);
+            //fprintf(stderr, "final_integrate for box %d\n", ib);
 
             for (int i = 0; i < n; i++) {
                 v[i * PAD + 0] += dtforce * f[i][X];
@@ -201,34 +190,35 @@ void neigh_build(Atom *atoms[], Comm *comm)
     }
 }
 
-void force_compute(Atom *atoms[], Comm *comm, Force *force, int print_thermo_stats)
-{
-    int nboxes = atoms[0]->boxes_per_process;
-
-    for (int i = 0; i < nboxes; i++) {
-        Atom* a = atoms[i];
-        // No need for borders dependencies, borders tasks run only in
-        // reneighbouring branch
-        #pragma oss task \
-            label("force->compute") \
-            in(comm->communicateSentinels[i]) \
-            in(comm->communicateInternalUnpackSentinels[i]) \
-            out(comm->forceComputeSentinels[i]) \
-            out(a->f) \
-            out(force->eng_vdwl[i]) \
-            out(force->virial[i]) \
-            firstprivate(i, a)
-        {
-            // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
-            force->evflag[i] = print_thermo_stats;
-            // Controls whether eng_vdwl and virial are set this
-            // compute call or not.
-            // The last 2 arguments (comm & comm.me) are not used in
-            // force_lj implementation. Replace with nulls
-            force->compute(*a, *a->neighbor);
-        }
-    }
-}
+//void force_compute(Atom *atoms[], Comm *comm, Force *force, int print_thermo_stats)
+//{
+//    int nboxes = atoms[0]->boxes_per_process;
+//
+//    for (int i = 0; i < nboxes; i++) {
+//        Atom* a = atoms[i];
+//        // No need for borders dependencies, borders tasks run only in
+//        // reneighbouring branch
+//        #pragma oss task \
+//            label("force->compute") \
+//            in(comm->communicateSentinels[i]) \
+//            in(comm->communicateInternalUnpackSentinels[i]) \
+//            out(comm->forceComputeSentinels[i]) \
+//            out(a->f) \
+//            firstprivate(i, a)
+//            //out(force->eng_vdwl[i]) \
+//            //out(force->virial[i])
+//        {
+//            // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
+//            //force->evflag[i] = print_thermo_stats;
+//            // Controls whether eng_vdwl and virial are set this
+//            // compute call or not.
+//            // The last 2 arguments (comm & comm.me) are not used in
+//            // force_lj implementation. Replace with nulls
+//            force->compute(*a, *a->neighbor);
+//        }
+//    }
+//
+//}
 
 void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Timer &timer)
 {
@@ -292,7 +282,7 @@ void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Tim
         }
 
         #pragma oss taskwait
-        force_compute(atoms, &comm, force, print_thermo_stats);
+        force_update(&sim, atoms);
         #pragma oss taskwait
         final_integrate(atoms, dtforce);
 

@@ -10,13 +10,13 @@
 	# Choose whether the runtime runs with debug symbols and internal asserts. Enabling this option
 	# may produce significant overheads, so production or performance executions should disable this
 	# option. Default is false
-	debug = false
+	debug = true
 	# Choose the dependency system implementation. Default is "discrete"
 	# Possible values: "discrete", "regions"
 	dependencies = "discrete"
 	# Choose the instrumentation variant to run. Default is "none"
 	# Possible values: "none", "ctf", "extrae", "graph", "lint", "stats", "verbose"
-	instrument = "ctf"
+	instrument = "none"
 
 [turbo]
 	# Choose whether enabling floating-point unit optimizations in all Nanos6 threads. Enabling this

@@ -76,6 +76,7 @@ public:
 
     /* Number of total bins accounting all dimensions */
     int ntotbins;
+
     int coord2bin(double, double, double); // mapping atom coord to a bin
 
 private:

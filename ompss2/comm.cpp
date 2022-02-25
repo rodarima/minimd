@@ -897,10 +897,10 @@ void Comm::communicate(Atom *atoms[])
             {
                 // Lower layer (usually box_id-1)
                 int neighbour = atoms[box_index]->boxneigh_negative;
-                fprintf(stderr, "box %d: sending %d ghost atoms to lower box %d\n",
-                        box_index,
-                        boxBufs[box_index].comm_send_size[0][2],
-                        box_index - 1);
+                //fprintf(stderr, "box %d: sending %d ghost atoms to lower box %d\n",
+                //        box_index,
+                //        boxBufs[box_index].comm_send_size[0][2],
+                //        box_index - 1);
 
                 communicate_internal_send(atoms[box_index],
                     &boxBufs[box_index].internal_buf_send_down[COMMUNICATE_FUNCTION],
@@ -908,10 +908,10 @@ void Comm::communicate(Atom *atoms[])
                     boxBufs[box_index].internal_sendlist_down, boxBufs[box_index].comm_send_size[0][2],
                     boxBufs[box_index].sendnum[0][2]);
                 // Upper layer (usually box_id+1)
-                fprintf(stderr, "box %d: sending %d ghost atoms to upper box %d\n",
-                        box_index,
-                        boxBufs[box_index].comm_send_size[0][3],
-                        box_index + 1);
+                //fprintf(stderr, "box %d: sending %d ghost atoms to upper box %d\n",
+                //        box_index,
+                //        boxBufs[box_index].comm_send_size[0][3],
+                //        box_index + 1);
                 neighbour = atoms[box_index]->boxneigh_positive;
                 communicate_internal_send(atoms[box_index],
                     &boxBufs[box_index].internal_buf_send_up[COMMUNICATE_FUNCTION],
@@ -935,7 +935,7 @@ void Comm::communicate(Atom *atoms[])
                 out(atoms[j]->x) \
                 firstprivate(box_index)
             {
-                fprintf(stderr, "box %d: unpack shm atoms\n", box_index);
+                //fprintf(stderr, "box %d: unpack shm atoms\n", box_index);
                 // Values of firstrecv are set in borders function: [2] is always y-ve swap and [3] always y+ve.
                 // Data has been pushed into my internal buffers. Unpack into end of atom list
                 // Unlike other unpack routines, unpack_comm has an internal loop over atoms
@@ -1727,7 +1727,7 @@ void Comm::borders(Atom *atoms[])
             out(bordersInternalSendSentinels[j]) \
             firstprivate(box_index)
         {
-            fprintf(stderr, "sending internal border for box %d\n", box_index);
+            //fprintf(stderr, "sending internal border for box %d\n", box_index);
             borders_internal_send(atoms[box_index]);
         }
     }

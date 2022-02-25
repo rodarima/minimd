@@ -34,63 +34,146 @@
 #include "stdio.h"
 #include <stdlib.h>
 
+/* Extra checks: these allow early catch of problems but introduce large
+ * or very large overheads, so they should be disabled when taking into
+ * account the performance of the simulation. */
+
+/* Print a histogram of the force magnitudes per box. It should be
+ * smooth. */
+#define ENABLE_FORCE_HIST
+#define FORCE_HIST_NBINS 30
+#define FORCE_HIST_MAX 200.0
+
+/* Compute the energy during the simulation. Needed to validate the
+ * results. */
+#define ENABLE_REALTIME_ENERGY
+
+/* Halts the simulation if the force is too large */
+#define ENABLE_MAX_FORCE
 #define MAX_FORCE 1e6
 
-#define FORCEHIST_ENABLE
-#define FORCEHIST_NBINS 30
-#define FORCEHIST_MAX 200.0
+/* Halts the simulation if an atom doesn't interact with at least half
+ * the neighbors (they are too far away to interact). This may happen
+ * with too many time steps without re-neighboring. */
+#define ENABLE_MIN_INTERACTIONS
 
-ForceLJ::ForceLJ(int ntypes_, int boxes_per_process_)
+static void
+force_hist_init(Force *force, Input *in)
 {
-    cutforce = 0.0;
-    use_oldcompute = 0;
-    reneigh = 1;
-    style = FORCELJ;
-    ntypes = ntypes_;
-    boxes_per_process = boxes_per_process_; // DSM: Multibox change
-    bpp = boxes_per_process;
+#ifdef ENABLE_FORCE_HIST
+    int bpp = in->boxes_per_process;
 
-    cutforcesq = new double[ntypes * ntypes];
-    epsilon = new double[ntypes * ntypes];
-    sigma6 = new double[ntypes * ntypes];
-    sigma = new double[ntypes * ntypes];
-
-    forcehist = (int **) calloc(bpp, sizeof(int *));
-
-    forcehistmin = (double *) calloc(FORCEHIST_NBINS, sizeof(double));
-    forcehistdelta = FORCEHIST_MAX / (FORCEHIST_NBINS + 1);
+    force->forcehist = (int **) calloc(bpp, sizeof(int *));
+    force->forcehistmin = (double *) calloc(FORCE_HIST_NBINS, sizeof(double));
+    force->forcehistdelta = FORCE_HIST_MAX / (FORCE_HIST_NBINS + 1);
 
     for (int i = 0; i < bpp; i++) {
-        forcehist[i] = (int *) calloc(FORCEHIST_NBINS, sizeof(int));
+        force->forcehist[i] = (int *) calloc(FORCE_HIST_NBINS, sizeof(int));
     }
 
-    for (int j = 0; j < FORCEHIST_NBINS; j++) {
-        forcehistmin[j] = j * forcehistdelta;
+    for (int j = 0; j < FORCE_HIST_NBINS; j++) {
+        force->forcehistmin[j] = j * force->forcehistdelta;
     }
-
-    for (int i = 0; i < ntypes * ntypes; i++) {
-        cutforcesq[i] = 0.0;
-        epsilon[i] = 1.0;
-        sigma6[i] = 1.0;
-        sigma[i] = 1.0;
-    }
-
-    eng_vdwl = (double *) malloc(boxes_per_process_ * sizeof(double));
-    virial = (double *) malloc(boxes_per_process_ * sizeof(double));
-    evflag = (int *) malloc(boxes_per_process_ * sizeof(int));
+#endif
 }
 
-ForceLJ::~ForceLJ()
+static void
+force_hist_add(Force *force, double *f, int ibox)
 {
-    free(eng_vdwl);
-    free(virial);
-    free(evflag);
+#ifdef ENABLE_FORCE_HIST
+    double forcemag = 0.0;
+    for (int d = X; d <= Z; d++) {
+        forcemag += f[d] * f[d];
+    }
+    forcemag = sqrt(forcemag);
+    int forcebin = (int) (forcemag / force->forcehistdelta);
+    if (forcebin >= FORCE_HIST_NBINS)
+        forcebin = FORCE_HIST_NBINS - 1;
+    if (forcebin < 0)
+        abort();
+    force->forcehist[ibox][forcebin]++;
+#endif
 }
 
-void ForceLJ::setup()
+static void
+force_hist_clear(Force *force, int ibox)
 {
-    for (int i = 0; i < ntypes * ntypes; i++)
-        cutforcesq[i] = cutforce * cutforce;
+#ifdef ENABLE_FORCE_HIST
+    for (int i = 0; i < FORCE_HIST_NBINS; i++) {
+        force->forcehist[ibox][i] = 0;
+    }
+#endif
+}
+
+static void
+force_hist_print(Force *force, int box_id)
+{
+#ifdef ENABLE_FORCE_HIST
+
+    /* Only print the histogram of the first box */
+    if (box_id != 0)
+        return;
+
+    fprintf(stderr, "Force magnitude histogram for box %d:\n", box_id);
+    for (int i = 0; i < FORCE_HIST_NBINS; i++) {
+        fprintf(stderr, "  [%e .. %e] -> %d atoms\n",
+                force->forcehistmin[i],
+                force->forcehistmin[i] + force->forcehistdelta,
+                force->forcehist[box_id][i]);
+    }
+#endif
+}
+
+static void
+check_max_force(double *f)
+{
+#ifdef ENABLE_MAX_FORCE
+    for (int d = X; d <= Z; d++) {
+        if (fabs(f[d]) > MAX_FORCE) {
+            fprintf(stderr, "force too large: %e %e %e\n", f[X], f[Y], f[Z]);
+            abort();
+        }
+    }
+#endif
+}
+
+static void
+check_min_interactions(int ninteractions, int n)
+{
+#ifdef ENABLE_INTERACTIONS_CHECK
+    if (ninteractions < n / 2) {
+        fprintf(stderr, "too few interactions: %d\n", ninteractions);
+        abort();
+    }
+#endif
+}
+
+void
+force_init(Force *force, Input *in)
+{
+    int pairtypes = in->ntypes * in->ntypes;
+
+    force->R_force_sq = (double *) calloc(pairtypes, sizeof(double));
+    force->epsilon = (double *) calloc(pairtypes, sizeof(double));
+    force->sigma6 = (double *) calloc(pairtypes, sizeof(double));
+
+    for (int i = 0; i < pairtypes; i++) {
+        /* All values are the same for all types, but we keep them in a
+         * vector to mimic the original code complexity */
+        force->R_force_sq[i] = in->R_force * in->R_force;
+        force->epsilon[i] = in->epsilon;
+        force->sigma6[i] = pow(in->sigma, 6.0);
+    }
+
+    force_hist_init(force, in);
+}
+
+void
+force_free(Force *force)
+{
+    free(force->R_force_sq);
+    free(force->epsilon);
+    free(force->sigma6);
 }
 
 static double
@@ -98,65 +181,23 @@ dotprod(double *v, int n)
 {
     double sum = 0.0;
 
-    for (int i=0; i<n; i++) {
+    for (int i = 0; i < n; i++) {
         sum += v[i] * v[i];
     }
 
     return sum;
 }
 
-void
-forcehist_add(ForceLJ *lj, double *f, int ibox)
-{
-#ifdef FORCEHIST_ENABLE
-    double forcemag = 0.0;
-    for (int d = X; d <= Z; d++) {
-        forcemag += f[d] * f[d];
-    }
-    forcemag = sqrt(forcemag);
-    int forcebin = (int) (forcemag / lj->forcehistdelta);
-    if (forcebin >= FORCEHIST_NBINS)
-        forcebin = FORCEHIST_NBINS - 1;
-    if (forcebin < 0)
-        abort();
-    lj->forcehist[ibox][forcebin]++;
-#endif
-}
-
-void
-forcehist_clear(ForceLJ *lj, int ibox)
-{
-#ifdef FORCEHIST_ENABLE
-    for (int i = 0; i < FORCEHIST_NBINS; i++) {
-        lj->forcehist[ibox][i] = 0;
-    }
-#endif
-}
-
-void
-forcehist_print(ForceLJ *lj, int box_id)
-{
-#ifdef FORCEHIST_ENABLE
-    fprintf(stderr, "Force magnitude histogram for box %d:\n", box_id);
-    for (int i = 0; i < FORCEHIST_NBINS; i++) {
-        fprintf(stderr, "  [%e .. %e] -> %d atoms\n",
-                lj->forcehistmin[i],
-                lj->forcehistmin[i] + lj->forcehistdelta,
-                lj->forcehist[box_id][i]);
-    }
-#endif
-}
-
 /* Updates the force acting on a given atom at index `i` by taking
  * into account all `n` neighboring atoms in `ineigh` */
 void
-ForceLJ::update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool update_energy, int *marker)
+update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, Atom *atomdata)
 {
     int type_offset = atomdata->type[i] * atomdata->ntypes;
-    double local_f[3] = { 0.0, 0.0, 0.0 };
+    Vec local_f = { 0.0, 0.0, 0.0 };
 
     /* Current atom position vector */
-    double ri[3] = {
+    Vec ri = {
         atomdata->x[i * PAD + X],
         atomdata->x[i * PAD + Y],
         atomdata->x[i * PAD + Z]
@@ -173,53 +214,37 @@ ForceLJ::update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool updat
             abort();
 
         /* Get neighbor atom position */
-        double rj[3] = {
+        Vec rj = {
             atomdata->x[j * PAD + X],
             atomdata->x[j * PAD + Y],
             atomdata->x[j * PAD + Z]
         };
 
         /* Compute distance vector */
-        double delta[3] = { ri[X] - rj[X], ri[Y] - rj[Y], ri[Z] - rj[Z] };
+        Vec delta = { ri[X] - rj[X], ri[Y] - rj[Y], ri[Z] - rj[Z] };
         double sqdist = dotprod(delta, 3);
         int type_ij = type_offset + atomdata->type[j];
 
         /* Ignore far away atoms */
-        if (sqdist >= cutforcesq[type_ij])
+        if (sqdist >= force->R_force_sq[type_ij])
             continue;
 
         double sr2 = 1.0 / sqdist;
-        double sr6 = sr2 * sr2 * sr2 * sigma6[type_ij];
-        double force = 48.0 * sr6 * (sr6 - 0.5) * sr2 * epsilon[type_ij];
+        double sr6 = sr2 * sr2 * sr2 * force->sigma6[type_ij];
+        double sr6eps = sr6 * force->epsilon[type_ij];
+        double forcemag = 48.0 * (sr6 - 0.5) * sr2 * sr6eps;
 
         /* Accumulate force for this neighbor */
-        local_f[X] += delta[X] * force;
-        local_f[Y] += delta[Y] * force;
-        local_f[Z] += delta[Z] * force;
-
-        if (atomdata->box_id == 3 && i == 1047 && j == 1352) {
-            fprintf(stderr, "XXX pair 1047--1352 force: %e %e %e\n",
-                    delta[X] * force,
-                    delta[Y] * force,
-                    delta[Z] * force);
-        }
-
-        for (int d = X; d <= Z; d++) {
-            if (fabs(local_f[d]) > MAX_FORCE) {
-                fprintf(stderr, "force too large: %e %e %e\n",
-                        local_f[X], local_f[Y], local_f[Z]);
-                abort();
-            }
-        }
+        local_f[X] += delta[X] * forcemag;
+        local_f[Y] += delta[Y] * forcemag;
+        local_f[Z] += delta[Z] * forcemag;
 
         ninteractions++;
-        marker[i]++;
 
-        if (update_energy) {
-//            /* FIXME: Prevents further decomposition within a box */
-//            t_eng_vdwl += sr6 * (sr6 - 1.0) * epsilon[type_ij];
-//            t_virial += sqdist * force;
-        }
+#ifdef ENABLE_REALTIME_ENERGY
+        bin->pot_energy[box->force_iter] += (sr6 - 1.0) * sr6eps;
+        bin->pot_energy[box->force_iter] += sqdist * forcemag;
+#endif
     }
 
     double *f = atomdata->f[i];
@@ -228,37 +253,20 @@ ForceLJ::update_force_atom(int i, int n, int *ineigh, Atom *atomdata, bool updat
         f[d] = local_f[d];
     }
 
-    forcehist_add(this, f, atomdata->box_id);
-
-    for (int d = X; d <= Z; d++) {
-        if (fabs(f[d]) > MAX_FORCE) {
-            fprintf(stderr, "force too large: %e %e %e\n", f[X], f[Y], f[Z]);
-            abort();
-        }
-    }
-
-    if (ninteractions < n / 2) {
-        fprintf(stderr, "too few interactions: %d\n", ninteractions);
-        fprintf(stderr, "atom at xyz=%e %e %e\n", ri[X], ri[Y], ri[Z]);
-        abort();
-    }
-
-    if (atomdata->box_id == 3 && i == 1047) {
-        fprintf(stderr, "XXX atom 1047 force: %e %e %e\n",
-                local_f[X], local_f[Y], local_f[Z]);
-    }
+    force_hist_add(force, f, atomdata->box_id);
+    check_max_force(f);
+    check_min_interactions(ninteractions, n);
 }
 
-/* Update force for all atoms in the given bin */
+/* Update force for all atoms in the given bin index */
 void
-ForceLJ::update_force_bin(int ibin, Neighbor *nei, Atom *atomdata,
-        int *marker)
+update_force_bin(Force *force, int ibin, Neighbor *nei, Atom *atomdata)
 {
     int n = nei->bincount[ibin];
     int *bins = &nei->bins[ibin * nei->atoms_per_bin];
-    //fprintf(stderr, "updating force in bin %d with %d atoms\n", ibin, n);
-    if (nei->binchanges)
-        abort();
+
+    Box *box = &atomdata->box;
+    Bin *bin = &box->bin[ibin];
 
     for (int i = 0; i < n; i++) {
         /* Compute the actual atom index */
@@ -270,67 +278,31 @@ ForceLJ::update_force_bin(int ibin, Neighbor *nei, Atom *atomdata,
         if (iatom >= atomdata->nlocal)
             continue;
 
-        update_force_atom(iatom, numneighs, neighs, atomdata, 0, marker);
+        update_force_atom(force, box, bin, iatom, numneighs, neighs, atomdata);
     }
-
-    if (nei->binchanges)
-        abort();
 }
 
 /* Update force for all atoms in a box */
 void
-ForceLJ::update_force_box(Neighbor *nei, Atom *atomdata)
+update_force_box(Force *force, Box *box, Neighbor *nei, Atom *atomdata)
 {
-    int ntot = atomdata->nlocal + atomdata->nghost;
-    int *marker = (int *) calloc(ntot, sizeof(int));
+    force_hist_clear(force, atomdata->box_id);
 
-    if (marker == NULL) {
-        abort();
-    }
+    for (int i = 0; i < nei->ntotbins; i++)
+        update_force_bin(force, i, nei, atomdata);
 
-    int hist[31] = { 0 };
+    /* Increase the iteration for this box */
+    box->force_iter++;
 
-    forcehist_clear(this, atomdata->box_id);
-
-    for (int i = 0; i < nei->ntotbins; i++) {
-        int n = nei->bincount[i];
-        if (n > 30)
-            n = 30;
-
-        hist[n]++;
-        update_force_bin(i, nei, atomdata, marker);
-    }
-
-//    fprintf(stderr, "bin occupation for box %d:\n", atomdata->box_id);
-//    for (int i = 0; i <= 30; i++) {
-//        fprintf(stderr, " %3d: %d\n", i, hist[i]);
-//    }
-//    fflush(stderr);
-
-    for (int i = 0; i < atomdata->nlocal; i++) {
-        if (marker[i] == 0) {
-            fprintf(stderr, "force didn't update atom %d\n", i);
-            abort();
-        }
-    }
-    for (int i = atomdata->nlocal; i < ntot; i++) {
-        if (marker[i] > 0) {
-            fprintf(stderr, "force updated ghost %d\n", i);
-            abort();
-        }
-    }
-
-    /* Only print the histogram of the first box */
-    if (atomdata->box_id == 0)
-        forcehist_print(this, atomdata->box_id);
-
-    free(marker);
+    force_hist_print(force, atomdata->box_id);
 }
 
-void
-ForceLJ::compute(Atom &atom, Neighbor &nei)
+/* Updates the force in all boxes */
+void force_update(Sim *sim, Atom *atoms[])
 {
-    nei.check(atom);
-    check_ghost_overlap(&atom);
-    update_force_box(&nei, &atom);
+    for (int i = 0; i < sim->input.boxes_per_process; i++) {
+        Atom *a = atoms[i];
+        Box *box = &a->box;
+        update_force_box(&sim->force, box, a->neighbor, a);
+    }
 }

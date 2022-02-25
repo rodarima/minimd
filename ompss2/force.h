@@ -29,48 +29,13 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#ifndef FORCE_H_
-#define FORCE_H_
+#ifndef FORCE_H
+#define FORCE_H
 
-#include "atom.h"
-#include "comm.h"
-#include "ljs.h"
-#include "neighbor.h"
+#include "types.h"
 
-class Force {
-public:
-    double cutforce; // DSM Force cutoff. Constant, input parameter.
-    double *cutforcesq; // DSM Set to constant cutforce * cutforce in setup() for all atom types
-    double mass; // DSM Seems unused: only ever written to in EAM branch, no instances of reads found.
-    int ntypes; // DSM Number of atom types. Constant set on object creation
-
-    // DSM Multibox change: these used to be single variables but extended to arrays (one per box)
-    double *eng_vdwl; // DSM One of the outputs of compute(). Used in energy()
-    double *virial; // DSM One of the outputs of compute(). Used in pressure()
-    int *evflag; // DSM Controls whether eng_vdwl and virial are set in a compute() call or not
-    int boxes_per_process; // DSM: Multibox change
-    int bpp; // DSM: Multibox change
-
-    Force() {};
-    virtual ~Force() {};
-    virtual void setup() {};
-    virtual void finalise() {};
-    virtual void compute(Atom &, Neighbor &) {};
-
-    int use_sse; // DSM Flag/constant in main() - signals use of vectorised compute function
-    int use_oldcompute; // DSM Flag/constant in main() - signals use of unoptimised compute function
-    ThreadData *threads; // DSM Object containing thread and rank IDs (all constants)
-    int reneigh; // DSM Constant set in ForceLJ constructor
-    Timer *timer; // DSM For timestamping and profiling
-
-    // DSM Lennard-Jones potential input parameters. Constants calculated in main().
-    // DSM Arrays as one entry per atom type but all are set to the same value in main() (in.epsilon and in.sigma)
-    double *epsilon, *sigma6, *sigma; // Parameters for LJ only
-
-    ForceStyle style;
-
-protected:
-    int me; // DSM Duplicate information, already in threads object (only used in EAM in any case).
-};
+void force_init(Force *force, Input *in);
+void force_free(Force *force);
+void force_update(Sim *sim, Atom *atoms[]);
 
 #endif

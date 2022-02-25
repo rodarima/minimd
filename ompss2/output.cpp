@@ -45,7 +45,7 @@
 
 void stats(int, double *, double *, double *, double *, int, int *);
 
-void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Thermo &thermo, Integrate &integrate,
+void output(Input &in, Atom &atom, Neighbor &neighbor, Comm &comm, Thermo &thermo, Integrate &integrate,
     Timer &timer, int screen_yaml)
 {
     int i, n;
@@ -89,9 +89,9 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
     /* long-range energy and pressure corrections Whats this???*/
 
     double engcorr = 8.0 * 3.1415926 * in.rho
-        * (1.0 / (9.0 * pow(force->cutforce, double(9.0))) - 1.0 / (3.0 * pow(force->cutforce, double(3.0))));
+        * (1.0 / (9.0 * pow(in.R_force, double(9.0))) - 1.0 / (3.0 * pow(in.R_force, double(3.0))));
     double prscorr = 8.0 * 3.1415926 * in.rho * in.rho
-        * (4.0 / (9.0 * pow(force->cutforce, double(9.0))) - 2.0 / (3.0 * pow(force->cutforce, double(3.0))));
+        * (4.0 / (9.0 * pow(in.R_force, double(9.0))) - 2.0 / (3.0 * pow(in.R_force, double(3.0))));
 
     /* thermo output */
 
@@ -122,7 +122,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
             fprintf(stdout, "  unit_cells: %i %i %i\n", in.nx, in.ny, in.nz);
             fprintf(stdout, "  density: %lf\n", in.rho);
             fprintf(stdout, "  force_type: %s\n", in.forcetype == FORCELJ ? "LJ" : "EAM");
-            fprintf(stdout, "  force_cutoff: %lf\n", force->cutforce);
+            fprintf(stdout, "  force_cutoff: %lf\n", in.R_force);
             fprintf(stdout, "  force_params: %2.2lf %2.2lf\n", in.epsilon, in.sigma);
             fprintf(stdout, "  neighbor_cutoff: %lf\n", neighbor.cutneigh);
             fprintf(stdout, "  neighbor_type: %i\n", neighbor.halfneigh);
@@ -132,7 +132,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
             fprintf(stdout, "  timestep_size: %lf\n", integrate.dt);
             fprintf(stdout, "  thermo_frequency: %i\n", thermo.nstat);
             fprintf(stdout, "  ghost_newton: %i\n", neighbor.ghost_newton);
-            fprintf(stdout, "  use_intrinsics: %i\n", force->use_sse);
+            fprintf(stdout, "  use_intrinsics: %i\n", 0);
             fprintf(stdout, "  safe_exchange: %i\n", comm.do_safeexchange);
             fprintf(stdout, "  float_size: %i\n\n", (int) sizeof(double));
         }
@@ -150,7 +150,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
         fprintf(fp, "  unit_cells: %i %i %i\n", in.nx, in.ny, in.nz);
         fprintf(fp, "  density: %lf\n", in.rho);
         fprintf(fp, "  force_type: %s\n", in.forcetype == FORCELJ ? "LJ" : "EAM");
-        fprintf(fp, "  force_cutoff: %lf\n", force->cutforce);
+        fprintf(fp, "  force_cutoff: %lf\n", in.R_force);
         fprintf(fp, "  force_params: %2.2lf %2.2lf\n", in.epsilon, in.sigma);
         fprintf(fp, "  neighbor_cutoff: %lf\n", neighbor.cutneigh);
         fprintf(fp, "  neighbor_type: %i\n", neighbor.halfneigh);
@@ -160,7 +160,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
         fprintf(fp, "  timestep_size: %lf\n", integrate.dt);
         fprintf(fp, "  thermo_frequency: %i\n", thermo.nstat);
         fprintf(fp, "  ghost_newton: %i\n", neighbor.ghost_newton);
-        fprintf(fp, "  use_intrinsics: %i\n", force->use_sse);
+        fprintf(fp, "  use_intrinsics: %i\n", 0);
         fprintf(fp, "  safe_exchange: %i\n", comm.do_safeexchange);
         fprintf(fp, "  float_size: %i\n\n", (int) sizeof(double));
 
@@ -214,7 +214,7 @@ void output(In &in, Atom &atom, Force *force, Neighbor &neighbor, Comm &comm, Th
     double time_total = timer.array[TIME_TOTAL];
     MPI_Allreduce(&time_total, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     time_total = tmp / nprocs;
-    double mflops = 4.0 / 3.0 * 3.1415926 * pow(force->cutforce, double(3.0)) * in.rho * 0.5 * 23 * natoms
+    double mflops = 4.0 / 3.0 * 3.1415926 * pow(in.R_force, double(3.0)) * in.rho * 0.5 * 23 * natoms
         * integrate.ntimes / time_total / 1000000.0;
 
     if (me == 0) {

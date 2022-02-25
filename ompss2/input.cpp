@@ -53,7 +53,7 @@ static void safe_fgets(char *s, int size, FILE *stream)
     }
 }
 
-int input(In &in, const char *filename)
+int input(Input &in, const char *filename)
 {
     FILE *fp;
     int flag;
@@ -130,10 +130,8 @@ int input(In &in, const char *filename)
     safe_fgets(line, MAXLINE, fp);
     sscanf(line, "%d", &in.neigh_every);
     safe_fgets(line, MAXLINE, fp);
-    double neigh_skin;
-    sscanf(line, "%le %le", &in.force_cut, &neigh_skin);
-    in.neigh_cut = in.force_cut + neigh_skin;
-
+    sscanf(line, "%le %le", &in.R_force, &in.skin_len);
+    in.R_neigh = in.R_force + in.skin_len;
     safe_fgets(line, MAXLINE, fp);
     sscanf(line, "%d", &in.thermo_nstat);
     // DSM Multibox changes
@@ -149,6 +147,8 @@ int input(In &in, const char *filename)
     safe_fgets(line, MAXLINE, fp);
     sscanf(line, "%d", &in.nonblocking_enabled);
     fclose(fp);
+
+    in.ntypes = 4;
 
     MPI_Barrier(MPI_COMM_WORLD);
 

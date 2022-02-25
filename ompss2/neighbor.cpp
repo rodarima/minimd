@@ -38,6 +38,9 @@
 #define FACTOR 0.999
 #define SMALL 1.0e-6
 
+/* Checks whether an atom appears in its own neighbors */
+//#define ENABLE_NEIGH_CHECK
+
 enum { CORE = 0, SHELL = 1, NGROUPS };
 
 Neighbor::Neighbor(int ntypes_)
@@ -84,25 +87,19 @@ Neighbor::~Neighbor()
 /* Ensure that the current atom is not contained in the neighbor list */
 void Neighbor::check(Atom &atom)
 {
+#ifdef ENABLE_NEIGH_CHECK
     /* Iterate through all local atoms (not ghosts) */
     for (int i = 0; i < atom.nlocal; i++) {
         int n = this->numneigh[i];
         int *ineigh = &this->neighbors[this->maxneighs * i];
-        int contains1352 = 0;
         for (int j = 0; j < n; j++) {
             int neigh = ineigh[j];
             if (i == neigh) {
                 abort();
             }
-            if (neigh == 1352) {
-                contains1352 = 1;
-            }
-        }
-
-        if (atom.box_id == 3 && i == 1047) {
-            fprintf(stderr, "XXX check atom %d neigh contains 1352 = %d\n", i, contains1352);
         }
     }
+#endif
 }
 
 /* binned neighbor list construction with full Newton's 3rd law
@@ -524,6 +521,20 @@ int Neighbor::setup(Atom &atom)
     bins = (int *) malloc(ntotbins * num_omp_threads * atoms_per_bin * sizeof(int));
 
     group_bins();
+
+    /* Set also the information inside the Bin structure */
+    for (int d = X; d <= Z; d++)
+        atom.box.nbinsdim[d] = nbins[d];
+
+    atom.box.nbins = ntotbins;
+    atom.box.bin = (Bin *) calloc(ntotbins, sizeof(Bin));
+
+    for (int i = 0; i < ntotbins; i++) {
+        Bin *bin = &atom.box.bin[i];
+        bin->pot_energy = (double *) calloc(sim.input.ntimes, sizeof(double));
+        bin->kin_energy = (double *) calloc(sim.input.ntimes, sizeof(double));
+        bin->virial_temp = (double *) calloc(sim.input.ntimes, sizeof(double));
+    }
 
     return 0;
 }

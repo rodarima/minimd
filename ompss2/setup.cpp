@@ -321,10 +321,10 @@ void create_velocity(double t_request, Atom *atoms[], Thermo &thermo)
     fprintf(stderr, "initial temperature relative error %e\n", relerr);
 
     /* This holds when relerr is nan too */
-    if (! (relerr < 10 * DBL_EPSILON)) {
+    if (! (relerr < 10e2 * DBL_EPSILON)) {
         fprintf(stderr, "temperature relative error %e (t=%e vs treq=%e)\n",
                 relerr, t2, t_request);
-        exit(1);
+        abort();
     }
 }
 

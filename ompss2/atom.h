@@ -37,28 +37,6 @@
 
 class Neighbor;
 
-struct Box {
-    /* Box dimensions in space units */
-    Vec len;
-
-    /* Extension of the box with the center being 0 */
-    Domain dom;
-
-    double xprd, yprd, zprd;
-    double xlo, xhi;
-    double ylo, yhi;
-    double zlo, zhi;
-
-
-    // DSM 26-way communication change: Replace comm's slablo/slabhi arrays with these constants (set in comm.setup())
-    // The comm.borders() function uses these to determine whether atoms are in the slab region before updating
-    // positions. Corner calculations use constants from multiple dimensions, e.g. communication with "top-left"
-    // neighbour process is all atoms in region boxed by (xneg_slab_lo to xneg_slab_hi) and (zneg_slab_lo to
-    // zneg_slab_hi).
-    double xneg_slab_lo, xneg_slab_hi, xpos_slab_lo, xpos_slab_hi;
-    double yneg_slab_lo, yneg_slab_hi, ypos_slab_lo, ypos_slab_hi;
-    double zneg_slab_lo, zneg_slab_hi, zpos_slab_lo, zpos_slab_hi;
-};
 
 
 class Atom {
@@ -89,7 +67,7 @@ public:
 
     int comm_size, reverse_size, border_size;
 
-    struct Box box;
+    Box box;
 
     Atom(int ntypes_, int boxes_per_process_);
     ~Atom();
