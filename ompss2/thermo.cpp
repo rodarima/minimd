@@ -141,6 +141,39 @@ void Thermo::energy(Atom *atoms[], Force *force, int slot)
     }
 }
 
+void
+thermo_update_box(Sim *sim, Box *box, int iter)
+{
+
+}
+
+void
+thermo_print(Sim *sim)
+{
+    for (int iter = 0; iter < sim->input.ntimes; i++) {
+        double local_vdwl_energy = 0.0;
+        double local_virial_temp = 0.0;
+
+        for (int i = 0; i < sim->nboxes; i++) {
+            Box *box = &sim->box[i];
+            for (int j = 0; j < box->nbins; j++) {
+                Bin *bin = &box->bin[j];
+                local_vdwl_energy += bin->vdwl_energy[iter];
+                local_virial_temp += bin->virial_temp[iter];
+            }
+        }
+
+        double vdwl_energy, virial_temp;
+        MPI_Reduce(&local_vdwl_energy, &vdwl_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_virial_temp, &virial_temp, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+        if (sim->rank == 0) {
+            printf(stdout, "iter=%d vdwl_energy=%e virial_temp=%e\n",
+                    iter, vdwl_energy, virial_temp);
+        }
+    }
+}
+
 /*  reduced temperature */
 
 // DSM Multibox implementation
@@ -194,68 +227,3 @@ void Thermo::pressure(Atom *atoms[], Force *force, int slot)
     }
 }
 
-/* Used at setup to normalize all velocities to set the temperature of
- * the simulation. Not critical. */
-
-double Thermo::get_global_temperature(Atom *atoms[])
-{
-    int nboxes = atoms[0]->boxes_per_process;
-    double t_local_sum = 0.0;
-
-    for (int ib = 0; ib < nboxes; ib++) {
-        Atom *a = atoms[ib];
-        double *v = a->v;
-
-//        fprintf(stderr, "velocity=%e %e %e for first atom in box %d\n",
-//                    v[0], v[1], v[2], ib);
-//        fprintf(stderr, "velocity=%e %e %e for last atom in box %d\n",
-//                    v[(a->nlocal-1)*PAD + 0],
-//                    v[(a->nlocal-1)*PAD + 1],
-//                    v[(a->nlocal-1)*PAD + 2], ib);
-
-        /* The input dependency in(a->v) creates the dependency for
-         * &a->v, the address of the pointer a->v, thus it works as a
-         * sentinel, which is invariant to relocations or changes in
-         * size of a->v. The other tasks that modify the velocity must
-         * use out(a->v) as well. */
-        #pragma oss task \
-            label("Thermo::get_global_temperature() reduction") \
-            in(a->v) reduction(+:t_local_sum)
-        {
-            double t_local = 0.0;
-
-            for (int i = 0; i < a->nlocal; i++) {
-                double vx = v[i * PAD + 0];
-                double vy = v[i * PAD + 1];
-                double vz = v[i * PAD + 2];
-                
-                t_local += (vx * vx + vy * vy + vz * vz) * a->mass;
-            }
-
-            if (isnan(t_local)) {
-                fprintf(stderr, "local temp is nan in box %d\n", ib);
-                exit(1);
-            }
-
-//            fprintf(stderr, "reducing temperature %e for box %d\n",
-//                    t_local, ib);
-
-            t_local_sum += t_local;
-        }
-    }
-
-    /* Wait until the reduction has finished */
-    #pragma oss taskwait in(t_local_sum)
-
-    double temp = 0.0;
-    MPI_Allreduce(&t_local_sum, &temp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-    fprintf(stderr, "reduced temperature is %e\n", temp);
-
-    /* Adjust temperature units */
-    temp *= t_scale;
-
-    fprintf(stderr, "corrected temperature is %e\n", temp);
-
-    return temp;
-}

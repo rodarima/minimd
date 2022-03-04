@@ -39,7 +39,9 @@ all: $(EXE)
 	$(MPICXX) $(CXXFLAGS) -c -o $@ $^
 
 # Link
-$(EXE): $(OBJ)
+#$(EXE): $(OBJ)
+#	$(MPILINK) $(LDFLAGS) -o $@ $^
+$(EXE): ljs.o box.o input.o force.o safe.o packbuf.o comm.o 
 	$(MPILINK) $(LDFLAGS) -o $@ $^
 
 clean:

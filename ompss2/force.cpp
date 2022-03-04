@@ -30,45 +30,21 @@
 ---------------------------------------------------------------------- */
 
 #include "force.h"
+#include "types.h"
 #include "neighbor.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Extra checks: these allow early catch of problems but introduce large
- * or very large overheads, so they should be disabled when taking into
- * account the performance of the simulation. */
-
-/* Print a histogram of the force magnitudes per box. It should be
- * smooth. */
-#define ENABLE_FORCE_HIST
-#define FORCE_HIST_NBINS 30
-#define FORCE_HIST_MAX 200.0
-
-/* Compute the energy during the simulation. Needed to validate the
- * results. */
-#define ENABLE_REALTIME_ENERGY
-
-/* Halts the simulation if the force is too large */
-#define ENABLE_MAX_FORCE
-#define MAX_FORCE 1e6
-
-/* Halts the simulation if an atom doesn't interact with at least half
- * the neighbors (they are too far away to interact). This may happen
- * with too many time steps without re-neighboring. */
-#define ENABLE_MIN_INTERACTIONS
-
 static void
-force_hist_init(Force *force, Input *in)
+force_hist_init(Force *force, int nboxes)
 {
 #ifdef ENABLE_FORCE_HIST
-    int bpp = in->boxes_per_process;
-
-    force->forcehist = (int **) calloc(bpp, sizeof(int *));
+    force->forcehist = (int **) calloc(nboxes, sizeof(int *));
     force->forcehistmin = (double *) calloc(FORCE_HIST_NBINS, sizeof(double));
     force->forcehistdelta = FORCE_HIST_MAX / (FORCE_HIST_NBINS + 1);
 
-    for (int i = 0; i < bpp; i++) {
+    for (int i = 0; i < nboxes; i++) {
         force->forcehist[i] = (int *) calloc(FORCE_HIST_NBINS, sizeof(int));
     }
 
@@ -149,34 +125,6 @@ check_min_interactions(int ninteractions, int n)
 #endif
 }
 
-void
-force_init(Force *force, Input *in)
-{
-    int pairtypes = in->ntypes * in->ntypes;
-
-    force->R_force_sq = (double *) calloc(pairtypes, sizeof(double));
-    force->epsilon = (double *) calloc(pairtypes, sizeof(double));
-    force->sigma6 = (double *) calloc(pairtypes, sizeof(double));
-
-    for (int i = 0; i < pairtypes; i++) {
-        /* All values are the same for all types, but we keep them in a
-         * vector to mimic the original code complexity */
-        force->R_force_sq[i] = in->R_force * in->R_force;
-        force->epsilon[i] = in->epsilon;
-        force->sigma6[i] = pow(in->sigma, 6.0);
-    }
-
-    force_hist_init(force, in);
-}
-
-void
-force_free(Force *force)
-{
-    free(force->R_force_sq);
-    free(force->epsilon);
-    free(force->sigma6);
-}
-
 static double
 dotprod(double *v, int n)
 {
@@ -191,17 +139,17 @@ dotprod(double *v, int n)
 
 /* Updates the force acting on a given atom at index `i` by taking
  * into account all `n` neighboring atoms in `ineigh` */
-void
-update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, Atom *atomdata)
+static void
+update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, int ntypes)
 {
-    int type_offset = atomdata->type[i] * atomdata->ntypes;
+    int type_offset = box->atomtype[i] * ntypes;
     Vec local_f = { 0.0, 0.0, 0.0 };
 
     /* Current atom position vector */
     Vec ri = {
-        atomdata->x[i * PAD + X],
-        atomdata->x[i * PAD + Y],
-        atomdata->x[i * PAD + Z]
+        box->r[i][X],
+        box->r[i][Y],
+        box->r[i][Z]
     };
 
     int ninteractions = 0;
@@ -216,15 +164,15 @@ update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, A
 
         /* Get neighbor atom position */
         Vec rj = {
-            atomdata->x[j * PAD + X],
-            atomdata->x[j * PAD + Y],
-            atomdata->x[j * PAD + Z]
+            box->r[j][X],
+            box->r[j][Y],
+            box->r[j][Z]
         };
 
         /* Compute distance vector */
         Vec delta = { ri[X] - rj[X], ri[Y] - rj[Y], ri[Z] - rj[Z] };
         double sqdist = dotprod(delta, 3);
-        int type_ij = type_offset + atomdata->type[j];
+        int type_ij = type_offset + box->atomtype[j];
 
         /* Ignore far away atoms */
         if (sqdist >= force->R_force_sq[type_ij])
@@ -243,67 +191,97 @@ update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, A
         ninteractions++;
 
 #ifdef ENABLE_REALTIME_ENERGY
-        bin->pot_energy[box->force_iter] += (sr6 - 1.0) * sr6eps;
-        bin->pot_energy[box->force_iter] += sqdist * forcemag;
+        /* Accumulate Van der Waals energy and virial temperature in
+         * real time per bin. Energy needs correction to account the
+         * R_force approximation. */
+        bin->vdwl_energy[box->force_iter] += (sr6 - 1.0) * sr6eps;
+        bin->virial_temp[box->force_iter] += sqdist * forcemag;
 #endif
     }
 
-    double *f = atomdata->f[i];
+    double *f = box->f[i];
 
     for (int d = X; d <= Z; d++) {
         f[d] = local_f[d];
     }
 
-    force_hist_add(force, f, atomdata->box_id);
+    force_hist_add(force, f, box->i);
     check_max_force(f);
     check_min_interactions(ninteractions, n);
 }
 
 /* Update force for all atoms in the given bin index */
-void
-update_force_bin(Force *force, int ibin, Neighbor *nei, Atom *atomdata)
+static void
+update_force_bin(Force *force, Box *box, Bin *bin, int ntypes)
 {
-    int n = nei->bincount[ibin];
-    int *bins = &nei->bins[ibin * nei->atoms_per_bin];
-
-    Box *box = &atomdata->box;
-    Bin *bin = &box->bin[ibin];
-
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < bin->natoms; i++) {
         /* Compute the actual atom index */
-        int iatom = bins[i];
-        int *neighs = &nei->neighbors[iatom * nei->maxneighs];
-        int numneighs = nei->numneigh[iatom];
+        int iatom = bin->iatom[i];
+        int *neighs = &box->neighbors[iatom * box->maxneighs];
+        int numneighs = box->numneighs[iatom];
 
         /* Ignore ghost atoms */
-        if (iatom >= atomdata->nlocal)
+        if (iatom >= box->nlocal)
             continue;
 
-        update_force_atom(force, box, bin, iatom, numneighs, neighs, atomdata);
+        update_force_atom(force, box, bin, iatom, numneighs, neighs,
+                ntypes);
     }
 }
 
 /* Update force for all atoms in a box */
-void
-update_force_box(Force *force, Box *box, Neighbor *nei, Atom *atomdata)
+static void
+update_force_box(Force *force, Box *box, int ntypes)
 {
-    force_hist_clear(force, atomdata->box_id);
+    force_hist_clear(force, box->i);
 
-    for (int i = 0; i < nei->ntotbins; i++)
-        update_force_bin(force, i, nei, atomdata);
+    for (int i = 0; i < box->nbinsalloc; i++) {
+        Bin *bin = &box->bin[i];
+        update_force_bin(force, box, bin, ntypes);
+    }
 
     /* Increase the iteration for this box */
     box->force_iter++;
 
-    force_hist_print(force, atomdata->box_id);
+    force_hist_print(force, box->i);
+}
+
+void
+force_init(Sim *sim)
+{
+    Force *force = &sim->force;
+    int pairtypes = sim->ntypes * sim->ntypes;
+
+    force->R_force_sq = (double *) calloc(pairtypes, sizeof(double));
+    force->epsilon = (double *) calloc(pairtypes, sizeof(double));
+    force->sigma6 = (double *) calloc(pairtypes, sizeof(double));
+
+    for (int i = 0; i < pairtypes; i++) {
+        /* All values are the same for all types, but we keep them in a
+         * vector to mimic the original code complexity */
+        force->R_force_sq[i] = sim->R_force * sim->R_force;
+        force->epsilon[i] = sim->epsilon;
+        force->sigma6[i] = pow(sim->sigma, 6.0);
+    }
+
+    force_hist_init(force, sim->nboxes);
+
+    fprintf(stderr, "force initialized\n");
+}
+
+void
+force_free(Force *force)
+{
+    free(force->R_force_sq);
+    free(force->epsilon);
+    free(force->sigma6);
 }
 
 /* Updates the force in all boxes */
-void force_update(Sim *sim, Atom *atoms[])
+void force_update(Sim *sim)
 {
-    for (int i = 0; i < sim->input.boxes_per_process; i++) {
-        Atom *a = atoms[i];
-        Box *box = &a->box;
-        update_force_box(&sim->force, box, a->neighbor, a);
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        update_force_box(&sim->force, box, sim->ntypes);
     }
 }

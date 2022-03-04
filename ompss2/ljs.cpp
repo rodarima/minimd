@@ -29,615 +29,900 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "mpi.h"
-#include "stdio.h"
-#include "stdlib.h"
+#include "types.h"
+#include "neigh.h"
 
-#include "atom.h"
-#include "comm.h"
-#include "force.h"
-#include "integrate.h"
-#include "ljs.h"
-#include "neighbor.h"
-#include "string.h"
-#include "thermo.h"
-#include "threadData.h"
-#include "timer.h"
-#include "variant.h"
-
+#include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <fenv.h>
+#include <math.h>
+#include <float.h>
 
-#define MAXLINE 256
-
-#ifndef USE_TAMPI
+#ifdef USE_TAMPI
+# include <TAMPI.h>
+#else
 # define MPI_TASK_MULTIPLE MPI_THREAD_MULTIPLE
 #endif
 
-int input(Input &, const char *);
-void create_box(Atom &, int, int, int, double);
-int create_atoms(Atom &, int, int, int, double, double);
-void create_velocity(double, Atom **, Thermo &);
-void output(Input &, Atom &, Neighbor &, Comm &, Thermo &, Integrate &, Timer &, int);
-
-Sim sim;
-
-int main(int argc, char **argv)
+static void
+setup_ranks(Sim *sim)
 {
-    Input &in = sim.input;
-    in.datafile = NULL;
-    int me = 0; // local MPI rank
-    int nprocs = 1; // number of MPI ranks
-    int num_threads = 1; // number of OpenMP threads
-    int num_steps = -1; // number of timesteps (if -1 use value from lj.in)
-    int system_size = -1; // size of the system (if -1 use value from lj.in)
-    int nx = -1; // DSM: size of problem in x, y and z dimensions
-    int ny = -1;
-    int nz = -1;
-    int check_safeexchange = 0; // if 1 complain if atom moves further than 1 subdomain length between exchanges
-    int do_safeexchange = 0; // if 1 use safe exchange mode [allows exchange over multiple subdomains]
-    int use_sse = 0; // setting for SSE variant of miniMD only
-    int screen_yaml = 0; // print yaml output to screen also
-    int yaml_output = 0; // print yaml output
-    // DSM Force use of full neighborlists
-    int halfneigh = 0; // 1: use half neighborlist; 0: use full neighborlist; -1: use original miniMD version half
-                       // neighborlist force
-    int teams = 1;
-    int device = 0;
-    int neighbor_size = -1;
-    char *input_file = NULL;
-    int ghost_newton = 1;
-    int sort = -1;
+    MPI_Comm_rank(MPI_COMM_WORLD, &sim->rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &sim->nranks);
 
-    for (int i = 0; i < argc; i++) {
-        if ((strcmp(argv[i], "-i") == 0) || (strcmp(argv[i], "--input_file") == 0)) {
-            input_file = argv[++i];
-            continue;
-        }
-    }
+    /* Rank grid */
+    sim->nranksdim[X] = sim->nprocsx;
+    sim->nranksdim[Y] = 1;
+    sim->nranksdim[Z] = sim->nprocsz;
 
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_TASK_MULTIPLE, &provided);
-    if (provided != MPI_TASK_MULTIPLE) {
-        fprintf(stderr, "Error: MPI_TASK_MULTIPLE not supported!");
-        return 1;
-    }
+    /* Create Cartesian MPI process grid */
+    int periods[3] = { 1, 1, 1 };
+    MPI_Cart_create(MPI_COMM_WORLD, 3, sim->nranksdim, periods, 0, &sim->cartesian);
+    MPI_Cart_get(sim->cartesian, 3, sim->nranksdim, periods, sim->rankdim);
+}
 
-    fprintf(stderr, "MPI_Init_thread ok\n");
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &me);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-
-    int error = 0;
-
-    fprintf(stderr, "parsing input\n");
-    if (input_file == NULL)
-        error = input(in, "in.lj.miniMD");
-    else
-        error = input(in, input_file);
-
-    if (error) {
-        MPI_Finalize();
-        exit(0);
-    }
-
-    /* First, enable all floating point exceptions */
-    feenableexcept(FE_INVALID|FE_OVERFLOW);
-
-    srand(5413);
-
-    // DSM: Could be refactored into switch-case
-    for (int i = 0; i < argc; i++) {
-        if ((strcmp(argv[i], "-t") == 0) || (strcmp(argv[i], "--num_threads") == 0)) {
-            num_threads = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "--teams") == 0)) {
-            teams = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-n") == 0) || (strcmp(argv[i], "--nsteps") == 0)) {
-            num_steps = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-s") == 0) || (strcmp(argv[i], "--size") == 0)) {
-            system_size = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-nx") == 0)) {
-            nx = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-ny") == 0)) {
-            ny = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-nz") == 0)) {
-            nz = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "--ntypes") == 0)) {
-            in.ntypes = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-b") == 0) || (strcmp(argv[i], "--neigh_bins") == 0)) {
-            neighbor_size = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "--half_neigh") == 0)) {
-            halfneigh = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-sse") == 0)) {
-            use_sse = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "--check_exchange") == 0)) {
-            check_safeexchange = 1;
-            continue;
-        }
-
-        if ((strcmp(argv[i], "--sort") == 0)) {
-            sort = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-o") == 0) || (strcmp(argv[i], "--yaml_output") == 0)) {
-            yaml_output = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "--yaml_screen") == 0)) {
-            screen_yaml = 1;
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-f") == 0) || (strcmp(argv[i], "--data_file") == 0)) {
-            if (in.datafile == NULL)
-                in.datafile = new char[1000];
-
-            strcpy(in.datafile, argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-u") == 0) || (strcmp(argv[i], "--units") == 0)) {
-            in.units = strcmp(argv[++i], "metal") == 0 ? 1 : 0;
-            continue;
-        }
-
-        // DSM: miniMD supports only EAM or Lennard-Jones pair interactions
-        if ((strcmp(argv[i], "-p") == 0) || (strcmp(argv[i], "--force") == 0)) {
-            in.forcetype = strcmp(argv[++i], "eam") == 0 ? FORCEEAM : FORCELJ;
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-gn") == 0) || (strcmp(argv[i], "--ghost_newton") == 0)) {
-            ghost_newton = atoi(argv[++i]);
-            continue;
-        }
-
-        if ((strcmp(argv[i], "-h") == 0) || (strcmp(argv[i], "--help") == 0)) {
-            printf("\n-------------------------------------------------------------------------------------------------"
-                   "----------\n");
-            printf("-------------" VARIANT_STRING "--------------------\n");
-            printf("---------------------------------------------------------------------------------------------------"
-                   "----------\n\n");
-
-            printf("miniMD is a simple, parallel molecular dynamics (MD) code,\n"
-                   "which is part of the Mantevo project at Sandia National\n"
-                   "Laboratories ( http://www.mantevo.org ).\n"
-                   "The original authors of miniMD are Steve Plimpton (sjplimp@sandia.gov) ,\n"
-                   "Paul Crozier (pscrozi@sandia.gov) with current\n"
-                   "versions written by Christian Trott (crtrott@sandia.gov).\n\n");
-            printf("Commandline Options:\n");
-            printf("\n  Execution configuration:\n");
-            printf("\t--teams <nteams>:             set number of thread-teams used per MPI rank (default 1)\n");
-            printf("\t-t / --num_threads <threads>: set number of threads per thread-team (default 1)\n");
-            printf("\t--half_neigh <int>:           use half neighborlists (default 1)\n"
-                   "\t                                0: full neighborlist\n"
-                   "\t                                1: half neighborlist\n"
-                   "\t                               -1: original miniMD half neighborlist force (not OpenMP safe)\n");
-            printf("\t-d / --device <int>:          choose device to use (only applicable for GPU execution)\n");
-            printf("\t-dm / --device_map:           map devices to MPI ranks\n");
-            printf("\t-ng / --num_gpus <int>:       give number of GPUs per Node (used in conjuction with -dm\n"
-                   "\t                              to determine device id: 'id=mpi_rank%%ng' (default 2)\n");
-            printf("\t--skip_gpu <int>:             skip the specified gpu when assigning devices to MPI ranks\n"
-                   "\t                              used in conjunction with -dm (but must come first in arg list)\n");
-            printf("\t-sse <sse_version>:           use explicit sse intrinsics (use miniMD-SSE variant)\n");
-            printf("\t-gn / --ghost_newton <int>:   set usage of newtons third law for ghost atoms\n"
-                   "\t                                (only applicable with half neighborlists)\n");
-            printf("\n  Simulation setup:\n");
-            printf("\t-i / --input_file <string>:   set input file to be used (default: in.lj.miniMD)\n");
-            printf("\t--ntypes <int>:               set number of atom types for simulation (default: 4)\n");
-            printf("\t-n / --nsteps <int>:          set number of timesteps for simulation\n");
-            printf("\t-s / --size <int>:            set linear dimension of systembox\n");
-            printf("\t-nx/-ny/-nz <int>:            set linear dimension of systembox in x/y/z direction\n");
-            printf("\t-b / --neigh_bins <int>:      set linear dimension of neighbor bin grid\n");
-            printf("\t-u / --units <string>:        set units (lj or metal), see LAMMPS documentation\n");
-            printf("\t-p / --force <string>:        set interaction model (lj or eam)\n");
-            printf("\t-f / --data_file <string>:    read configuration from LAMMPS data file\n");
-
-            printf("\n  Miscelaneous:\n");
-            printf("\t--check_exchange:             check whether atoms moved further than subdomain width\n");
-            printf("\t--safe_exchange:              perform exchange communication with all MPI processes\n"
-                   "\t                                within rcut_neighbor (outer force cutoff)\n");
-            printf("\t--sort <n>:                   resort atoms (simple bins) every <n> steps (default: use reneigh "
-                   "frequency; never=0)");
-            printf("\t-o / --yaml_output <int>:     level of yaml output (default 1)\n");
-            printf("\t--yaml_screen:                write yaml output also to screen\n");
-            printf("\t-h / --help:                  display this help message\n\n");
-            printf("---------------------------------------------------------\n\n");
-
-            exit(0);
-        }
-    }
-
-    fprintf(stderr, "creating atoms\n");
-
-    // DSM: Atom coordinates, velocities, forces (x, v, f arrays), counts. Methods for packing arrays into MPI buffers.
-    Atom *atoms[in.boxes_per_process];
-    // DSM: Multibox change. Dynamically allocate the memory for all boxes on this process.
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        fprintf(stderr, "creating atoms for box %d\n", box_index);
-        atoms[box_index] = new Atom(in.ntypes, in.boxes_per_process);
-        atoms[box_index]->neighbor = new Neighbor(in.ntypes);
-
-        if (!atoms[box_index] || !atoms[box_index]->neighbor) {
-            if (me == 0) {
-                printf("ERROR! Unable to allocate memory for boxes and neighbour lists. Aborting.\n");
-                MPI_Abort(MPI_COMM_WORLD, 1);
-            }
-        }
-    }
-    fprintf(stderr, "creating atoms ok\n");
-    // DSM: Multibox change - now have one neighbourlist/Neighbor instance per Atom instance
-    // Neighbor neighbor(ntypes);               // DSM: Generating and holding neighbour lists. TODO: Bins vs boxes?
-
-    Integrate integrate; // DSM: Main loop in integrate.run()
-    Thermo thermo; // DSM: Thermodynamics calculations (energy, pressure, temperature)
-    Comm comm(in.boxes_per_process); // DSM: MPI communication. Sets up process grid and does communicate()/exchange()
-                                     // ever timestep.
-    Timer timer; // DSM: Benchmarking/profiling
-    ThreadData threads; // DSM: Struct for holding MPI/OpenMP rank/ID and world size/thread count
-
-    if (in.forcetype != FORCELJ) {
-        fprintf(stderr, "Only FJ force supported\n");
+static void
+setup_boxes(Sim *sim)
+{
+    sim->box = (Box *) calloc(sim->nboxes, sizeof(Box));
+    if (sim->box == NULL) {
+        perror("calloc failed");
         abort();
     }
 
-    force_init(&sim.force, &sim.input);
+    /* Total boxes per dimension */
+    sim->nboxesdim[X] = sim->nprocsx;
+    sim->nboxesdim[Y] = sim->nboxes;
+    sim->nboxesdim[Z] = sim->nprocsz;
 
-    // DSM: threads object only used to hold MPI/OpenMP details - effectively a struct
-    threads.mpi_me = me;
-    threads.mpi_num_threads = nprocs;
-    threads.omp_me = 0;
-    threads.omp_num_threads = num_threads;
+    /* Separation between points in the atom lattice */
+    sim->lattice_sep = pow((4.0 / sim->rho), (1.0 / 3.0));
 
-    // DSM: All major class instances given the same MPI/OpenMP details
-    // DSM: Multibox change: All boxes given the same threading details as well
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        atoms[box_index]->threads = &threads;
-        atoms[box_index]->neighbor->threads = &threads;
-    }
-    comm.threads = &threads;
-    integrate.threads = &threads;
-    thermo.threads = &threads;
+    /* Simulation space or world */
+    for (int d = X; d <= Z; d++)
+        sim->worldlen[d] = sim->npoints[d] * sim->lattice_sep;
 
-    // DSM: Multibox change - various neighbor attributes now set per box
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        atoms[box_index]->neighbor->ghost_newton = ghost_newton;
-        atoms[box_index]->neighbor->timer = &timer;
-        atoms[box_index]->neighbor->halfneigh = halfneigh;
-    }
+    /* Box size is common for all boxes */
+    for (int d = X; d <= Z; d++)
+        sim->boxlen[d] = sim->worldlen[d] / sim->nboxesdim[d];
 
-    // OpenMP disabled for TAMPI version
-    // omp_set_num_threads(num_threads);
-
-    comm.check_safeexchange = check_safeexchange;
-    comm.do_safeexchange = do_safeexchange;
-
-    if (use_sse) {
-#ifdef VARIANT_REFERENCE
-
-        if (me == 0)
-            printf("error: trying to run with -sse with minimd reference version. use sse variant instead. exiting.\n");
-
-        MPI_Finalize();
-        exit(0);
-#endif
-    }
-
-    // DSM: Initialise objects with input parameters, using defaults where appropriate
-    if (num_steps > 0)
-        in.ntimes = num_steps;
-
-    if (system_size > 0) {
-        in.nx = system_size;
-        in.ny = system_size;
-        in.nz = system_size;
-    }
-
-    if (nx > 0) {
-        in.nx = nx;
-        if (ny > 0)
-            in.ny = ny;
-        else if (system_size < 0)
-            in.ny = nx;
-
-        if (nz > 0)
-            in.nz = nz;
-        else if (system_size < 0)
-            in.nz = nx;
-    }
-
-    if (neighbor_size > 0) {
-        // DSM: Multibox change - various neighbor attributes now set per box
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            atoms[box_index]->neighbor->nbinx = neighbor_size;
-            atoms[box_index]->neighbor->nbiny = neighbor_size;
-            atoms[box_index]->neighbor->nbinz = neighbor_size;
+    /* Ensure R_neigh doesn't overlap */
+    for (int d = X; d <= Z; d++) {
+        if (sim->R_neigh * 2 >= sim->boxlen[d]) {
+            fprintf(stderr, "error: box too small in dimension %c\n",
+                    "XYZ"[d]);
+            fprintf(stderr, "R_neigh=%e overlaps with box len=%e\n",
+                    sim->R_neigh, sim->boxlen[d]);
+            abort();
         }
     }
 
-    if (in.datafile) {
-        fprintf(stderr, "datafile not supported\n");
-        MPI_Finalize();
-        exit(1);
+    /* Setup information per box */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+
+        box->i = i;
+        box->idim[X] = sim->rankdim[X];
+        box->idim[Y] = i;
+        box->idim[Z] = sim->rankdim[Z];
+
+        for (int d = X; d <= Z; d++) {
+            /* Box domain */
+            box->dombox[d][LO] = sim->boxlen[d] * box->idim[d];
+            box->dombox[d][HI] = sim->boxlen[d] * (box->idim[d] + 1);
+
+            /* Add small room for round errors */
+            double delta = sim->R_neigh + 1e-6 * sim->boxlen[d];
+
+            /* Box + external halos */
+            box->domhalo[d][LO] = box->dombox[d][LO] - delta;
+            box->domhalo[d][HI] = box->dombox[d][HI] + delta;
+
+            /* Box - internal halos */
+            box->domcore[d][LO] = box->dombox[d][LO] + delta;
+            box->domcore[d][HI] = box->dombox[d][HI] - delta;
+        }
+    }
+}
+
+double
+get_bindist(int idelta[NDIM], Vec binlen)
+{
+    Vec del = { 0 };
+    double distsq = 0.0;
+
+    for (int d = X; d <= Z; d++) {
+        if (idelta[d] > 0)
+            del[d] = (idelta[d] - 1) * binlen[d];
+        else if (idelta[d] < 0)
+            del[d] = (idelta[d] + 1) * binlen[d];
+
+        distsq += del[d] * del[d];
     }
 
-    if (neighbor_size < 0 && in.datafile == NULL) {
-        double neighscale = 5.0 / 6.0;
-        // DSM: Multibox change - various neighbor attributes now set per box
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            atoms[box_index]->neighbor->nbinx = neighscale * in.nx;
-            atoms[box_index]->neighbor->nbiny = neighscale * in.ny;
-            atoms[box_index]->neighbor->nbinz = neighscale * in.nz;
+    return distsq;
+}
+
+static int
+coord2index(int i[NDIM], int n[NDIM])
+{
+    return i[Z] * n[Y] * n[X] + i[Y] * n[X] + i[X];
+}
+
+static void
+setup_bin_stencil(Sim *sim, Box *box, int enclosed_nbins[NDIM])
+{
+    /* Compute and count the actual number of bins in the stencil */
+    box->nstencil = 0;
+
+    int i[NDIM];
+    double R_neigh_sq = sim->R_neigh * sim->R_neigh;
+
+    /* Select those bins that fall inside the R_neigh radius */
+    for (i[Z] = -enclosed_nbins[Z]; i[Z] <= enclosed_nbins[Z]; i[Z]++) {
+        for (i[Y] = -enclosed_nbins[Y]; i[Y] <= enclosed_nbins[Y]; i[Y]++) {
+            for (i[X] = -enclosed_nbins[X]; i[X] <= enclosed_nbins[X]; i[X]++) {
+                /* Check if the bin is within R_neigh distance */
+                if (get_bindist(i, sim->binlen) < R_neigh_sq) {
+                    box->stencil[box->nstencil++] = coord2index(i, box->nbinshalo);
+                }
+            }
+        }
+    }
+    fprintf(stderr, "box = %d nstencil = %d\n", box->i, box->nstencil);
+}
+
+static void
+setup_bins_box(Sim *sim, Box *box)
+{
+    int enclosed_nbins[NDIM];
+    int total_enclosed = 1;
+
+    box->nbinsalloc = 1;
+
+    for (int d = X; d <= Z; d++) {
+
+        /* Use limits to compute the bins in the halo domain */
+        int lo = box->domhalo[d][LO] / sim->binlen[d];
+        int hi = box->domhalo[d][HI] / sim->binlen[d];
+
+        /* FIXME: Not sure why this extra bin is needed. It causes the
+         * boxes to have different number of halo bins. */
+        if (box->domhalo[d][LO] < 0.0)
+            lo--;
+
+        /* Extend by 1 to cover stencil */
+        lo--;
+        hi++;
+
+        /* Compute the number of bins covering the halo domain */
+        box->nbinshalo[d] = hi - lo;
+        box->nbinsalloc *= box->nbinshalo[d];
+
+        /* The number of bins inside the R_neigh radius */
+        enclosed_nbins[d] = sim->R_neigh / sim->binlen[d];
+
+        /* Enlarge if the bin is larger than the radius */
+        if (enclosed_nbins[d] * sim->binlen[d] < 1e-6 * sim->R_neigh)
+            enclosed_nbins[d]++;
+
+        total_enclosed *= 2 * enclosed_nbins[d] + 1;
+    }
+
+    /* Allocate bins and stencil */
+    box->bin = (Bin *) malloc(box->nbinsalloc * sizeof(Bin));
+    box->stencil = (int *) malloc(total_enclosed * sizeof(int));
+    fprintf(stderr, "box = %d total_enclosed = %d\n", box->i,
+            total_enclosed);
+
+    for (int i = 0; i < box->nbinsalloc; i++) {
+        /* Initialize empty bins */
+        box->bin[i].natoms = 0;
+        box->bin[i].iatom = NULL;
+    }
+
+    setup_bin_stencil(sim, box, enclosed_nbins);
+}
+
+static void
+setup_bins(Sim *sim)
+{
+    /* Fill the number of bins per box */
+    double neighscale = 5.0 / 6.0;
+
+    /* Common information for the bins */
+    for (int d = X; d <= Z; d++) {
+        /* FIXME: npoints the total number of points */
+        sim->nbinsbox[d] = neighscale * sim->npoints[d];
+
+        if (sim->nbinsbox[d] == 0) {
+            fprintf(stderr, "error: number of bins in dimension %c is 0\n",
+                    "XYZ"[d]);
+            abort();
+        }
+
+        /* Setup bin length */
+        sim->binlen[d] = sim->boxlen[d] / (double) sim->nbinsbox[d];
+    }
+
+    /* Setup box specific information for the bins */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        setup_bins_box(sim, box);
+    }
+}
+
+/* Park/Miller RNG w/out MASKING, so as to be like f90s version */
+double
+random(int *idum)
+{
+    int k;
+    double ans;
+
+    int IA = 16807;
+    int IM = 2147483647;
+    double AM = (1.0 / (double) IM);
+    int IQ = 127773;
+    int IR = 2836;
+
+    k = (*idum) / IQ;
+    *idum = IA * (*idum - k * IQ) - IR * k;
+
+    if (*idum < 0)
+        *idum += IM;
+
+    ans = AM * (*idum);
+    return ans;
+}
+
+static void
+advance_index(int s[NDIM], int o[NDIM], int subboxdim)
+{
+    /* Advance index */
+    s[X]++;
+
+    /* Wrap subindex */
+    for (int d = X; d < Z; d++) {
+        if (s[d] == subboxdim) {
+            s[d] = 0;
+            s[d+1]++;
         }
     }
 
-    if (neighbor_size < 0 && in.datafile) {
-        // DSM: Multibox change - various neighbor attributes now set per box
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            atoms[box_index]->neighbor->nbinx = -1;
+    /* Propagate wrap to outer index */
+    if (s[Z] == subboxdim) {
+        s[Z] = 0;
+        o[X]++;
+    }
+
+    /* Wrap outer index */
+    for (int d = X; d < Z; d++) {
+        if (o[d] == subboxdim) {
+            o[d] = 0;
+            o[d+1]++;
+        }
+    }
+}
+
+/* Initialize atoms on FCC lattice */
+static void
+setup_atoms_box(Sim *sim, Box *box)
+{
+    box->nlocal = 0;
+    box->nghost = 0;
+    box->nalloc = 0;
+
+    box->r = NULL;
+    box->v = NULL;
+    box->f = NULL;
+    box->atomtype = NULL;
+
+    /* Determine loop bounds of lattice subsection that overlaps my
+     * sub-box insure loop bounds do not exceed nx,ny,nz */
+
+    double dist = 0.5 * sim->lattice_sep;
+    if (dist >= sim->R_force) {
+        fprintf(stderr, "fatal: atoms are too far away to interact\n");
+        exit(1);
+    }
+
+    /* Compute the ranges of indexes that may contain an atom */
+    Range idom;
+    for (int d = X; d <= Z; d++) {
+        idom[d][LO] = (box->dombox[d][LO] / dist) - 1;
+        idom[d][HI] = (box->dombox[d][HI] / dist) + 1;
+
+        /* Enforce limits */
+        idom[d][LO] = MAX(idom[d][LO], 0);
+        idom[d][HI] = MIN(idom[d][HI], 2 * sim->npoints[d] - 1);
+    }
+
+    /* Each process generates positions and velocities of atoms on FCC
+     * sub-lattice that overlaps its box. Only store atoms that fall in
+     * my box. Use atom index (generated from lattice coordinates) as
+     * unique seed to generate a unique velocity. Exercise RNG between
+     * calls to avoid correlations in adjacent atoms */
+
+    double xtmp, ytmp, ztmp, vx, vy, vz;
+
+    int ind[NDIM] = { 0 };
+    int s[NDIM] = { 0 };
+    int o[NDIM] = { 0 };
+    int subboxdim = 8;
+
+    /* TODO: This initialization can probably be simplified even further
+     * to three nested loops iterating only in the finer lattice */
+
+    for (; o[Z] * subboxdim <= idom[Z][HI]; advance_index(s, o, subboxdim)) {
+        /* Compute current index vector */
+        for (int d = X; d <= Z; d++)
+            ind[d] = o[d] * subboxdim + s[d];
+
+        /* Place an atom only in the positions of the face centered
+         * cubic lattice */
+        if ((ind[X] + ind[Y] + ind[Z]) % 2 != 0)
+            continue;
+
+        int skip = 0;
+
+        /* Check boundaries */
+        for (int d = X; d <= Z; d++) {
+            if (ind[d] < idom[d][LO] || ind[d] > idom[d][HI] + 2) {
+                skip = 1;
+                break;
+            }
+        }
+
+        if (skip)
+            continue;
+
+        /* Compute atom position in space units */
+        Vec r;
+        for (int d = X; d <= Z; d++)
+            r[d] = dist * ind[d];
+
+        /* Ensure the atom falls inside the box */
+        for (int d = X; d <= Z; d++) {
+            if (r[d] < box->dombox[d][LO] || r[d] >= box->dombox[d][HI]) {
+                skip = 1;
+                break;
+            }
+        }
+
+        if (skip) {
+            continue;
+        }
+
+
+        /* Compute deterministic seed for pseudorandom velocity */
+        int seed = ind[Z] * (2 * sim->npoints[Y]) * (2 * sim->npoints[X])
+            + ind[Y] * (2 * sim->npoints[Y])
+            + ind[X] + 1;
+
+        Vec v;
+        for (int d = X; d <= Z; d++) {
+            for (int m = 0; m < 5; m++)
+                random(&seed);
+
+            v[d] = random(&seed);
+        }
+
+        int type = rand() % sim->ntypes;
+
+        /* Place atom here */
+        box_add_atom(box, r, v, type);
+    }
+}
+
+static void
+setup_atoms(Sim *sim)
+{
+    /* Setup information per box */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        fprintf(stderr, "setting atoms for box %d\n", i);
+        setup_atoms_box(sim, box);
+    }
+
+    /* Ensure the total number of atoms is correct */
+    int global_natoms = 0;
+    int rank_natoms = 0;
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        rank_natoms += box->nlocal;
+    }
+
+    MPI_Reduce((void *) &rank_natoms, (void *) &global_natoms, 1,
+            MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (sim->rank == 0) {
+        if (global_natoms != sim->ntotatoms) {
+            fprintf(stderr, "error: total atoms %d mismatch, expected %d\n",
+                    global_natoms, sim->ntotatoms);
+            abort();
+        }
+    }
+}
+
+static double
+get_temperature(Sim *sim)
+{
+    double t_local_sum = 0.0;
+
+    for (int ib = 0; ib < sim->nboxes; ib++) {
+        Box *box = &sim->box[ib];
+
+        /* The input dependency in(box->v) creates the dependency for
+         * &box->v, the address of the pointer box->v, thus it works as
+         * a sentinel, which is invariant to relocations or changes in
+         * size of box->v. The other tasks that modify the velocity must
+         * use out(box->v) as well. */
+        #pragma oss task \
+            label("get_global_temperature() reduction") \
+            in(box->v) reduction(+:t_local_sum)
+        {
+            double t_local = 0.0;
+
+            for (int i = 0; i < box->nlocal; i++) {
+                double vx = box->v[i][X];
+                double vy = box->v[i][Y];
+                double vz = box->v[i][Z];
+                
+                t_local += (vx * vx + vy * vy + vz * vz) * sim->mass;
+            }
+
+            if (isnan(t_local)) {
+                fprintf(stderr, "local temp is nan in box %d\n", ib);
+                abort();
+            }
+
+            t_local_sum += t_local;
         }
     }
 
-    // DSM: Multibox change - various neighbor attributes now set per box
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        if (atoms[box_index]->neighbor->nbinx == 0)
-            atoms[box_index]->neighbor->nbinx = 1;
-        if (atoms[box_index]->neighbor->nbiny == 0)
-            atoms[box_index]->neighbor->nbiny = 1;
-        if (atoms[box_index]->neighbor->nbinz == 0)
-            atoms[box_index]->neighbor->nbinz = 1;
+    /* Wait until the reduction has finished */
+    #pragma oss taskwait in(t_local_sum)
+
+    /* Reduce temperature from all ranks */
+    double temp = 0.0;
+    MPI_Allreduce(&t_local_sum, &temp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    /* Adjust temperature units */
+    temp *= sim->t_scale;
+
+    fprintf(stderr, "temperature = %e\n", temp);
+
+    return temp;
+}
+
+/* Adjust initial velocities to give desired temperature */
+
+static void
+setup_temperature(Sim *sim)
+{
+    /* Zero center-of-mass motion */
+    Vec vlocal = { 0 };
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < box->nlocal; j++) {
+            for (int d = X; d <= Z; d++) {
+                vlocal[d] += box->v[j][d];
+            }
+        }
     }
 
-    integrate.ntimes = in.ntimes;
-    integrate.dt = in.dt;
-    integrate.sort_every = sort > 0 ? sort : (sort < 0 ? in.neigh_every : 0);
-    thermo.nstat = in.thermo_nstat;
-
-    // DSM: Multibox change - various neighbor attributes now set per box
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        atoms[box_index]->neighbor->every = in.neigh_every;
-        atoms[box_index]->neighbor->cutneigh = in.R_neigh;
+    if (isnan(vlocal[X] + vlocal[Y] + vlocal[Z])) {
+        fprintf(stderr, "local sum of velocities is nan\n");
+        abort();
     }
 
-    if (me == 0)
-        printf("# Create System:\n");
-
-    // DSM: Multibox change. Needs to be called per Atom instance
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        // DSM: No MPI calls made in this function; it's just [nx/ny/nz] * lattice. Every rank has the same box.
-        create_box(*atoms[box_index], in.nx, in.ny, in.nz, in.rho);
+    Vec vtot, vmean;
+    for (int d = X; d <= Z; d++) {
+        MPI_Allreduce(&vlocal[d], &vtot[d], 1, MPI_DOUBLE, MPI_SUM,
+                MPI_COMM_WORLD);
+        vmean[d] = vtot[d] / sim->ntotatoms;
     }
 
-    // DSM: Spatial decomposition done in this function, i.e. atom.box.xhi/xlo/yhi/ylo/zhi/zlo set here.
-    comm.setup(atoms[0]->neighbor->cutneigh, in.nprocsx, in.nprocsz, atoms,
-        in.nonblocking_enabled); // DSM: Multibox change: cutneigh is constant over all neighbors.
+    fprintf(stderr, "vmean = (%e %e %e)\n", vmean[X], vmean[Y], vmean[Z]);
 
-    // DSM: Multibox change. Needs to be called per Atom instance
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        // DSM: TODO: Look at this in detail - bins vs boxes?
-        // DSM: Multibox TODO: Fix this chain of references
-        atoms[box_index]->neighbor->setup(*atoms[box_index]);
+    /* Zero the mean velocity by shifting each atom vmean */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < box->nlocal; j++) {
+            for (int d = X; d <= Z; d++) {
+                box->v[j][d] -= vmean[d];
+            }
+        }
     }
 
-    // DSM: This entire function is just "dtforce = 0.5 * dt;"
-    integrate.setup();
+    /* Adjust the temperature by scaling the atoms velocity */
+    double t = get_temperature(sim);
+    double factor = sqrt(sim->t_request / t);
 
-    // DSM Multibox: Called per Atom instance (removed MPI_Allreduce calls in this function)
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        Atom *atoms_ptr = atoms[box_index]; // HACK: Mercurium compiler fails if variable length array used in task
-#pragma oss task label("create_atoms") firstprivate(atoms_ptr)
-        create_atoms(*atoms_ptr, in.nx, in.ny, in.nz, in.rho, in.R_force); // DSM: addatom() calls done here
-    }
-#pragma oss taskwait
-
-    // DSM Multibox: Should be fine passing any atom object here. All function does is read natoms and xprd, yprd and
-    // zprd, which are identical on all instances.
-    thermo.setup(in.rho, integrate, *atoms[0], in.units);
-
-    // DSM Multibox: Reasonable changes to this function due to three Allreduces. Solution to do local sum across boxes
-    // then contribute that to the collective.
-    create_velocity(in.t_request, atoms, thermo);
-
-    if (me == 0)
-        printf("# Done .... \n");
-
-    if (me == 0) {
-        fprintf(stdout, "# " VARIANT_STRING " output ...\n");
-        fprintf(stdout, "# Run Settings: \n");
-        fprintf(stdout, "\t# MPI processes: %i\n", threads.mpi_num_threads); // DSM Multibox Change
-        fprintf(stdout, "\t# OpenMP threads: %i\n", threads.omp_num_threads); // DSM Multibox Change
-        fprintf(stdout, "\t# Inputfile: %s\n", input_file == 0 ? "in.lj.miniMD" : input_file);
-        fprintf(stdout, "\t# Datafile: %s\n", in.datafile ? in.datafile : "None");
-        fprintf(stdout, "\t# Boxes per process: %i\n", in.boxes_per_process); // DSM Multibox change
-        fprintf(stdout, "\t# Communication: %s\n", in.nonblocking_enabled ? "Nonblocking" : "Blocking");
-        fprintf(stdout, "\t# Process Grid: %d x %d x %d\n", comm.procgrid[0], comm.procgrid[1], comm.procgrid[2]);
-        fprintf(stdout, "# Physics Settings: \n");
-        fprintf(stdout, "\t# ForceStyle: %s\n", in.forcetype == FORCELJ ? "LJ" : "EAM");
-        fprintf(stdout, "\t# Force Parameters: %2.2lf %2.2lf\n", in.epsilon, in.sigma);
-        fprintf(stdout, "\t# Units: %s\n", in.units == 0 ? "LJ" : "METAL");
-        fprintf(stdout, "\t# Atoms: %i\n", atoms[0]->natoms); // DSM Multibox change
-        fprintf(stdout, "\t# Atom types: %i\n", in.ntypes); // DSM Multibox change
-        fprintf(stdout, "\t# System size: %2.2lf %2.2lf %2.2lf (unit cells: %i %i %i)\n", atoms[0]->box.xprd,
-            atoms[0]->box.yprd, atoms[0]->box.zprd, in.nx, in.ny, in.nz); // DSM Multibox change
-        fprintf(stdout, "\t# Density: %lf\n", in.rho);
-        fprintf(stdout, "\t# Force cutoff: %lf\n", in.R_force);
-        fprintf(stdout, "\t# Timestep size: %lf\n", integrate.dt);
-        fprintf(stdout, "# Technical Settings: \n");
-        fprintf(stdout, "\t# Neigh cutoff: %lf\n", atoms[0]->neighbor->cutneigh); // DSM Multibox Change
-        fprintf(stdout, "\t# Half neighborlists: %i\n", atoms[0]->neighbor->halfneigh); // DSM Multibox Change
-        fprintf(stdout, "\t# Neighbor bins: %i %i %i\n", atoms[0]->neighbor->nbinx, atoms[0]->neighbor->nbiny,
-            atoms[0]->neighbor->nbinz); // DSM Multibox Change
-        fprintf(stdout, "\t# Neighbor frequency: %i\n", atoms[0]->neighbor->every); // DSM Multibox Change
-        fprintf(stdout, "\t# Sorting frequency: %i\n", integrate.sort_every);
-        fprintf(stdout, "\t# Thermo frequency: %i\n", thermo.nstat);
-        fprintf(stdout, "\t# Ghost Newton: %i\n", ghost_newton);
-        fprintf(stdout, "\t# Use intrinsics: %i\n", 0);
-        fprintf(stdout, "\t# Do safe exchange: %i\n", comm.do_safeexchange);
-        fprintf(stdout, "\t# Size of float: %i\n\n", (int) sizeof(double));
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < box->nlocal; j++) {
+            for (int d = X; d <= Z; d++) {
+                box->v[j][d] *= factor;
+            }
+        }
     }
 
-    if (in.nonblocking_enabled) {
-        fprintf(stderr, "non-blocking not supported\n");
-        MPI_Finalize();
-        exit(1);
+    /* Ensure the temperature is now correct */
+    double t_corrected = get_temperature(sim);
+    double relerr = fabs(t_corrected - sim->t_request) / fabs(sim->t_request);
+
+    /* This holds when relerr is nan too */
+    if (! (relerr < 10e2 * DBL_EPSILON)) {
+        fprintf(stderr, "temperature relative error %e (t_corrected=%e vs t_requested=%e)\n",
+                relerr, t_corrected, sim->t_request);
+        abort();
+    }
+}
+
+static void
+setup_params(Sim *sim)
+{
+    /* Enable floating point exceptions */
+    feenableexcept(FE_INVALID | FE_OVERFLOW);
+
+    /* Set a fixed known seed */
+    srand(5413);
+
+    /* Derived constants */
+    sim->mass = 1.0; /* Default mass. TODO check optimized value */
+    sim->dtforce = 0.5 * sim->dt / sim->mass;
+    sim->R_neigh = sim->R_force + sim->skin;
+    sim->ntypes = 4;
+
+    /* Given the total number of points in the grid N the total number
+     * of atoms can be computed as 4*N. This is a face centered cubic
+     * lattice (FCC).
+     *
+     *     *---------*
+     *    /    *    /|
+     *   * --------* |
+     *   |         |*|
+     *   |    *    | *
+     *   |         |/
+     *   *---------*
+     */
+    sim->ntotatoms = 4 * sim->npoints[X] * sim->npoints[Y] * sim->npoints[Z];
+
+    /* Unit conversion constants */
+    sim->mvv2e = 1.0;
+    sim->dof_boltz = (sim->ntotatoms * 3 - 3);
+    sim->t_scale = sim->mvv2e / sim->dof_boltz;
+    sim->p_scale = 1.0 / 3.0 / sim->boxlen[X] / sim->boxlen[Y] / sim->boxlen[Z];
+    sim->e_scale = 0.5;
+
+    sim->sort_period = sim->neighbor_period;
+}
+
+static void
+setup_neighbors_box(Sim *sim, Box *box)
+{
+    int nn = NNEIGHSIDE;
+    int delta[NDIM];
+
+    /* Most of the neighbor information is identical in every box, but
+     * is more clear to place it inside each box, along with the buffers
+     * for communication. So a Neigh is mapped to the neighbor box. */
+
+    /* Setup neighbor deltas by iterating through all the combinations;
+     * it is easier to compute than the other way around. */
+    for (delta[Z] = -nn; delta[Z] <= nn; delta[Z]++) {
+        for (delta[Y] = -nn; delta[Y] <= nn; delta[Y]++) {
+            for (delta[X] = -nn; delta[X] <= nn; delta[X]++) {
+                int in = delta2neigh(delta);
+                /* Skip the current box */
+                if (in < 0)
+                    continue;
+
+                Neigh *neigh = &box->neigh[in];
+                neigh->i = in;
+                for (int d = X; d <= Z; d++) {
+                    neigh->delta[d] = delta[d];
+                }
+
+                /* Get neighbor rank coordinates */
+                for (int d = X; d <= Z; d++)
+                    neigh->rankcoord[d] = sim->rankdim[d] + delta[d] / nn;
+
+                /* Use the rank coordinates to find the rank */
+                MPI_Cart_rank(sim->cartesian, neigh->rankcoord, &neigh->rank);
+            }
+        }
     }
 
-    /*if (me == 0 && !in.nonblocking_enabled && in.boxes_per_process > 1) {
-      printf("ERROR: Using >1 box per process in blocking mode. Aborting to avoid deadlock!\n");
-      MPI_Abort(MPI_COMM_WORLD, 1);
-    }*/
-
-    if (me == 0 && in.boxes_per_process == 2) {
-        printf("ERROR: 2 box per process is unsupported. Use only 1 or >=3. Aborting...\n");
-        MPI_Abort(MPI_COMM_WORLD, 1);
+    for (int in = 0; in < NNEIGH; in++) {
+        Neigh *neigh = &box->neigh[in];
+        fprintf(stderr, "neigh %2d (%2d) rank %2d delta (%2d %2d %2d)\n",
+                in, neigh->i, neigh->rank, 
+                neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
     }
 
-    if (comm.do_safeexchange) {
-        fprintf(stderr, "safe exchange not supported\n");
-        MPI_Finalize();
-        exit(1);
+    /* Set wrapping */
+    for (int in = 0; in < NNEIGH; in++) {
+        Neigh *neigh = &box->neigh[in];
+
+        /* Initially assume the neighbor doesn't need wrapping */
+        neigh->wraps = 0;
+
+        for (int d = X; d <= Z; d++) {
+            if (neigh->rankcoord[d] < 0) {
+                neigh->addpbc[d] = +sim->worldlen[d];
+                neigh->wraps = 1;
+            } else if (neigh->rankcoord[d] >= sim->nranksdim[d]) {
+                neigh->addpbc[d] = -sim->worldlen[d];
+                neigh->wraps = 1;
+            } else {
+                neigh->addpbc[d] = 0.0;
+            }
+        }
     }
 
-    fprintf(stderr, "doing first comm exchange\n");
+    /* Add pointer to opposite neighbor and boxes if they are in the
+     * same rank */
+    for (int in = 0; in < NNEIGH; in++) {
+        Neigh *neigh = &box->neigh[in];
 
-    comm.exchange(atoms);
-#pragma oss taskwait
+        neigh->opposite = &box->neigh[opposite_neigh(in)];
 
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        if (sort > 0)
-            // TODO DSM: We could remove the neighbor parameter now it's an attribute of the atom class
-            atoms[box_index]->sort(*atoms[box_index]->neighbor);
+        if (neigh->rank != sim->rank) {
+            /* Only the Y dimension is relevant */
+            int ib = box->i + neigh->delta[Y];
+            if (ib < 0)
+                ib += sim->nboxes;
+            else if (ib >= sim->nboxes)
+                ib -= sim->nboxes;
+
+            neigh->box = &sim->box[ib];
+        } else {
+            neigh->box = NULL;
+        }
+    }
+}
+
+static void
+setup_neighbors(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++)
+        setup_neighbors_box(sim, &sim->box[i]);
+}
+
+static void
+setup_thermo(Sim *sim)
+{
+    /* Zero bin accumulators for energy */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        /* All the bins, including outside the box */
+        for (int j = 0; j < box->nbinsalloc; j++) {
+            Bin *bin = &box->bin[j];
+            bin->pot_energy = (double *) malloc(sizeof(double) * sim->timesteps);
+            bin->kin_energy = (double *) malloc(sizeof(double) * sim->timesteps);
+            bin->vdwl_energy = (double *) malloc(sizeof(double) * sim->timesteps);
+            bin->virial_temp = (double *) malloc(sizeof(double) * sim->timesteps);
+        }
+    }
+}
+
+static void
+setup_packbuf(Sim *sim)
+{
+    /* Init all pack buffers */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *neigh = &box->neigh[j];
+
+            /* Setup the number of doubles needed per buffer */
+            packbuf_init(&neigh->send_rt, NDIM + 1);
+            packbuf_init(&neigh->recv_rt, NDIM + 1);
+            packbuf_init(&neigh->send_rvt, NDIM + NDIM + 1);
+            packbuf_init(&neigh->recv_rvt, NDIM + NDIM + 1);
+        }
+    }
+}
+
+static void
+print_params(Sim *sim)
+{
+    if (sim->rank != 0)
+        return;
+
+    /* Print the input file and details, so the output becomes a valid
+     * input file */
+
+    FILE *f = fopen(sim->inputfile, "r");
+
+    if (f == NULL) {
+        perror("fopen failed");
+        abort();
     }
 
-    fprintf(stderr, "doing first comm borders\n");
+    while (!feof(f)) {
+        char line[4096];
+        size_t nread = fread(line, 1, sizeof(line), f);
 
-    comm.borders(atoms);
-#pragma oss taskwait
+        printf("nread = %ld\n", nread);
 
-    //#pragma omp parallel
-    {
-        // DSM: Multibox change. Needs to be called per Atom instance
-        for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-            // DSM: Multibox TODO: Fix this chain of references (calling a method on an attribute with a reference to
-            // itself)
-            atoms[box_index]->neighbor->build(*atoms[box_index]); // DSM: No MPI calls here.
+        if (nread == 0) {
+            perror("fread failed");
+            abort();
         }
 
-        force_update(&sim, atoms);
+        if (fwrite(line, 1, nread, stdout) != nread) {
+            perror("fwrite failed");
+            abort();
+        }
+    }
+    fclose(f);
+
+    printf("#\n");
+    printf("# %s output ...\n", VARIANT_STRING);
+    printf("#\n");
+    printf("# Run Settings: \n");
+    printf("#   MPI processes: %d\n", sim->nranks);
+    printf("#   Inputfile: %s\n", sim->inputfile);
+    printf("#   Boxes per process: %d\n", sim->nboxes); // DSM Multibox change
+    printf("#   Process Grid: %d x %d x %d\n",
+            sim->nranksdim[X], sim->nranksdim[Y], sim->nranksdim[Z]);
+    printf("# Physics Settings: \n");
+    printf("#   ForceStyle: LJ\n");
+    printf("#   Force Parameters: epsilon=%2.2lf sigma=%2.2lf\n", sim->epsilon, sim->sigma);
+    printf("#   Units: LJ\n");
+    printf("#   Atoms: %d\n", sim->ntotatoms);
+    printf("#   Atom types: %d\n", sim->ntypes);
+    printf("#   System size: (x=%2.2lf y=%2.2lf z=%2.2lf)\n",
+            sim->worldlen[X], sim->worldlen[Y], sim->worldlen[Z]);
+    printf("#   Unit cells: (x=%i y=%i z=%i)\n",
+            sim->npoints[X], sim->npoints[Y], sim->npoints[Z]);
+    printf("#   Density: %lf\n", sim->rho);
+    printf("#   Force cutoff radius: %lf\n", sim->R_force);
+    printf("#   Timestep size: %lf\n", sim->dt);
+    printf("# Technical Settings: \n");
+    printf("#   Neighbor cutoff radius: %lf\n", sim->R_neigh);
+    printf("#   Neighbor bins in box domain: (%i %i %i)\n",
+            sim->nbinsbox[X], sim->nbinsbox[Y], sim->nbinsbox[Z]);
+    printf("#   Re-neighbor period: %i\n", sim->neighbor_period);
+    printf("#   Sorting period: %i\n", sim->sort_period);
+    printf("#   Thermo period: %i\n", sim->thermo_period);
+
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        fprintf(stderr, "box %d has %d local atoms\n", box->i, box->nlocal);
+    }
+}
+
+void
+sim_init(Sim *sim, int argc, char *argv[])
+{
+    /* Read input file and set input values */
+    parse_input(sim, argc, argv);
+
+    /* Compute derived constants from the input */
+    setup_params(sim);
+
+    /* MPI process related parameters */
+    setup_ranks(sim);
+
+    /* Create boxes */
+    setup_boxes(sim);
+
+    /* Prepare bins sizes and parameters */
+    setup_bins(sim);
+
+    /* Create atoms and place then in the lattice with random velocity */
+    setup_atoms(sim);
+
+    /* Scale the atom velocity to match the requested initial temperature */
+    setup_temperature(sim);
+
+    /* Setup force parameters */
+    force_init(sim);
+
+    setup_neighbors(sim);
+
+    /* Init pack buffers */
+    setup_packbuf(sim);
+
+    setup_thermo(sim);
+
+    print_params(sim);
+
+    /* Move atoms to their correct box.
+     * FIXME: this should be unneeded, as the atoms must be already
+     * initialized in their correct box. */
+    comm_atoms_correct_box(sim);
+
+    comm_borders(sim);
+
+//    // DSM: Multibox change. Needs to be called per Atom instance
+//    for (int i = 0; i < in.nboxes; i++) {
+//        // DSM: Multibox TODO: Fix this chain of references (calling a method on an attribute with a reference to
+//        // itself)
+//        atoms[i]->neighbor->build(*atoms[i]); // DSM: No MPI calls here.
+//    }
+//
+//    force_update(&sim, atoms);
+//
+//    if (me == 0)
+//        printf("# Timestep T U P Time\n");
+//
+//    thermo.compute(0, atoms, NULL, timer);
+}
+
+void
+sim_run(Sim *sim)
+{
+//    // DSM: Main loop over time steps located here.
+//    timer.barrier_start(TIME_TOTAL);
+//    integrate.run(atoms, NULL, comm, thermo, timer);
+//    timer.barrier_stop(TIME_TOTAL);
+}
+
+void
+sim_finalize()
+{
+//    // DSM Multibox: Sum nlocal over all boxes in this process and contribute that to the Allreduce.
+//    // DSM TODO: What is the purpose of this Allreduce? natoms appears to only be used in the PERF_SUMMARY
+//    int natoms;
+//    int all_boxes_nlocal = 0;
+//    for (int box_index = 0; box_index < in.nboxes; ++box_index) {
+//        all_boxes_nlocal += atoms[box_index]->nlocal;
+//    }
+//    MPI_Allreduce(&all_boxes_nlocal, &natoms, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+//
+//    force_update(&sim, atoms);
+//
+//    // DSM TODO: Changed to get code to compile - this path will be broken for multibox
+//    if (atoms[0]->neighbor->halfneigh && atoms[0]->neighbor->ghost_newton) {
+//        fprintf(stderr, "halfneigh and ghost_newton not supported\n");
+//        MPI_Finalize();
+//        exit(1);
+//    }
+//
+//    thermo.compute(-1, atoms, NULL, timer);
+//
+//    if (me == 0) {
+//        double time_other
+//            = timer.array[TIME_TOTAL] - timer.array[TIME_FORCE] - timer.array[TIME_NEIGH] - timer.array[TIME_COMM];
+//        printf("\n\n");
+//        printf("# Performance Summary:\n");
+//        printf("# MPI_proc OMP_threads nsteps natoms t_total t_force t_neigh t_comm t_other performance perf/thread "
+//               "grep_string t_extra\n");
+//        printf("%i %i %i %i %lf %lf %lf %lf %lf %lf %lf PERF_SUMMARY %lf\n\n\n", nprocs, num_threads, integrate.ntimes,
+//            natoms, timer.array[TIME_TOTAL], timer.array[TIME_FORCE], timer.array[TIME_NEIGH], timer.array[TIME_COMM],
+//            time_other, 1.0 * natoms * integrate.ntimes / timer.array[TIME_TOTAL],
+//            1.0 * natoms * integrate.ntimes / timer.array[TIME_TOTAL] / nprocs / num_threads, timer.array[TIME_TEST]);
+//    }
+}
+
+int main(int argc, char *argv[])
+{
+    /* Don't zero so we can find error with asan */
+    Sim *sim = (Sim *) malloc(sizeof(Sim));
+    int provided;
+
+    MPI_Init_thread(&argc, &argv, MPI_TASK_MULTIPLE, &provided);
+
+    if (provided != MPI_TASK_MULTIPLE) {
+        fprintf(stderr, "error: MPI_TASK_MULTIPLE not supported\n");
+        abort();
     }
 
-    if (halfneigh) {
-        fprintf(stderr, "halfneigh not supported\n");
-        MPI_Finalize();
-        exit(1);
-    }
-
-    // DSM TODO: Changed to get code to compile - this path will be broken for multibox
-    if (atoms[0]->neighbor->halfneigh && atoms[0]->neighbor->ghost_newton) {
-        fprintf(stderr, "halfneigh and ghost_newton not supported\n");
-        MPI_Finalize();
-        exit(1);
-    }
-
-    if (me == 0)
-        printf("# Starting dynamics ...\n");
-
-    if (me == 0)
-        printf("# Timestep T U P Time\n");
-
-    //#pragma omp parallel
-    {
-        // DSM Multibox: Called once per box
-        // DSM: Three MPI_Allreduces here (temperature, energy and pressure). All done by #omp master
-        thermo.compute(0, atoms, NULL, timer);
-    }
-
-    // DSM: Main loop over time steps located here.
-    timer.barrier_start(TIME_TOTAL);
-    integrate.run(atoms, NULL, comm, thermo, timer);
-    timer.barrier_stop(TIME_TOTAL);
-
-    // DSM Multibox: Sum nlocal over all boxes in this process and contribute that to the Allreduce.
-    // DSM TODO: What is the purpose of this Allreduce? natoms appears to only be used in the PERF_SUMMARY
-    int natoms;
-    int all_boxes_nlocal = 0;
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        all_boxes_nlocal += atoms[box_index]->nlocal;
-    }
-    MPI_Allreduce(&all_boxes_nlocal, &natoms, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-
-    force_update(&sim, atoms);
-
-    // DSM TODO: Changed to get code to compile - this path will be broken for multibox
-    if (atoms[0]->neighbor->halfneigh && atoms[0]->neighbor->ghost_newton) {
-        fprintf(stderr, "halfneigh and ghost_newton not supported\n");
-        MPI_Finalize();
-        exit(1);
-    }
-
-    thermo.compute(-1, atoms, NULL, timer);
-
-    if (me == 0) {
-        double time_other
-            = timer.array[TIME_TOTAL] - timer.array[TIME_FORCE] - timer.array[TIME_NEIGH] - timer.array[TIME_COMM];
-        printf("\n\n");
-        printf("# Performance Summary:\n");
-        printf("# MPI_proc OMP_threads nsteps natoms t_total t_force t_neigh t_comm t_other performance perf/thread "
-               "grep_string t_extra\n");
-        printf("%i %i %i %i %lf %lf %lf %lf %lf %lf %lf PERF_SUMMARY %lf\n\n\n", nprocs, num_threads, integrate.ntimes,
-            natoms, timer.array[TIME_TOTAL], timer.array[TIME_FORCE], timer.array[TIME_NEIGH], timer.array[TIME_COMM],
-            time_other, 1.0 * natoms * integrate.ntimes / timer.array[TIME_TOTAL],
-            1.0 * natoms * integrate.ntimes / timer.array[TIME_TOTAL] / nprocs / num_threads, timer.array[TIME_TEST]);
-    }
-
-    // DSM TODO: Changed to get code to compile - this path will be broken for multibox
-    if (yaml_output)
-        output(in, *atoms[0], *atoms[0]->neighbor, comm, thermo, integrate, timer, screen_yaml);
-
-    // DSM Multibox change: free all Atoms memory
-    for (int box_index = 0; box_index < in.boxes_per_process; ++box_index) {
-        delete atoms[box_index]->neighbor;
-        delete atoms[box_index];
-    }
-    // DSM Explicitly free all box communicators. Cannot add this to Comm destructor as would result in MPI_Comm_Free
-    // being called following MPI_Finalize.
-    // comm.free_box_comms();
+    /* Initialize the simulation structures using the input
+     * configuration */
+    sim_init(sim, argc, argv);
+    //sim_run(sim);
+    //sim_finalize(sim);
 
     MPI_Barrier(MPI_COMM_WORLD);
+
     MPI_Finalize();
+
     return 0;
 }

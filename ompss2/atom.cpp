@@ -30,6 +30,7 @@
 ---------------------------------------------------------------------- */
 
 #include "atom.h"
+#include "types.h"
 #include "mpi.h"
 #include "neighbor.h"
 #include "stdio.h"
@@ -38,12 +39,6 @@
 #include <math.h>
 
 #define DELTA 20000
-
-/* Ensure that no new atom is too close to a local atom (slow) */
-//#define ENABLE_NEW_ATOM_CHECK
-
-/* Ensure that no ghost atom is too close to a local atom (slow) */
-//#define ENABLE_GHOST_ATOM_CHECK
 
 void check_new_atom(Atom *a, int iatom, Vec ri) {
 #ifdef ENABLE_NEW_ATOM_CHECK
@@ -97,44 +92,6 @@ void check_ghost_overlap(Atom *a)
         }
     }
 #endif
-}
-
-Atom::Atom(int ntypes_, int boxes_per_process_)
-{
-    natoms = 0;
-    nlocal = 0;
-    nghost = 0;
-    nmax = 0;
-    copy_size = 0;
-    boxes_per_process = boxes_per_process_;
-
-    x = v = xold = x_copy = v_copy = NULL;
-    f = NULL;
-    type = type_copy = NULL;
-    comm_size = 3;
-    reverse_size = 3;
-    border_size = 4;
-
-    mass = 1;
-
-    ntypes = ntypes_;
-
-    // DSM: Multibox change - need one neighborlist per box rather than per process
-    Neighbor _neighbor(ntypes_);
-    neighbor = &_neighbor;
-
-    memset(&box, 0, sizeof(Box));
-}
-
-Atom::~Atom()
-{
-    if (nmax) {
-        destroy_2d_double_array(x);
-        destroy_2d_double_array(v);
-        destroy_2d_double_array((double *) f);
-        destroy_2d_double_array(xold);
-        destroy_1d_int_array(type);
-    }
 }
 
 void Atom::growarray()
@@ -306,7 +263,8 @@ int Atom::pack_border(int i, double *buf, int *pbc_flags)
         buf[m++] = x[i * PAD + 0];
         buf[m++] = x[i * PAD + 1];
         buf[m++] = x[i * PAD + 2];
-        buf[m++] = type[i];
+        buf[m++] = type[i]; /* FIXME: Here is a cast from int to double
+                               */
     } else {
         buf[m++] = x[i * PAD + 0] + pbc_flags[1] * box.xprd;
         buf[m++] = x[i * PAD + 1] + pbc_flags[2] * box.yprd;
@@ -359,103 +317,7 @@ int Atom::unpack_exchange(int i, double *buf)
     return m;
 }
 
-int Atom::skip_exchange(double *buf) { return 7; }
-
 /* realloc a 2-d double array */
-
-double *Atom::realloc_2d_double_array(double *array, int n1, int n2, int nold)
-
-{
-    double *newarray;
-
-    newarray = create_2d_double_array(n1, n2);
-
-    if (nold)
-        memcpy(newarray, array, nold * sizeof(double));
-
-    destroy_2d_double_array(array);
-
-    return newarray;
-}
-
-/* create a 2-d double array */
-
-double *Atom::create_2d_double_array(int n1, int n2)
-{
-    double *array;
-
-    if (n1 * n2 == 0)
-        return NULL;
-
-#ifdef ALIGNMALLOC
-    array = (double *) _mm_malloc((n1 * n2 + 1024 + 1) * sizeof(double), ALIGNMALLOC);
-#else
-    array = (double *) malloc((n1 * n2 + 1024 + 1) * sizeof(double));
-#endif
-
-    return array;
-}
-
-/* free memory of a 2-d double array */
-
-void Atom::destroy_2d_double_array(double *array)
-{
-    if (array != NULL) {
-#ifdef ALIGNMALLOC
-        _mm_free(array);
-#else
-        free(array);
-#endif
-    }
-}
-
-int *Atom::realloc_1d_int_array(int *array, int n1, int nold)
-
-{
-    int *newarray;
-
-    newarray = create_1d_int_array(n1);
-
-    if (nold)
-        memcpy(newarray, array, nold * sizeof(int));
-
-    destroy_1d_int_array(array);
-
-    return newarray;
-}
-
-/* create a 2-d double array */
-
-int *Atom::create_1d_int_array(int n1)
-{
-    int ALIGN = 16;
-    int *data;
-    int i, n;
-
-    if (n1 == 0)
-        return NULL;
-
-#ifdef ALIGNMALLOC
-    data = (int *) _mm_malloc((n1 + 1024 + 1) * sizeof(int), ALIGNMALLOC);
-#else
-    data = (int *) malloc((n1) * sizeof(int));
-#endif
-
-    return data;
-}
-
-/* free memory of a 2-d double array */
-
-void Atom::destroy_1d_int_array(int *array)
-{
-    if (array != NULL) {
-#ifdef ALIGNMALLOC
-        _mm_free(array);
-#else
-        free(array);
-#endif
-    }
-}
 
 void Atom::sort(Neighbor &neighbor)
 {

@@ -32,125 +32,167 @@
 #include "mpi.h"
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
+#include <string.h>
 
 #include "atom.h"
 #include "force.h"
-#include "integrate.h"
 #include "ljs.h"
 #include "neighbor.h"
 #include "thermo.h"
 #include "types.h"
 
-#define MAXLINE 256
+#define MAXLINE 4096
 
-static void safe_fgets(char *s, int size, FILE *stream)
+static void
+safe_fgets(char *s, int size, FILE *stream)
 {
     if (fgets(s, size, stream) == NULL) {
-        fprintf(stderr, "fgets() failed\n");
-        MPI_Finalize();
-        exit(1);
+        perror("fgets failed");
+        abort();
     }
 }
 
-int input(Input &in, const char *filename)
+static void
+usage()
 {
-    FILE *fp;
-    int flag;
+    printf("-----------------------------------------------------------------------\n");
+    printf("%s\n", VARIANT_STRING);
+    printf("-----------------------------------------------------------------------\n");
+    printf("\n");
+    printf("miniMD is a simple, parallel molecular dynamics (MD) code,\n"
+           "which is part of the Mantevo project at Sandia National\n"
+           "Laboratories ( http://www.mantevo.org ).\n"
+           "The original authors of miniMD are Steve Plimpton (sjplimp@sandia.gov) ,\n"
+           "Paul Crozier (pscrozi@sandia.gov) with current\n"
+           "versions written by Christian Trott (crtrott@sandia.gov).\n");
+    printf("\n");
+    printf("Commandline Options:\n");
+    printf("  -i / --input_file <string>:   set input file to be used (default: in.lj.miniMD)\n");
+    printf("  -h / --help:                  display this help message\n\n");
+    printf("-----------------------------------------------------------------------\n");
+
+    exit(1);
+}
+
+void
+parse_input_file(Sim *sim, const char *filename)
+{
     char line[MAXLINE];
+    FILE *fp = fopen(filename, "r");
 
-    int me;
-    MPI_Comm_rank(MPI_COMM_WORLD, &me);
-
-    fp = fopen(filename, "r");
-
-    if (fp == NULL)
-        flag = 0;
-    else
-        flag = 1;
-
-    if (flag == 0) {
-        if (me == 0)
-            printf("ERROR: Cannot open %s\n", filename);
-
-        return 1;
+    if (fp == NULL) {
+        fprintf(stderr, "fopen(%s) failed: %s\n", filename,
+                strerror(errno));
+        abort();
     }
 
-    safe_fgets(line, MAXLINE, fp);
+    /* Ignore first two lines (comments) */
     safe_fgets(line, MAXLINE, fp);
     safe_fgets(line, MAXLINE, fp);
 
-    if (strcmp(strtok(line, " \t\n"), "lj") == 0)
-        in.units = 0;
-    else if (strcmp(line, "metal") == 0)
-        in.units = 1;
-    else {
-        printf("Unknown units option in file at line 3 ('%s'). Expecting either 'lj' or 'metal'.\n", line);
-        MPI_Finalize();
-        exit(1);
+    safe_fgets(line, MAXLINE, fp);
+
+    if (strcmp(strtok(line, " \t\n"), "lj") != 0) {
+        fprintf(stderr, "Unsupported units '%s', only 'lj' supported\n", line);
+        abort();
     }
 
     safe_fgets(line, MAXLINE, fp);
 
-    if (strcmp(strtok(line, " \t\n"), "none") == 0)
-        in.datafile = NULL;
-    else {
-        in.datafile = new char[1000];
-        char *ptr = strtok(line, " \t");
-
-        if (ptr == NULL)
-            ptr = line;
-
-        strcpy(in.datafile, ptr);
+    if (strcmp(strtok(line, " \t\n"), "none") != 0) {
+        fprintf(stderr, "Unsupported datafile '%s', only 'none' supported\n", line);
+        abort();
     }
 
     safe_fgets(line, MAXLINE, fp);
 
-    // DSM: Why an enum here but in.units is 0 or 1?
-    if (strcmp(strtok(line, " \t\n"), "lj") == 0) {
-        in.forcetype = FORCELJ;
-    } else {
+    if (strcmp(strtok(line, " \t\n"), "lj") != 0) {
         fprintf(stderr, "Only 'lj' force type supported\n");
-        MPI_Finalize();
-        exit(1);
+        abort();
     }
 
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%le %le", &in.epsilon, &in.sigma);
+    sscanf(line, "%le %le", &sim->epsilon, &sim->sigma);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d %d %d", &in.nx, &in.ny, &in.nz);
+    sscanf(line, "%d %d %d", &sim->npoints[X], &sim->npoints[Y], &sim->npoints[Z]);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.ntimes);
+    sscanf(line, "%d", &sim->timesteps);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%le", &in.dt);
+    sscanf(line, "%le", &sim->dt);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%le", &in.t_request);
+    sscanf(line, "%le", &sim->t_request);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%le", &in.rho);
+    sscanf(line, "%le", &sim->rho);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.neigh_every);
+    sscanf(line, "%d", &sim->neighbor_period);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%le %le", &in.R_force, &in.skin_len);
-    in.R_neigh = in.R_force + in.skin_len;
+    sscanf(line, "%le %le", &sim->R_force, &sim->skin);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.thermo_nstat);
-    // DSM Multibox changes
+    sscanf(line, "%d", &sim->thermo_period);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.boxes_per_process);
-    // DSM Require user to manually specify the procgrid in the input file for now. TODO Fix factorisation
-    // nprocsx*nprocsz must equal nprocs (nprocsy is hardcoded to 1)
+    sscanf(line, "%d", &sim->nboxes);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.nprocsx);
+    sscanf(line, "%d", &sim->nprocsx);
+
     safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.nprocsz);
-    // Enables non-blocking communication mode
-    safe_fgets(line, MAXLINE, fp);
-    sscanf(line, "%d", &in.nonblocking_enabled);
+    sscanf(line, "%d", &sim->nprocsz);
+
     fclose(fp);
 
-    in.ntypes = 4;
-
     MPI_Barrier(MPI_COMM_WORLD);
+}
 
-    return 0;
+static void
+check_input(Sim *sim)
+{
+    if (sim->nboxes < 3) {
+        fprintf(stderr, "error: at least 3 boxes needed\n");
+        abort();
+    }
+
+    if (sim->timesteps <= 0) {
+        fprintf(stderr, "error: timesteps must be > 0\n");
+        abort();
+    }
+
+    if (sim->npoints[X] == 0 || sim->npoints[Y] == 0 || sim->npoints[Z] == 0) {
+        fprintf(stderr, "error: the number of points cannot be 0\n");
+        abort();
+    }
+
+}
+
+void
+parse_input(Sim *sim, int argc, char *argv[])
+{
+    sim->inputfile = "in.lj.miniMD";
+
+    /* Skip program name */
+    for (int i = 1; i < argc; i++) {
+        if ((strcmp(argv[i], "-i") == 0) || (strcmp(argv[i], "--input_file") == 0)) {
+            sim->inputfile = argv[++i];
+            continue;
+        }
+
+        if ((strcmp(argv[i], "-h") == 0) || (strcmp(argv[i], "--help") == 0)) {
+            usage();
+            continue;
+        }
+
+        fprintf(stderr, "error, unrecognized option '%s'\n", argv[i]);
+        usage();
+    }
+
+    parse_input_file(sim, (const char *) sim->inputfile);
+    check_input(sim);
 }

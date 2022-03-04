@@ -41,35 +41,4 @@ enum units { LJ, METAL };
 #include "timer.h"
 #include "types.h"
 
-class Integrate;
-
-class Thermo {
-public:
-    int nstat;
-    int mstat;
-    int ntimes;
-
-    int **steparr;
-    double **tmparr;
-    double **engarr;
-    double **prsarr;
-
-    Thermo();
-    ~Thermo();
-    void setup(double, Integrate &integrate, Atom &atom, int);
-    void temperature(Atom **, int slot);
-    double get_global_temperature(Atom *atoms[]);
-    void energy(Atom **, Force *, int slot);
-    void pressure(Atom *atoms[], Force *force, int slot);
-    void compute(int, Atom **, Force *, Timer &);
-
-    double t_act, p_act, e_act;
-    double t_scale, e_scale, p_scale, mvv2e, dof_boltz;
-
-    ThreadData *threads;
-
-private:
-    double rho;
-};
-
 #endif

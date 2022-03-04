@@ -28,16 +28,11 @@
 
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
-//#define PRINTDEBUG(a) a
-#define PRINTDEBUG(a)
-#include "integrate.h"
-#include "math.h"
+
+#include "types.h"
+
+#include <math.h>
 #include <stdio.h>
-
-Integrate::Integrate() { sort_every = 20; }
-Integrate::~Integrate() { }
-
-void Integrate::setup() { dtforce = 0.5 * dt; }
 
 /* Ensure the position is within a reasonable limit */
 void check_position(Vec r, Atom *atom)
@@ -177,7 +172,7 @@ void neigh_build(Atom *atoms[], Comm *comm)
         // task running before all non-rebuild iterations
         // are complete
         #pragma oss task \
-            label("neighbor->build")                                        \
+            label("neighbor->build") \
             in(comm->bordersUnpackSentinels[i]) \
             in(comm->bordersInternalSentinels[i]) \
             in(comm->communicateSentinels[i]) \
@@ -190,37 +185,7 @@ void neigh_build(Atom *atoms[], Comm *comm)
     }
 }
 
-//void force_compute(Atom *atoms[], Comm *comm, Force *force, int print_thermo_stats)
-//{
-//    int nboxes = atoms[0]->boxes_per_process;
-//
-//    for (int i = 0; i < nboxes; i++) {
-//        Atom* a = atoms[i];
-//        // No need for borders dependencies, borders tasks run only in
-//        // reneighbouring branch
-//        #pragma oss task \
-//            label("force->compute") \
-//            in(comm->communicateSentinels[i]) \
-//            in(comm->communicateInternalUnpackSentinels[i]) \
-//            out(comm->forceComputeSentinels[i]) \
-//            out(a->f) \
-//            firstprivate(i, a)
-//            //out(force->eng_vdwl[i]) \
-//            //out(force->virial[i])
-//        {
-//            // DSM: thermo.nstat is a constant, an input file parameter fixed at initial setup
-//            //force->evflag[i] = print_thermo_stats;
-//            // Controls whether eng_vdwl and virial are set this
-//            // compute call or not.
-//            // The last 2 arguments (comm & comm.me) are not used in
-//            // force_lj implementation. Replace with nulls
-//            force->compute(*a, *a->neighbor);
-//        }
-//    }
-//
-//}
-
-void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Timer &timer)
+void Integrate::run(Sim *sim, Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Timer &timer)
 {
     comm.timer = &timer;
     timer.array[TIME_TEST] = 0.0;
@@ -282,7 +247,7 @@ void Integrate::run(Atom *atoms[], Force *force, Comm &comm, Thermo &thermo, Tim
         }
 
         #pragma oss taskwait
-        force_update(&sim, atoms);
+        force_update(sim, atoms);
         #pragma oss taskwait
         final_integrate(atoms, dtforce);
 
