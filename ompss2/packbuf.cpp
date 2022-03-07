@@ -19,7 +19,10 @@ packbuf_grow(PackBuf *pb, int n)
         //fprintf(stderr, "packbuf realloc to %ld bytes\n", newalloc);
         if (newalloc == 0)
             abort();
+        void *prev = pb->buf;
         pb->buf = (double *) safe_realloc(pb->buf, newalloc);
+
+        //fprintf(stderr, "realloc packbuf %p -> %p\n", prev, pb->buf);
         pb->nalloc = n;
     }
 }
@@ -95,7 +98,7 @@ packbuf_shmcopy(PackBuf *src, PackBuf *dst)
 {
     if (src->natoms != 0) {
         packbuf_grow(dst, src->natoms);
-        memcpy(src->buf, dst->buf, src->natoms * src->atomsize * sizeof(double));
+        memcpy(dst->buf, src->buf, src->natoms * src->atomsize * sizeof(double));
     }
     dst->natoms = src->natoms;
 }
@@ -141,6 +144,9 @@ packbuf_add_rt(PackBuf *pb, Vec r, int type)
     packbuf_grow_extra(pb, 1);
 
     int j = pb->natoms * pb->atomsize;
+
+//    fprintf(stderr, "packing r %e %e %e into %p\n",
+//            r[X], r[Y], r[Z], &pb->buf[j]);
 
     for (int d = X; d <= Z; d++)
         pb->buf[j++] = r[d];

@@ -561,6 +561,7 @@ typedef struct bin {
 #define NNEIGHSIDE 1
 #define NNEIGHDIM (NNEIGHSIDE*2 + 1) 
 #define NNEIGH (NNEIGHDIM*NNEIGHDIM*NNEIGHDIM - 1)
+#define NSUB 27
 
 typedef struct {
     int natoms;     /* Number of atoms currently in the buffer */
@@ -583,6 +584,7 @@ typedef struct neigh Neigh;
 /* A neighboring box */
 typedef struct neigh {
     int i;              /* Local index of this neighbor in the box */
+    int boxcoord[NDIM]; /* Corresponding box coordinate without wrapping */
     int delta[NDIM];    /* Delta vector in boxes */
     int rank;           /* Neighbor process rank */
     int rankcoord[NDIM];/* Neighbor process coordinates without wrapping */
@@ -602,9 +604,18 @@ typedef struct neigh {
     PackBuf recv_rvt; /* Receive atom positions, velocity and type */
 } Neigh;
 
+/* Subdivision of the box into cubic subdomains, each with a list of
+ * neighboring boxes */
+typedef struct Subdomain {
+    int i;                  /* Subdomain index */
+    int nneigh;             /* # of neighbors of this subdomain */
+    int delta[NDIM];        /* Delta offset of the subdomain */
+    Neigh *neigh[NNEIGH];   /* List of neighbors (pointers) */
+} Subdomain;
+
 /* All information needed for a box of the simulation */
 typedef struct box {
-    int i;      /* Box index for this process */
+    int i;          /* Box index for this process */
     int idim[NDIM]; /* Box index per dimension */
 
     int nlocal; /* Number of local atoms in this box */
@@ -623,10 +634,15 @@ typedef struct box {
     Domain domcore; /* Extension of the box minus R_neigh */
     Domain domhalo; /* Extension of the box plus R_neigh */
 
-    Vec *r; /* Atom positions */
-    Vec *v; /* Velocities */
-    Vec *f; /* Forces */
-    int *atomtype;
+    Subdomain sub[NSUB]; /* Array of subdomains */
+
+    /* These vectors hold the `nlocal` local atoms and, immediately
+     * after, the `nghost` ghost atoms. They may not use all the fields
+     * (ghost don't have velocity). The allocated size is `nalloc` */
+    Vec *r; /* Atom position */
+    Vec *v; /* Atom velocity */
+    Vec *f; /* Atom force */
+    int *atomtype; /* Atom type (mimics original code complexity) */
 
     int maxneighs; /* Allocated number of neighbors per atom */
     int *neighbors; /* Neighbor index 2D array of nlocal X maxneighbors */
@@ -762,5 +778,7 @@ void packbuf_unpack_rt(PackBuf *pb, Vec *r, int *types);
 void packbuf_unpack_rvt(PackBuf *pb, Vec *r, Vec *v, int *types);
 void packbuf_clear(PackBuf *pb);
 void packbuf_init(PackBuf *pb, int atomsize);
+
+void build_neighlist(Sim *sim);
 
 #endif /* TYPES_H */

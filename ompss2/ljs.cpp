@@ -626,9 +626,17 @@ setup_neighbors_box(Sim *sim, Box *box)
                     neigh->delta[d] = delta[d];
                 }
 
-                /* Get neighbor rank coordinates */
-                for (int d = X; d <= Z; d++)
-                    neigh->rankcoord[d] = sim->rankdim[d] + delta[d] / nn;
+                /* Get neighbor rank and box coordinates */
+                for (int d = X; d <= Z; d++) {
+                    neigh->boxcoord[d] = box->idim[d] + delta[d];
+                    if (neigh->boxcoord[d] < 0) {
+                        neigh->rankcoord[d] = -1;
+                    } else if (neigh->boxcoord[d] >= sim->nboxesdim[d]) {
+                        neigh->rankcoord[d] = sim->rankdim[d];
+                    } else {
+                        neigh->rankcoord[d] = neigh->boxcoord[d] / sim->nboxesdim[d];
+                    }
+                }
 
                 /* Use the rank coordinates to find the rank */
                 MPI_Cart_rank(sim->cartesian, neigh->rankcoord, &neigh->rank);
@@ -651,10 +659,10 @@ setup_neighbors_box(Sim *sim, Box *box)
         neigh->wraps = 0;
 
         for (int d = X; d <= Z; d++) {
-            if (neigh->rankcoord[d] < 0) {
+            if (neigh->boxcoord[d] < 0) {
                 neigh->addpbc[d] = +sim->worldlen[d];
                 neigh->wraps = 1;
-            } else if (neigh->rankcoord[d] >= sim->nranksdim[d]) {
+            } else if (neigh->boxcoord[d] >= sim->nboxesdim[d]) {
                 neigh->addpbc[d] = -sim->worldlen[d];
                 neigh->wraps = 1;
             } else {
@@ -670,7 +678,7 @@ setup_neighbors_box(Sim *sim, Box *box)
 
         neigh->opposite = &box->neigh[opposite_neigh(in)];
 
-        if (neigh->rank != sim->rank) {
+        if (neigh->rank == sim->rank) {
             /* Only the Y dimension is relevant */
             int ib = box->i + neigh->delta[Y];
             if (ib < 0)
@@ -690,6 +698,70 @@ setup_neighbors(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++)
         setup_neighbors_box(sim, &sim->box[i]);
+}
+
+static int
+subdomain_has_neigh(Sim *sim, Subdomain *sub, Neigh *neigh)
+{
+    for (int d = X; d <= Z; d++) {
+        /* Select neighbors in the enclosed volume */
+        int lo = MIN(sub->delta[d], 0);
+        int hi = MAX(sub->delta[d], 0);
+
+        /* Ignore if out of range */
+        if (neigh->delta[d] < lo || neigh->delta[d] > hi)
+            return 0;
+
+        /* Ignore neighbors with single rank dimensions */
+        if (neigh->delta[d] != 0 && sim->nboxesdim[d] == 1)
+            return 0;
+    }
+
+    return 1;
+}
+
+static void
+setup_subdomains_box(Sim *sim, Box *box)
+{
+    int delta[NDIM];
+
+//    fprintf(stderr, "setup subdomains for box %d\n", box->i);
+
+    for (delta[Z] = -1; delta[Z] <= 1; delta[Z]++) {
+        for (delta[Y] = -1; delta[Y] <= 1; delta[Y]++) {
+            for (delta[X] = -1; delta[X] <= 1; delta[X]++) {
+                int i = delta2subdom(delta);
+
+                Subdomain *sub = &box->sub[i];
+                sub->i = i;
+                for (int d = X; d <= Z; d++)
+                    sub->delta[d] = delta[d];
+
+                sub->nneigh = 0;
+
+                for (int j = 0; j < NNEIGH; j++) {
+                    Neigh *neigh = &box->neigh[j];
+
+                    if (subdomain_has_neigh(sim, sub, neigh)) {
+
+                        sub->neigh[sub->nneigh++] = neigh;
+
+ //                       fprintf(stderr, "box %d sub (%2d %2d %2d): adding neigh (%2d %2d %2d)\n",
+ //                               box->i,
+ //                               sub->delta[X], sub->delta[Y], sub->delta[Z],
+ //                               neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void
+setup_subdomains(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++)
+        setup_subdomains_box(sim, &sim->box[i]);
 }
 
 static void
@@ -826,6 +898,8 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     setup_neighbors(sim);
 
+    setup_subdomains(sim);
+
     /* Init pack buffers */
     setup_packbuf(sim);
 
@@ -838,7 +912,10 @@ sim_init(Sim *sim, int argc, char *argv[])
      * initialized in their correct box. */
     comm_atoms_correct_box(sim);
 
+    /* Copy the ghost atoms into the neighbor processes */
     comm_borders(sim);
+
+    build_neighlist(sim);
 
 //    // DSM: Multibox change. Needs to be called per Atom instance
 //    for (int i = 0; i < in.nboxes; i++) {

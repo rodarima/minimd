@@ -38,4 +38,17 @@ delta2neigh(int delta[NDIM])
     return index;
 }
 
+static inline int
+delta2subdom(int delta[NDIM])
+{
+    /* Transform delta into zero based offsets */
+    int off[NDIM] = {
+        delta[X] + 1,
+        delta[Y] + 1,
+        delta[Z] + 1
+    };
+
+    return off[Z] * 3 * 3 + off[Y] * 3 + off[X];
+}
+
 #endif /* NEIGH_H */

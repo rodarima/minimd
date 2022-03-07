@@ -1,5 +1,6 @@
 #include "types.h"
 #include "neigh.h"
+#include "dom.h"
 
 #include <mpi.h>
 #include <stdio.h>
@@ -45,28 +46,6 @@ copy_atom_rvt(Box *box, int src, int dst)
     box->atomtype[dst] = box->atomtype[src];
 }
 
-/* Returns 0 if the position is ouside the domain, and writes the offset
- * in delta. Otherwise returns 1 */
-static int
-is_inside_domain(Vec r, Domain dom, int delta[NDIM])
-{
-    int inside = 1;
-
-    for (int d = X; d <= Z; d++) {
-        if (r[d] < dom[d][LO]) {
-            inside = 0;
-            delta[d] = -1;
-        } else if (r[d] >= dom[d][HI]) {
-            inside = 0;
-            delta[d] = +1;
-        } else {
-            delta[d] = 0;
-        }
-    }
-
-    return inside;
-}
-
 static int
 build_tag(Box *box, Neigh *neigh)
 {
@@ -104,7 +83,7 @@ box_pack_rvt(Sim *sim, Box *box)
         Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
         int delta[NDIM];
 
-        if (is_inside_domain(r, box->dombox, delta)) {
+        if (in_domain_delta(r, box->dombox, delta)) {
             i++;
             continue;
         }
@@ -203,7 +182,6 @@ box_pack_borders(Sim *sim, Box *box)
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++) {
         packbuf_clear(&box->neigh[i].send_rt);
-        packbuf_clear(&box->neigh[i].recv_rt);
     }
 
     /* Reset ghosts in this box */
@@ -211,20 +189,56 @@ box_pack_borders(Sim *sim, Box *box)
 
     for (int i = 0; i < box->nlocal; i++) {
         int delta[NDIM];
+        Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
 
-        if (is_inside_domain(box->r[i], box->domcore, delta))
+        if (in_domain_delta(r, box->domcore, delta))
             continue;
 
-        //fprintf(stderr, "atom %d out of core, delta (%2d %2d %2d)\n",
-        //        i, delta[X], delta[Y], delta[Z]);
+        if (!in_domain(r, box->dombox)) {
+            fprintf(stderr, "box %d contains local atom %d at %e %e %e outside box domain\n",
+                    box->i, i, r[X], r[Y], r[Z]);
+            abort();
+        }
 
-        Neigh *neigh = &box->neigh[delta2neigh(delta)];
+        Subdomain *sub = &box->sub[delta2subdom(delta)];
 
-        //fprintf(stderr, "atom %d in neigh %d\n",
-        //        i, neigh->i);
+        for (int j = 0; j < sub->nneigh; j++) {
 
-        packbuf_add_rt(&neigh->send_rt, box->r[i], box->atomtype[i]);
+            Neigh *neigh = sub->neigh[j];
+
+//            fprintf(stderr, "atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
+//                    i, delta[X], delta[Y], delta[Z], neigh->i,
+//                    sub->nneigh);
+
+            /* Enforce PBC before packing the atom position */
+            if (neigh->wraps) {
+                //fprintf(stderr, "wrapping neigh %d atom %d position from %e %e %e\n",
+                //        neigh->i, i, r[X], r[Y], r[Z]);
+    
+                for (int d = X; d <= Z; d++)
+                    r[d] += neigh->addpbc[d];
+    
+                //fprintf(stderr, "wrapped  neigh %d atom %d position to   %e %e %e\n",
+                //        neigh->i, i, r[X], r[Y], r[Z]);
+            }
+
+//            if (box->i == 1 && i == 2000) {
+//                abort();
+//            }
+
+            if (neigh->box && neigh->box->i == box->i) {
+                fprintf(stderr, "cannot send border atom to same box %d\n",
+                        box->i);
+                abort();
+            }
+
+            packbuf_add_rt(&neigh->send_rt, r, -box->i * 1000000 - i);
+        }
+
     }
+//    if (box->i == 1) {
+//        abort();
+//    }
 
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
@@ -238,6 +252,9 @@ box_pack_borders(Sim *sim, Box *box)
 static void
 box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 {
+    if (neigh->recv_rt.natoms == 0)
+        return;
+
     /* Ensure we have room to place the new ghost atoms */
     int nnew = neigh->recv_rt.natoms;
     int nend = box->nlocal + box->nghost;
@@ -252,42 +269,112 @@ box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     //        box->i, oldalloc, box->nalloc, nnew, nend, ntot);
 
     /* Unpack the position and type at the end of the local atoms */
-    Vec *r = &box->r[nend];
-    int *types = &box->atomtype[nend];
-    packbuf_unpack_rt(&neigh->recv_rt, r, types);
+    packbuf_unpack_rt(&neigh->recv_rt, &box->r[nend], &box->atomtype[nend]);
+
+    for (int i = nend; i < ntot; i++) {
+        Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
+        if (!in_domain(r, box->domhalo)) {
+            fprintf(stderr, "error: unpacked ghost atom %d at %e %e %e outside halo domain\n",
+                    i, r[X], r[Y], r[Z]);
+            abort();
+        }
+        if (in_domain(r, box->dombox)) {
+            fprintf(stderr, "error: unpacked ghost atom %d at %e %e %e inside box domain\n",
+                    i, r[X], r[Y], r[Z]);
+            abort();
+        }
+    }
 
     /* Adjust the number of ghost atoms in the box */
     box->nghost += nnew;
 }
 
-void
-comm_borders(Sim *sim)
+static void
+comm_borders_pack(Sim *sim)
 {
-    fprintf(stderr, "comm_borders begins\n");
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_pack_borders(sim, box);
     }
+}
 
+static void
+comm_borders_send(Sim *sim)
+{
     for (int i = 0; i < sim->nboxes; i++) {
-        fprintf(stderr, "comm_borders processing box %d\n", i);
         Box *box = &sim->box[i];
-        for (int i = 0; i < NNEIGH; i++) {
-            Neigh *neigh = &box->neigh[i];
-            Neigh *opp = neigh->opposite;
-
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *neigh = &box->neigh[j];
             if (neigh->rank != sim->rank) {
                 packbuf_mpisend(&neigh->send_rt, neigh->rank, neigh->i);
-                packbuf_mpirecv(&opp->recv_rt, opp->rank, opp->i);
             } else {
-                fprintf(stderr, "copying %d atoms from neigh %d to %d\n",
-                        neigh->send_rt.natoms, neigh->i, opp->i);
-
-                packbuf_shmcopy(&neigh->send_rt, &opp->recv_rt);
+                /* No-op: will be copied via shared memory at recv */
             }
+        }
+    }
+}
 
+static void
+comm_borders_recv(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            /* Use the inverse order for reception */
+            Neigh *dstneigh = box->neigh[j].opposite;
+
+            /* Clear receive buffer */
+            packbuf_clear(&dstneigh->recv_rt);
+
+            if (dstneigh->rank != sim->rank) {
+                packbuf_mpirecv(&dstneigh->recv_rt, dstneigh->rank, dstneigh->i);
+            } else {
+                /* Get the source box from the neighbor and find the
+                 * neighbor which contains the send buffer. Example:
+                 *
+                 * +Y
+                 * ^
+                 * |   +-----+         In this example, box_0 must receive
+                 * |   |box_1|         the atoms from box_1. The neighbor
+                 * |   |     |         neigh_15 pointing upwards (+Y) is
+                 *     +--|--+         where the recv buffer is located.
+                 *        v neigh_10   
+                 *          (0, -1, 0) However, we must first access the
+                 *                     neigh_15->box to find box_1, and
+                 *          neigh_15   then compute the opposite neighbor.
+                 *        ^ (0, +1, 0) 
+                 *     +--|--+         The opposite neighbor is at
+                 *     |box_0|         neigh_10 = opposite_neigh(15)
+                 *     |     |         The send buffer is then used from
+                 *     +-----+         neigh_10.
+                 *
+                 */
+                Box *srcbox = dstneigh->box;
+                Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
+                packbuf_shmcopy(&srcneigh->send_rt, &dstneigh->recv_rt);
+            }
+        }
+    }
+}
+
+static void
+comm_borders_unpack(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            /* Use the inverse order for unpack */
+            Neigh *opp = box->neigh[j].opposite;
             box_unpack_rt(sim, box, opp);
         }
     }
-    fprintf(stderr, "comm_borders ends\n");
+}
+
+void
+comm_borders(Sim *sim)
+{
+    comm_borders_pack(sim);
+    comm_borders_send(sim);
+    comm_borders_recv(sim);
+    comm_borders_unpack(sim);
 }
