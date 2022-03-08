@@ -35,6 +35,4 @@
 #include "threadData.h"
 #include "types.h"
 
-void check_ghost_overlap(Atom *a);
-
 #endif

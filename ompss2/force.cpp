@@ -216,9 +216,9 @@ update_force_bin(Force *force, Box *box, Bin *bin, int ntypes)
 {
     for (int i = 0; i < bin->natoms; i++) {
         /* Compute the actual atom index */
-        int iatom = bin->iatom[i];
-        int *neighs = &box->neighbors[iatom * box->maxneighs];
-        int numneighs = box->numneighs[iatom];
+        int iatom = bin->atom[i];
+        int *neighs = box->nearby[i].atom;
+        int numneighs = box->nearby[i].natoms;
 
         /* Ignore ghost atoms */
         if (iatom >= box->nlocal)

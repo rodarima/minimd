@@ -157,6 +157,9 @@ setup_bin_stencil(Sim *sim, Box *box, int enclosed_nbins[NDIM])
     box->nstencil = 0;
 
     int i[NDIM];
+
+    /* XXX: Note that we are not taking into account different R_neigh
+     * for each pair of atom types. */
     double R_neigh_sq = sim->R_neigh * sim->R_neigh;
 
     /* Select those bins that fall inside the R_neigh radius */
@@ -219,7 +222,8 @@ setup_bins_box(Sim *sim, Box *box)
     for (int i = 0; i < box->nbinsalloc; i++) {
         /* Initialize empty bins */
         box->bin[i].natoms = 0;
-        box->bin[i].iatom = NULL;
+        box->bin[i].nalloc = 0;
+        box->bin[i].atom = NULL;
     }
 
     setup_bin_stencil(sim, box, enclosed_nbins);
@@ -317,6 +321,7 @@ setup_atoms_box(Sim *sim, Box *box)
     box->v = NULL;
     box->f = NULL;
     box->atomtype = NULL;
+    box->nearby = NULL;
 
     /* Determine loop bounds of lattice subsection that overlaps my
      * sub-box insure loop bounds do not exceed nx,ny,nz */
@@ -598,6 +603,14 @@ setup_params(Sim *sim)
     sim->e_scale = 0.5;
 
     sim->sort_period = sim->neighbor_period;
+
+    int pairtypes = sim->ntypes * sim->ntypes;
+
+    sim->R_neigh_sq = (double *) calloc(pairtypes, sizeof(double));
+
+    for (int i = 0; i < pairtypes; i++) {
+        sim->R_neigh_sq[i] = sim->R_neigh * sim->R_neigh;
+    }
 }
 
 static void
@@ -915,15 +928,8 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* Copy the ghost atoms into the neighbor processes */
     comm_borders(sim);
 
-    build_neighlist(sim);
+    build_nearby_atoms(sim);
 
-//    // DSM: Multibox change. Needs to be called per Atom instance
-//    for (int i = 0; i < in.nboxes; i++) {
-//        // DSM: Multibox TODO: Fix this chain of references (calling a method on an attribute with a reference to
-//        // itself)
-//        atoms[i]->neighbor->build(*atoms[i]); // DSM: No MPI calls here.
-//    }
-//
 //    force_update(&sim, atoms);
 //
 //    if (me == 0)

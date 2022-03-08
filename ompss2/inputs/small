@@ -4,7 +4,7 @@ lj             units (lj or metal)
 none           data file (none or filename)
 lj             force style (lj or eam)
 1.0 1.0        LJ parameters (epsilon and sigma; COMD: 0.167 / 2.315)
-31 31 31       size of problem                                              &in.nx, &in.ny, &in.nz
+32 32 32       size of problem                                              &in.nx, &in.ny, &in.nz
 200             timesteps                                                    &in.ntimes
 0.005          timestep size                                                &in.dt
 1.44           initial temperature                                          &in.t_request

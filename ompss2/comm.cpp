@@ -232,7 +232,7 @@ box_pack_borders(Sim *sim, Box *box)
                 abort();
             }
 
-            packbuf_add_rt(&neigh->send_rt, r, -box->i * 1000000 - i);
+            packbuf_add_rt(&neigh->send_rt, r, box->atomtype[i]);
         }
 
     }
