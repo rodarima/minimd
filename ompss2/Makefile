@@ -41,7 +41,7 @@ all: $(EXE)
 # Link
 #$(EXE): $(OBJ)
 #	$(MPILINK) $(LDFLAGS) -o $@ $^
-$(EXE): ljs.o box.o input.o force.o safe.o packbuf.o comm.o neigh.o
+$(EXE): ljs.o box.o input.o force.o safe.o packbuf.o comm.o neigh.o thermo.o
 	$(MPILINK) $(LDFLAGS) -o $@ $^
 
 clean:

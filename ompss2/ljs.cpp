@@ -221,9 +221,8 @@ setup_bins_box(Sim *sim, Box *box)
 
     for (int i = 0; i < box->nbinsalloc; i++) {
         /* Initialize empty bins */
-        box->bin[i].natoms = 0;
-        box->bin[i].nalloc = 0;
-        box->bin[i].atom = NULL;
+        Bin *bin = &box->bin[i];
+        memset(bin, 0, sizeof(Bin));
     }
 
     setup_bin_stencil(sim, box, enclosed_nbins);
@@ -786,10 +785,10 @@ setup_thermo(Sim *sim)
         /* All the bins, including outside the box */
         for (int j = 0; j < box->nbinsalloc; j++) {
             Bin *bin = &box->bin[j];
-            bin->pot_energy = (double *) malloc(sizeof(double) * sim->timesteps);
-            bin->kin_energy = (double *) malloc(sizeof(double) * sim->timesteps);
-            bin->vdwl_energy = (double *) malloc(sizeof(double) * sim->timesteps);
-            bin->virial_temp = (double *) malloc(sizeof(double) * sim->timesteps);
+            bin->pot_energy = 0.0;
+            bin->kin_energy = 0.0;
+            bin->vdwl_energy = 0.0;
+            bin->virial_temp = 0.0;
         }
     }
 }
@@ -930,12 +929,9 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     build_nearby_atoms(sim);
 
-//    force_update(&sim, atoms);
-//
-//    if (me == 0)
-//        printf("# Timestep T U P Time\n");
-//
-//    thermo.compute(0, atoms, NULL, timer);
+    force_update(sim);
+
+    thermo_update(sim);
 }
 
 void

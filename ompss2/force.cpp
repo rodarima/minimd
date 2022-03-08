@@ -144,6 +144,10 @@ update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, i
 {
     int type_offset = box->atomtype[i] * ntypes;
     Vec local_f = { 0.0, 0.0, 0.0 };
+#ifdef ENABLE_REALTIME_ENERGY
+    bin->vdwl_energy = 0.0;
+    bin->virial_temp = 0.0;
+#endif
 
     /* Current atom position vector */
     Vec ri = {
@@ -194,8 +198,8 @@ update_force_atom(Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, i
         /* Accumulate Van der Waals energy and virial temperature in
          * real time per bin. Energy needs correction to account the
          * R_force approximation. */
-        bin->vdwl_energy[box->force_iter] += (sr6 - 1.0) * sr6eps;
-        bin->virial_temp[box->force_iter] += sqdist * forcemag;
+        bin->vdwl_energy += (sr6 - 1.0) * sr6eps;
+        bin->virial_temp += sqdist * forcemag;
 #endif
     }
 
@@ -217,24 +221,27 @@ update_force_bin(Force *force, Box *box, Bin *bin, int ntypes)
     for (int i = 0; i < bin->natoms; i++) {
         /* Compute the actual atom index */
         int iatom = bin->atom[i];
-        int *neighs = box->nearby[i].atom;
-        int numneighs = box->nearby[i].natoms;
 
         /* Ignore ghost atoms */
         if (iatom >= box->nlocal)
             continue;
+
+        int *neighs = box->nearby[iatom].atom;
+        int numneighs = box->nearby[iatom].natoms;
 
         update_force_atom(force, box, bin, iatom, numneighs, neighs,
                 ntypes);
     }
 }
 
-/* Update force for all atoms in a box */
+/* Update force for the local atoms in a box */
 static void
 update_force_box(Force *force, Box *box, int ntypes)
 {
     force_hist_clear(force, box->i);
 
+    /* TODO: We may be able to iterate only through the bins in the box
+     * domain */
     for (int i = 0; i < box->nbinsalloc; i++) {
         Bin *bin = &box->bin[i];
         update_force_bin(force, box, bin, ntypes);
@@ -278,7 +285,8 @@ force_free(Force *force)
 }
 
 /* Updates the force in all boxes */
-void force_update(Sim *sim)
+void
+force_update(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];

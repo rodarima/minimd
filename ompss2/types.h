@@ -116,10 +116,10 @@ typedef struct bin {
     int *atom; /* Indexes of the atoms */
 
     /* Thermal information keep per time step in reduced units */
-    double *pot_energy; /* Potential energy */
-    double *kin_energy; /* Kinetic energy */
-    double *vdwl_energy; /* Van der Waals pairwise energy */
-    double *virial_temp; /* Virial temperature */
+    double pot_energy; /* Potential energy */
+    double kin_energy; /* Kinetic energy */
+    double vdwl_energy; /* Van der Waals pairwise energy */
+    double virial_temp; /* Virial temperature */
 } Bin;
 
 #define NNEIGHSIDE 1
@@ -213,9 +213,11 @@ typedef struct box {
     int force_iter; /* Current force iteration */
     int thermo_iter;
 
-    double *pot_energy;
-    double *kin_energy;
-    double *virial_temp;
+    /* Thermal information keep per time step in reduced units */
+    double pot_energy; /* Potential energy */
+    double kin_energy; /* Kinetic energy */
+    double vdwl_energy; /* Van der Waals pairwise energy */
+    double virial_temp; /* Virial temperature */
 
     Neigh neigh[NNEIGH]; /* Neighboring boxes info */
 } Box;
@@ -324,6 +326,7 @@ void box_grow_array(Box *box);
 void box_add_atom(Box *box, Vec r, Vec v, int type);
 
 void force_init(Sim *sim);
+void force_update(Sim *sim);
 
 void comm_setup(Sim *sim);
 void comm_atoms_correct_box(Sim *sim);
@@ -342,5 +345,7 @@ void packbuf_clear(PackBuf *pb);
 void packbuf_init(PackBuf *pb, int atomsize);
 
 void build_nearby_atoms(Sim *sim);
+
+void thermo_update(Sim *sim);
 
 #endif /* TYPES_H */
