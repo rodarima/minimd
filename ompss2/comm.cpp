@@ -98,7 +98,7 @@ box_pack_rvt(Sim *sim, Box *box)
                 r[d] += neigh->addpbc[d];
         }
 
-        packbuf_add_rvt(&neigh->send_rvt, r, box->v[i], box->atomtype[i]);
+        packbuf_add(&neigh->send_rvt, &r, &box->v[i], &box->atomtype[i]);
 
         int src = box->nlocal - 1, dst = i;
         copy_atom_rvt(box, src, dst);
@@ -147,7 +147,7 @@ box_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
     Vec *r = &box->r[box->nlocal];
     Vec *v = &box->v[box->nlocal];
     int *types = &box->atomtype[box->nlocal];
-    packbuf_unpack_rvt(&neigh->recv_rvt, r, v, types);
+    packbuf_unpack(&neigh->recv_rvt, r, v, types);
 
     /* Adjust the number of local atoms in the box */
     box->nlocal = n;
@@ -232,7 +232,7 @@ box_pack_borders(Sim *sim, Box *box)
                 abort();
             }
 
-            packbuf_add_rt(&neigh->send_rt, r, box->atomtype[i]);
+            packbuf_add_sel(&neigh->send_rt, &r, NULL, &box->atomtype[i], i);
         }
 
     }
@@ -269,7 +269,7 @@ box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     //        box->i, oldalloc, box->nalloc, nnew, nend, ntot);
 
     /* Unpack the position and type at the end of the local atoms */
-    packbuf_unpack_rt(&neigh->recv_rt, &box->r[nend], &box->atomtype[nend]);
+    packbuf_unpack(&neigh->recv_rt, &box->r[nend], NULL, &box->atomtype[nend]);
 
     for (int i = nend; i < ntot; i++) {
         Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
@@ -377,4 +377,141 @@ comm_borders(Sim *sim)
     comm_borders_send(sim);
     comm_borders_recv(sim);
     comm_borders_unpack(sim);
+}
+
+static void
+box_pack_ghost_r(Sim *sim, Box *box)
+{
+    fprintf(stderr, "packing internal ghosts from box %d\n", box->i);
+
+    /* Reset all PackBuf from neighbors */
+    for (int i = 0; i < NNEIGH; i++) {
+        packbuf_clear(&box->neigh[i].send_r);
+    }
+
+    /* Use the selection in send_rt populated by borders to pack the
+     * atom position */
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        PackBuf *pb = &neigh->send_rt;
+
+        for (int j = 0; j < pb->natoms; j++) {
+            int iatom = pb->sel[j];
+            if (iatom < 0 || iatom >= box->nlocal) {
+                fprintf(stderr, "atom %d outside local range\n", iatom);
+                abort();
+            }
+
+            Vec r = { box->r[iatom][X], box->r[iatom][Y], box->r[iatom][Z] };
+
+            /* Enforce PBC before packing the atom position */
+            if (neigh->wraps) {
+                for (int d = X; d <= Z; d++)
+                    r[d] += neigh->addpbc[d];
+            }
+
+            packbuf_add(&neigh->send_r, &r, NULL, NULL);
+        }
+    }
+}
+
+static void
+send_ghost_position(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *neigh = &box->neigh[j];
+            if (neigh->rank != sim->rank) {
+                /* Only send the atom buffer, the receive end already
+                 * knows the size */
+                packbuf_mpisend_buf(&neigh->send_r, neigh->rank, neigh->i);
+            } else {
+                /* No-op: will be copied via shared memory at recv */
+            }
+        }
+    }
+}
+
+static void
+recv_ghost_position(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            /* Use the inverse order for reception */
+            Neigh *dstneigh = box->neigh[j].opposite;
+
+            /* Get the number of atoms to be received from the pack
+             * buffer used in the borders */
+            int natoms = dstneigh->recv_rt.natoms;
+
+            /* Clear receive buffer */
+            packbuf_clear(&dstneigh->recv_r);
+
+            if (dstneigh->rank != sim->rank) {
+                packbuf_mpirecv_buf(&dstneigh->recv_r, dstneigh->rank,
+                        dstneigh->i, natoms);
+            } else {
+                /* Get the source box from the neighbor and find the
+                 * neighbor which contains the send buffer */
+                Box *srcbox = dstneigh->box;
+                Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
+
+                if (srcneigh->send_r.natoms != natoms)
+                    abort();
+
+                packbuf_shmcopy(&srcneigh->send_r, &dstneigh->recv_r);
+            }
+
+            if (natoms != 0) {
+                fprintf(stderr, "box %d: unpacked %d ghost atoms from neigh %d\n",
+                        box->i, natoms, j);
+            }
+        }
+    }
+}
+
+static void
+box_unpack_r(Sim *sim, Box *box, Neigh *neigh)
+{
+    if (neigh->recv_r.natoms == 0)
+        return;
+
+    if (neigh->recv_rt.natoms != neigh->recv_r.natoms)
+        abort();
+
+    /* Overwrite the ghost atom positions in the box using the selection
+     * of atoms in recv_rt populated by the borders. */
+    packbuf_unpack_sel(&neigh->recv_r, box->r, NULL, NULL,
+            neigh->recv_rt.sel);
+
+    /* We cannot check the domain bounds of the new ghost atom
+     * positions, as they are moving around, even exeeding domhalo */
+}
+
+static void
+unpack_ghost_position(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            /* Use the inverse order for unpack */
+            Neigh *opp = box->neigh[j].opposite;
+            box_unpack_r(sim, box, opp);
+        }
+    }
+}
+
+/* Send/recv ghost positions */
+void
+comm_ghost_position(Sim *sim)
+{
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        box_pack_ghost_r(sim, box);
+    }
+
+    send_ghost_position(sim);
+    recv_ghost_position(sim);
 }

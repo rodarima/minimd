@@ -803,10 +803,12 @@ setup_packbuf(Sim *sim)
             Neigh *neigh = &box->neigh[j];
 
             /* Setup the number of doubles needed per buffer */
-            packbuf_init(&neigh->send_rt, NDIM + 1);
-            packbuf_init(&neigh->recv_rt, NDIM + 1);
-            packbuf_init(&neigh->send_rvt, NDIM + NDIM + 1);
-            packbuf_init(&neigh->recv_rvt, NDIM + NDIM + 1);
+            packbuf_init(&neigh->send_r,    0, NDIM);
+            packbuf_init(&neigh->recv_r,    0, NDIM);
+            packbuf_init(&neigh->send_rt,   1, NDIM + 1);
+            packbuf_init(&neigh->recv_rt,   1, NDIM + 1);
+            packbuf_init(&neigh->send_rvt,  0, NDIM + NDIM + 1);
+            packbuf_init(&neigh->recv_rvt,  0, NDIM + NDIM + 1);
         }
     }
 }
@@ -937,10 +939,33 @@ sim_init(Sim *sim, int argc, char *argv[])
 void
 sim_run(Sim *sim)
 {
-//    // DSM: Main loop over time steps located here.
-//    timer.barrier_start(TIME_TOTAL);
-//    integrate.run(atoms, NULL, comm, thermo, timer);
-//    timer.barrier_stop(TIME_TOTAL);
+    /* Main simulation loop */
+    for (sim->iter = 0; sim->iter < sim->timesteps; sim->iter++) {
+        fprintf(stderr, "===== RUNNING ITERATION %d =====\n", sim->iter);
+
+        int recompute_neigh = ((sim->iter + 1) % sim->neighbor_period == 0);
+        int print_thermo_stats = ((sim->iter + 1) % sim->thermo_period == 0);
+
+        /* Update atoms positions and half velocities */
+        integrate_position(sim);
+
+        if (!recompute_neigh) {
+            comm_ghost_position(sim);
+        } else {
+            /* expensive */
+            comm_atoms_correct_box(sim);
+            /* TODO: sort atoms */
+            //sort_atoms(atoms, &comm);
+            comm_borders(sim);
+            build_nearby_atoms(sim);
+        }
+
+        force_update(sim);
+        integrate_velocity(sim);
+
+        if (print_thermo_stats)
+            thermo_update(sim);
+    }
 }
 
 void
@@ -996,7 +1021,7 @@ int main(int argc, char *argv[])
     /* Initialize the simulation structures using the input
      * configuration */
     sim_init(sim, argc, argv);
-    //sim_run(sim);
+    sim_run(sim);
     //sim_finalize(sim);
 
     MPI_Barrier(MPI_COMM_WORLD);

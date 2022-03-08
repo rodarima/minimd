@@ -132,6 +132,8 @@ typedef struct {
     int nalloc;     /* Number of atoms allocated */
     int atomsize;   /* Number of doubles required per atom */
     double *buf;    /* The contiguous buffer */
+    int enable_sel; /* If non-zero use selection for packing */
+    int *sel;       /* Selection of atoms */
     MPI_Request req;
     MPI_Comm comm;
 } PackBuf;
@@ -154,10 +156,10 @@ typedef struct neigh {
     Vec addpbc; /* PBC correction per dimension */
 
     /* Communication packing buffers */
-
+    PackBuf send_r; /* Send atom positions */
+    PackBuf recv_r; /* Receive atom positions */
     PackBuf send_rt; /* Send atom positions and types */
     PackBuf recv_rt; /* Receive atom positions and types */
-
     PackBuf send_rvt; /* Send atom position, velocity and type */
     PackBuf recv_rvt; /* Receive atom positions, velocity and type */
 } Neigh;
@@ -315,6 +317,7 @@ typedef struct sim {
 
     int ntypes; /* Number of atom types (species) */
     int ntotatoms;
+    int iter;	/* Current iteration from the main task */
 
     Force force;
     Box *box;
@@ -331,21 +334,27 @@ void force_update(Sim *sim);
 void comm_setup(Sim *sim);
 void comm_atoms_correct_box(Sim *sim);
 void comm_borders(Sim *sim);
+void comm_ghost_position(Sim *sim);
 
 void *safe_realloc(void *ptr, size_t size);
 
 void packbuf_mpisend(PackBuf *pb, int remoterank, int tag);
 void packbuf_mpirecv(PackBuf *pb, int remoterank, int tag);
+void packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag);
+void packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms);
 void packbuf_shmcopy(PackBuf *src, PackBuf *dst);
-void packbuf_add_rt(PackBuf *pb, Vec r, int type);
-void packbuf_add_rvt(PackBuf *pb, Vec r, Vec v, int type);
-void packbuf_unpack_rt(PackBuf *pb, Vec *r, int *types);
-void packbuf_unpack_rvt(PackBuf *pb, Vec *r, Vec *v, int *types);
+void packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type);
+void packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom);
+void packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types);
+void packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel);
 void packbuf_clear(PackBuf *pb);
-void packbuf_init(PackBuf *pb, int atomsize);
+void packbuf_init(PackBuf *pb, int enable_sel, int atomsize);
 
 void build_nearby_atoms(Sim *sim);
 
 void thermo_update(Sim *sim);
+
+void integrate_position(Sim *sim);
+void integrate_velocity(Sim *sim);
 
 #endif /* TYPES_H */
