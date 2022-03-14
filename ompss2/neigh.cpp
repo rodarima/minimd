@@ -5,48 +5,6 @@
 #define BIN_ALLOC_INCR 100
 #define NEARBY_ALLOC_INCR 100
 
-static int
-get_bin_index(Box *box, int i[NDIM])
-{
-    int index = i[Z] * box->nbinshalo[Y] * box->nbinshalo[X]
-        + i[Y] * box->nbinshalo[X]
-        + i[X];
-
-    if (index < 0 || index >= box->nbinsalloc)
-        abort();
-
-    return index;
-}
-
-/* convert xyz atom coords into local bin #
-   take special care to insure ghost atoms with
-   coord >= prd or coord < 0.0 are put in correct bins */
-
-static inline int
-get_atom_bin(Sim *sim, Box *box, Vec r)
-{
-    int i[NDIM];
-
-    /* The atom position must be inside the halo domain */
-    if (!in_domain(r, box->domhalo)) {
-        fprintf(stderr, "atom outside halo domain: %e %e %e\n",
-                r[X], r[Y], r[Z]);
-        abort();
-    }
-
-    for (int d = X; d <= Z; d++) {
-        /* Compute the relative position of the atom inside the halo
-         * domain, and then just obtain the bin index, dividing by the
-         * bin length */
-        double delta = r[d] - box->domhalo[d][LO];
-
-        /* FIXME: multiply by the inverse to avoid expensive division */
-        i[d] = delta / sim->binlen[d];
-    }
-
-    return get_bin_index(box, i);
-}
-
 static void
 clear_bins(Box *box)
 {
@@ -67,26 +25,6 @@ add_atom_bin(Bin *bin, int iatom)
     bin->atom[bin->natoms++] = iatom;
 }
 
-/* FIXME: place in common header for force.cpp to */
-static double
-dotprod(Vec v)
-{
-    double sum = 0.0;
-
-    for (int d = X; d <= Z; d++) {
-        sum += v[d] * v[d];
-    }
-
-    return sum;
-}
-
-static double
-get_distsq(Vec ri, Vec rj)
-{
-    Vec delta = { ri[X] - rj[X], ri[Y] - rj[Y], ri[Z] - rj[Z] };
-    return dotprod(delta);
-}
-
 static void
 add_nearby_atom(Nearby *nearby, int iatom)
 {
@@ -104,7 +42,7 @@ build_nearby_atoms_box(Sim *sim, Box *box)
     /* Build nearby lists only for local atoms */
     for (int iatom = 0; iatom < box->nlocal; iatom++) {
         Vec ri = { box->r[iatom][X], box->r[iatom][Y], box->r[iatom][Z] };
-        int itype = box->atomtype[iatom];
+        int itype = box->atomtype[iatom] % 10000;
 
         /* Clear the previous nearby list */
         Nearby *nearby = &box->nearby[iatom];
@@ -146,7 +84,7 @@ build_nearby_atoms_box(Sim *sim, Box *box)
                 int jtype = box->atomtype[jatom];
 
                 double dist_sq = get_distsq(ri, rj);
-                int pairtype = itype * sim->ntypes + jtype;
+                int pairtype = itype * sim->ntypes + (jtype % 10000);
                 double R_neigh_sq = sim->R_neigh_sq[pairtype];
 
                 /* You have gone too far */

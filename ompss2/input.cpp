@@ -155,10 +155,10 @@ parse_input_file(Sim *sim, const char *filename)
 static void
 check_input(Sim *sim)
 {
-    if (sim->nboxes < 3) {
-        fprintf(stderr, "error: at least 3 boxes needed\n");
-        abort();
-    }
+//    if (sim->nboxes < 3) {
+//        fprintf(stderr, "error: at least 3 boxes needed\n");
+//        abort();
+//    }
 
     if (sim->timesteps <= 0) {
         fprintf(stderr, "error: timesteps must be > 0\n");

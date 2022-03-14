@@ -3,7 +3,7 @@ let
     "https://pm.bsc.es/gitlab/rarias/bscpkgs/-/archive/update-ompss2/bscpkgs-master.tar.gz");
 
   rWrapper = pkgs.rWrapper.override {
-    packages = with pkgs.rPackages; [ tidyverse rjson jsonlite egg ];
+    packages = with pkgs.rPackages; [ tidyverse rjson jsonlite egg viridis ];
   };
 
   clangOmpss2UnwrappedFixed = pkgs.bsc.clangOmpss2UnwrappedGit.overrideAttrs (old: rec {
@@ -11,6 +11,7 @@ let
       url = "ssh://git@bscpm03.bsc.es/llvm-ompss/llvm-mono.git";
       ref = "master";
       #rev = "dc297872575e16afcd526120118a365bab150efc";
+      rev = "ecc7282a0f7f8494366e42dbc710ffda388ccec9";
     };
     version = src.shortRev;
   });

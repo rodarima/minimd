@@ -122,6 +122,10 @@ setup_boxes(Sim *sim)
             /* Box - internal halos */
             box->domcore[d][LO] = box->dombox[d][LO] + delta;
             box->domcore[d][HI] = box->dombox[d][HI] - delta;
+
+            /* Box + max distance for local atoms */
+            box->dommax[d][LO] = box->dombox[d][LO] - delta * 3.0;
+            box->dommax[d][HI] = box->dombox[d][HI] + delta * 3.0;
         }
     }
 }
@@ -416,19 +420,17 @@ setup_atoms_box(Sim *sim, Box *box)
 
         /* Place atom here */
         box_add_atom(box, r, v, type);
+
+//        /* FIXME: Remove me */
+//        if (box->nlocal == sim->ntotatoms) {
+//            break;
+//        }
     }
 }
 
 static void
-setup_atoms(Sim *sim)
+check_natoms(Sim *sim)
 {
-    /* Setup information per box */
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-        fprintf(stderr, "setting atoms for box %d\n", i);
-        setup_atoms_box(sim, box);
-    }
-
     /* Ensure the total number of atoms is correct */
     int global_natoms = 0;
     int rank_natoms = 0;
@@ -447,6 +449,19 @@ setup_atoms(Sim *sim)
             abort();
         }
     }
+}
+
+static void
+setup_atoms(Sim *sim)
+{
+    /* Setup information per box */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        fprintf(stderr, "setting atoms for box %d\n", i);
+        setup_atoms_box(sim, box);
+    }
+
+    check_natoms(sim);
 }
 
 static double
@@ -543,6 +558,8 @@ setup_temperature(Sim *sim)
     /* Adjust the temperature by scaling the atoms velocity */
     double t = get_temperature(sim);
     double factor = sqrt(sim->t_request / t);
+//    /* FIXME: remove me */
+//    factor = 10.0;
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
@@ -574,6 +591,9 @@ setup_params(Sim *sim)
     /* Set a fixed known seed */
     srand(5413);
 
+    /* Set the current iteration to -1, before sim_run() */
+    sim->iter = -1;
+
     /* Derived constants */
     sim->mass = 1.0; /* Default mass. TODO check optimized value */
     sim->dtforce = 0.5 * sim->dt / sim->mass;
@@ -592,7 +612,9 @@ setup_params(Sim *sim)
      *   |         |/
      *   *---------*
      */
+    /* FIXME: remove me */
     sim->ntotatoms = 4 * sim->npoints[X] * sim->npoints[Y] * sim->npoints[Z];
+    //sim->ntotatoms = 2;
 
     /* Unit conversion constants */
     sim->mvv2e = 1.0;
@@ -600,6 +622,11 @@ setup_params(Sim *sim)
     sim->t_scale = sim->mvv2e / sim->dof_boltz;
     sim->p_scale = 1.0 / 3.0 / sim->boxlen[X] / sim->boxlen[Y] / sim->boxlen[Z];
     sim->e_scale = 0.5;
+
+    /* TODO: We should use an array to mimic the complexity of multiple
+     * atom types */
+    sim->e_cut = 4 * (pow(1.0 / sim->R_force, 12.0)
+            - pow(1.0 / sim->R_force, 6.0));
 
     sim->sort_period = sim->neighbor_period;
 
@@ -643,10 +670,13 @@ setup_neighbors_box(Sim *sim, Box *box)
                     neigh->boxcoord[d] = box->idim[d] + delta[d];
                     if (neigh->boxcoord[d] < 0) {
                         neigh->rankcoord[d] = -1;
+                        neigh->boxcoordw[d] = sim->nboxesdim[d] - 1;
                     } else if (neigh->boxcoord[d] >= sim->nboxesdim[d]) {
                         neigh->rankcoord[d] = sim->rankdim[d];
+                        neigh->boxcoordw[d] = 0;
                     } else {
                         neigh->rankcoord[d] = neigh->boxcoord[d] / sim->nboxesdim[d];
+                        neigh->boxcoordw[d] = neigh->boxcoord[d];
                     }
                 }
 
@@ -724,9 +754,9 @@ subdomain_has_neigh(Sim *sim, Subdomain *sub, Neigh *neigh)
         if (neigh->delta[d] < lo || neigh->delta[d] > hi)
             return 0;
 
-        /* Ignore neighbors with single rank dimensions */
-        if (neigh->delta[d] != 0 && sim->nboxesdim[d] == 1)
-            return 0;
+//        /* Ignore neighbors with single rank dimensions */
+//        if (neigh->delta[d] != 0 && sim->nboxesdim[d] == 1)
+//            return 0;
     }
 
     return 1;
@@ -754,15 +784,39 @@ setup_subdomains_box(Sim *sim, Box *box)
                 for (int j = 0; j < NNEIGH; j++) {
                     Neigh *neigh = &box->neigh[j];
 
-                    if (subdomain_has_neigh(sim, sub, neigh)) {
+                    if (!subdomain_has_neigh(sim, sub, neigh))
+                        continue;
 
-                        sub->neigh[sub->nneigh++] = neigh;
+//                    /* Ensure the neighbor is not already in the list;
+//                     * this may happen if by wrapping we end up in the
+//                     * same box. */
+//                    int skip = 0;
+//                    int *coord = neigh->boxcoordw;
+//                    for (int k = 0; k < sub->nneigh; k++) {
+//                        /* Assume coordinates are equal */
+//                        int same = 1;
+//                        for (int d = X; d <= Z; d++) {
+//                            if (coord[d] != sub->neigh[k]->boxcoordw[d])
+//                                same = 0;
+//                        }
+//
+//                        /* If we found a neighbor with the same box
+//                         * coordinates, skip it */
+//                        if (same) {
+//                            skip = 1;
+//                            break;
+//                        }
+//                    }
+//
+//                    if (skip)
+//                        continue;
 
- //                       fprintf(stderr, "box %d sub (%2d %2d %2d): adding neigh (%2d %2d %2d)\n",
- //                               box->i,
- //                               sub->delta[X], sub->delta[Y], sub->delta[Z],
- //                               neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
-                    }
+                    sub->neigh[sub->nneigh++] = neigh;
+
+                    fprintf(stderr, "box %d sub (%2d %2d %2d): adding neigh (%2d %2d %2d)\n",
+                            box->i,
+                            sub->delta[X], sub->delta[Y], sub->delta[Z],
+                            neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
                 }
             }
         }
@@ -774,23 +828,6 @@ setup_subdomains(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++)
         setup_subdomains_box(sim, &sim->box[i]);
-}
-
-static void
-setup_thermo(Sim *sim)
-{
-    /* Zero bin accumulators for energy */
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-        /* All the bins, including outside the box */
-        for (int j = 0; j < box->nbinsalloc; j++) {
-            Bin *bin = &box->bin[j];
-            bin->pot_energy = 0.0;
-            bin->kin_energy = 0.0;
-            bin->vdwl_energy = 0.0;
-            bin->virial_temp = 0.0;
-        }
-    }
 }
 
 static void
@@ -910,6 +947,9 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* Setup force parameters */
     force_init(sim);
 
+    /* Setup integrator */
+    integrate_init(sim);
+
     setup_neighbors(sim);
 
     setup_subdomains(sim);
@@ -917,7 +957,7 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* Init pack buffers */
     setup_packbuf(sim);
 
-    setup_thermo(sim);
+    thermo_init(sim);
 
     print_params(sim);
 
@@ -954,10 +994,13 @@ sim_run(Sim *sim)
         } else {
             /* expensive */
             comm_atoms_correct_box(sim);
-            /* TODO: sort atoms */
+            check_natoms(sim);
+            /* TODO: implement atom sorting */
             //sort_atoms(atoms, &comm);
             comm_borders(sim);
+            check_natoms(sim);
             build_nearby_atoms(sim);
+            check_natoms(sim);
         }
 
         force_update(sim);

@@ -81,17 +81,26 @@ typedef int    Range[NDIM][NLIM];
 
 /* Print a histogram of the force magnitudes per box. It should be
  * smooth. */
-#define ENABLE_FORCE_HIST
-#define FORCE_HIST_NBINS 30
-#define FORCE_HIST_MAX 200.0
+#define ENABLE_FHIST 1
+
+/* Print a histogram of the velocity magnitudes per box. */
+#define ENABLE_VHIST 1
+
+/* Print a histogram of the distance between nearby atoms. */
+#define ENABLE_DHIST 1
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
 #define ENABLE_REALTIME_ENERGY
+#define REALTIME_ENERGY_FILE "energy.csv"
 
 /* Halts the simulation if the force is too large */
 #define ENABLE_MAX_FORCE
-#define MAX_FORCE 1e6
+#define MAX_FORCE_SQ (5000*5000)
+
+/* Correct the potential energy at R_force for atoms that leave the
+ * interaction zone (also referred to e_cut) */
+#define ENABLE_ECUT_CORRECTION
 
 /* Halts the simulation if an atom doesn't interact with at least half
  * the neighbors (they are too far away to interact). This may happen
@@ -103,7 +112,6 @@ typedef int    Range[NDIM][NLIM];
 
 /* Ensure that no ghost atom is too close to a local atom (slow) */
 //#define ENABLE_GHOST_ATOM_CHECK
-
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -120,6 +128,7 @@ typedef struct bin {
     double kin_energy; /* Kinetic energy */
     double vdwl_energy; /* Van der Waals pairwise energy */
     double virial_temp; /* Virial temperature */
+    double potghost_energy; /* Potential energy of the ghosts only */
 } Bin;
 
 #define NNEIGHSIDE 1
@@ -145,6 +154,7 @@ typedef struct neigh Neigh;
 typedef struct neigh {
     int i;              /* Local index of this neighbor in the box */
     int boxcoord[NDIM]; /* Corresponding box coordinate without wrapping */
+    int boxcoordw[NDIM];/* Corresponding box coordinate wrapped */
     int delta[NDIM];    /* Delta vector in boxes */
     int rank;           /* Neighbor process rank */
     int rankcoord[NDIM];/* Neighbor process coordinates without wrapping */
@@ -180,6 +190,16 @@ typedef struct Nearby {
     int *atom;
 } Nearby;
 
+#define HIST_MAX_NBINS 400
+
+/* Histogram structure */
+typedef struct Hist {
+	int nbins;
+	int count[HIST_MAX_NBINS];
+	double delta;
+	const char *filepath;
+} Hist;
+
 /* All information needed for a box of the simulation */
 typedef struct box {
     int i;          /* Box index for this process */
@@ -200,6 +220,7 @@ typedef struct box {
     Domain dombox;  /* Extension of the box in space units */
     Domain domcore; /* Extension of the box minus R_neigh */
     Domain domhalo; /* Extension of the box plus R_neigh */
+    Domain dommax;  /* Local atoms must be inside this domain */
 
     Subdomain sub[NSUB]; /* Array of subdomains */
 
@@ -220,6 +241,11 @@ typedef struct box {
     double kin_energy; /* Kinetic energy */
     double vdwl_energy; /* Van der Waals pairwise energy */
     double virial_temp; /* Virial temperature */
+    double potghost_energy; /* Potential energy of the ghosts only */
+
+    Hist fhist; /* Force histogram */
+    Hist vhist; /* Velocity histogram */
+    Hist dhist; /* Nearby atom distance histogram */
 
     Neigh neigh[NNEIGH]; /* Neighboring boxes info */
 } Box;
@@ -234,11 +260,6 @@ typedef struct force {
     /* Parameters for the Lennard-Jones force. Also for each pair of
      * atom types. */
     double *epsilon, *sigma6, *sigma;
-
-    /* Force histogram per box */
-    int **forcehist;
-    double *forcehistmin;
-    double forcehistdelta;
 
 } Force;
 
@@ -292,6 +313,11 @@ typedef struct sim {
     double lattice_sep; /* FCC cube side length (equal in all dim) */
     double *R_neigh_sq; /* For each pair of atom types */
     int sort_period;
+
+    /* The potential energy at R_force: this is used to correct the
+     * sudden jump in energy when an atom leaves the R_force interaction
+     * zone. */
+    double e_cut;
 
     /* Unit conversion constants */
     double mvv2e;
@@ -353,7 +379,9 @@ void packbuf_init(PackBuf *pb, int enable_sel, int atomsize);
 void build_nearby_atoms(Sim *sim);
 
 void thermo_update(Sim *sim);
+void thermo_init(Sim *sim);
 
+void integrate_init(Sim *sim);
 void integrate_position(Sim *sim);
 void integrate_velocity(Sim *sim);
 

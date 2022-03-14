@@ -122,11 +122,13 @@ thermo_update_box(Sim *sim, Box *box)
     /* We can reduce the values from all the allocated bins, even if we
      * only are interested in the ones in the box domain, as they have 0
      * value. */
+    box->potghost_energy = 0.0;
     box->vdwl_energy = 0.0;
     box->virial_temp = 0.0;
 
     for (int i = 0; i < box->nbinsalloc; i++) {
         Bin *bin = &box->bin[i];
+        box->potghost_energy += bin->potghost_energy;
         box->vdwl_energy += bin->vdwl_energy;
         box->virial_temp += bin->virial_temp;
     }
@@ -187,21 +189,25 @@ get_temperature(Sim *sim)
 void
 thermo_update(Sim *sim)
 {
+    double local_potghost_energy = 0.0;
     double local_vdwl_energy = 0.0;
     double local_virial_temp = 0.0;
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         thermo_update_box(sim, box);
 
+        local_potghost_energy += box->potghost_energy;
         local_vdwl_energy += box->vdwl_energy;
         local_virial_temp += box->virial_temp;
     }
 
-    double vdwl_energy, virial_temp;
+    double potghost_energy, vdwl_energy, virial_temp;
+    MPI_Reduce(&local_potghost_energy, &potghost_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_vdwl_energy, &vdwl_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_virial_temp, &virial_temp, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
     /* Correct reduced units and compute energy */
+    double potg_energy = (potghost_energy * sim->e_scale) / sim->ntotatoms;
     double pot_energy = (vdwl_energy * sim->e_scale) / sim->ntotatoms;
     double kin_energy = get_temperature(sim) * 3.0 / 2.0;
     double tot_energy = pot_energy + kin_energy;
@@ -210,9 +216,35 @@ thermo_update(Sim *sim)
     if (sim->rank != 0)
         return;
 
-    printf("energy U=%e K=%e Etot=%e\n",
-            pot_energy, kin_energy, tot_energy);
+#ifdef ENABLE_REALTIME_ENERGY
+    FILE *f = fopen(REALTIME_ENERGY_FILE, "a");
+    fprintf(f, "%d,%e,%e,%e,%e\n", sim->iter, pot_energy, kin_energy, tot_energy, potg_energy);
+    fclose(f);
+#endif
 
+}
+
+void
+thermo_init(Sim *sim)
+{
+    /* Zero bin accumulators for energy */
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        /* All the bins, including outside the box */
+        for (int j = 0; j < box->nbinsalloc; j++) {
+            Bin *bin = &box->bin[j];
+            bin->pot_energy = 0.0;
+            bin->kin_energy = 0.0;
+            bin->vdwl_energy = 0.0;
+            bin->virial_temp = 0.0;
+        }
+    }
+
+#ifdef ENABLE_REALTIME_ENERGY
+    FILE *f = fopen(REALTIME_ENERGY_FILE, "w");
+    fprintf(f, "iter,Epot,Ekin,Etot,Epotg\n");
+    fclose(f);
+#endif
 }
 
 ///* reduced potential energy */

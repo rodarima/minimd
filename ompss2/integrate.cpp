@@ -30,31 +30,11 @@
 ---------------------------------------------------------------------- */
 
 #include "types.h"
+#include "dom.h"
+#include "hist.h"
 
 #include <math.h>
 #include <stdio.h>
-
-/* Ensure the position is within a reasonable limit */
-void check_position(Sim *sim, Box *box, Vec r)
-{
-    double factor = 2.0;
-
-    for (int d=X; d<=Z; d++) {
-        double lo = box->dombox[d][LO] - factor * sim->boxlen[d];
-        double hi = box->dombox[d][HI] + factor * sim->boxlen[d];
-
-        if (r[d] < lo || r[d] > hi) {
-            fprintf(stderr, "box %d: atom too far: %e %e %e\n",
-                    box->i, r[X], r[Y], r[Z]);
-            abort();
-        }
-
-//        if (r[d] < box->dom[d][LO] || r[d] > box->dom[d][HI]) {
-//            fprintf(stderr, "warning: box %d, atom out of box: %e %e %e\n",
-//                    box->i, r[X], r[Y], r[Z]);
-//        }
-    }
-}
 
 /* Ensure the velocity is not too large */
 void check_velocity(Sim *sim, Vec v, double dt)
@@ -69,6 +49,18 @@ void check_velocity(Sim *sim, Vec v, double dt)
     }
 }
 
+static double
+dotprod(Vec v)
+{
+    double sum = 0.0;
+
+    for (int i = 0; i < NDIM; i++) {
+        sum += v[i] * v[i];
+    }
+
+    return sum;
+}
+
 /* Performs a half-integration updating the velocity and position of the
  * particles of the given box by using the force */
 static void
@@ -81,7 +73,17 @@ integrate_position_box(Sim *sim, Box *box)
         for (int d = X; d <= Z; d++)
             box->r[i][d] += sim->dt * box->v[i][d];
 
-        check_position(sim, box, box->r[i]);
+        if (!in_domain(box->r[i], box->dommax)) {
+            fprintf(stderr, "box %d: atom %d at %e %e %e moved outside max domain\n",
+                    box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
+            abort();
+        }
+
+        if (box->i == 0 && (i == 4 || i == 235)) {
+            fprintf(stderr, "XXX box %d: atom %3d at %e %e %e\n",
+                    box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
+        }
+
         check_velocity(sim, box->v[i], sim->dt);
     }
 }
@@ -100,9 +102,25 @@ integrate_position(Sim *sim)
 static void
 integrate_velocity_box(Sim *sim, Box *box)
 {
-    for (int i = 0; i < box->nlocal; i++)
-        for (int d = X; d <= Z; d++)
+    if (ENABLE_VHIST)
+        hist_clear(&box->vhist);
+
+    for (int i = 0; i < box->nlocal; i++) {
+        for (int d = X; d <= Z; d++) {
             box->v[i][d] += sim->dtforce * box->f[i][d];
+        }
+
+        if (ENABLE_VHIST)
+            hist_add(&box->vhist, log(1 + dotprod(box->v[i])));
+    }
+
+    for (int i = 0; i < box->nlocal + box->nghost; i++) {
+        /* Remove procedence info */
+        box->atomtype[i] = box->atomtype[i] % 10000;
+    }
+
+    if (ENABLE_VHIST)
+        hist_print(&box->vhist, sim->iter);
 }
 
 void
@@ -111,5 +129,16 @@ integrate_velocity(Sim *sim)
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         integrate_velocity_box(sim, box);
+    }
+}
+
+void
+integrate_init(Sim *sim)
+{
+    if (ENABLE_VHIST) {
+        for (int i = 0; i < sim->nboxes; i++) {
+            Box *box = &sim->box[i];
+            hist_init(&box->vhist, 200, "vhist.csv", 5.0/200);
+        }
     }
 }

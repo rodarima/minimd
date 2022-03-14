@@ -40,29 +40,14 @@ packbuf_grow_extra(PackBuf *pb, int nextra)
     packbuf_grow(pb, pb->natoms + nextra);
 }
 
-//void
-//packbuf_pack_sel_add(PackBuf *pb, Vec *src)
-//{
-//    for (int i = 0; i < pb->natoms; i++) {
-//        for (int d = X; d <= Z; d++) {
-//            pb->buf[i][d] = src[pb->sel[i]][d] + pb->add[d];
-//        }
-//    }
-//}
-//
-//void
-//packbuf_pack_r(PackBuf *pb, Vec *src)
-//{
-//    packbuf_grow(pb, 0);
-//    packbuf_pack_sel_add(pb, src);
-//}
-
-
 void
 packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag)
 {
     fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
             pb->natoms, remoterank);
+
+    if (remoterank < 0)
+        abort();
 
     if (pb->natoms == 0)
         return;
@@ -76,6 +61,9 @@ packbuf_mpisend(PackBuf *pb, int remoterank, int tag)
 {
     fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
             pb->natoms, remoterank);
+
+    if (remoterank < 0)
+        abort();
 
     /* Send the number of atoms first */
     MPI_Send((void *) &pb->natoms, 1, MPI_INT,
@@ -152,6 +140,9 @@ packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
     }
 
     pb->natoms++;
+
+//    fprintf(stderr, "packbuf %p now has %d atoms (alloc %d)\n",
+//            pb, pb->natoms, pb->nalloc);
 
     if (j != pb->natoms * pb->atomsize) {
         fprintf(stderr, "packbuf_add atom size mismatch\n");
