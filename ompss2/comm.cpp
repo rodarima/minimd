@@ -103,7 +103,7 @@ box_pack_rvt(Sim *sim, Box *box)
 //                    i, r[X], r[Y], r[Z]);
         }
 
-        int type = box->atomtype[i] + 10000 * (box->i + 50);
+        int type = box->atomtype[i];
         packbuf_add(&neigh->send_rvt, &r, &box->v[i], &type);
 
         /* Fill the hole with one atom from the end */
@@ -199,7 +199,6 @@ check_atom(Sim *sim, Box *box, Vec r)
             int jatom = jbin->atom[k];
 
             Vec rj = { box->r[jatom][X], box->r[jatom][Y], box->r[jatom][Z] };
-            int jtype = box->atomtype[jatom];
 
             double dist_sq = get_distsq(r, rj);
             double dist = sqrt(dist_sq);
@@ -355,7 +354,7 @@ box_pack_borders(Sim *sim, Box *box)
             }
 
             /* Encode the origin of the atom in the type */
-            int type = box->atomtype[i] + (box->i + 1) * 10000;
+            int type = box->atomtype[i];
             packbuf_add_sel(&neigh->send_rt, &r, NULL, &type, i);
         }
 

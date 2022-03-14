@@ -104,17 +104,11 @@ integrate_velocity_box(Sim *sim, Box *box)
         hist_clear(&box->vhist);
 
     for (int i = 0; i < box->nlocal; i++) {
-        for (int d = X; d <= Z; d++) {
+        for (int d = X; d <= Z; d++)
             box->v[i][d] += sim->dtforce * box->f[i][d];
-        }
 
         if (ENABLE_VHIST)
             hist_add(&box->vhist, log(1 + dotprod(box->v[i])));
-    }
-
-    for (int i = 0; i < box->nlocal + box->nghost; i++) {
-        /* Remove procedence info */
-        box->atomtype[i] = box->atomtype[i] % 10000;
     }
 
     if (ENABLE_VHIST)

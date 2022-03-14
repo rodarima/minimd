@@ -42,7 +42,7 @@ build_nearby_atoms_box(Sim *sim, Box *box)
     /* Build nearby lists only for local atoms */
     for (int iatom = 0; iatom < box->nlocal; iatom++) {
         Vec ri = { box->r[iatom][X], box->r[iatom][Y], box->r[iatom][Z] };
-        int itype = box->atomtype[iatom] % 10000;
+        int itype = box->atomtype[iatom];
 
         /* Clear the previous nearby list */
         Nearby *nearby = &box->nearby[iatom];
@@ -84,7 +84,7 @@ build_nearby_atoms_box(Sim *sim, Box *box)
                 int jtype = box->atomtype[jatom];
 
                 double dist_sq = get_distsq(ri, rj);
-                int pairtype = itype * sim->ntypes + (jtype % 10000);
+                int pairtype = itype * sim->ntypes + jtype;
                 double R_neigh_sq = sim->R_neigh_sq[pairtype];
 
                 /* You have gone too far */

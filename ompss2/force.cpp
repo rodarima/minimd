@@ -74,7 +74,7 @@ check_min_interactions(int ninteractions, int n)
 static void
 update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int *ineigh, int ntypes)
 {
-    int type_offset = (box->atomtype[i] % 10000) * ntypes;
+    int type_offset = box->atomtype[i] * ntypes;
     Vec local_f = { 0.0, 0.0, 0.0 };
 
     /* Current atom position vector */
@@ -104,7 +104,7 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
         /* Compute distance vector */
         Vec delta = { ri[X] - rj[X], ri[Y] - rj[Y], ri[Z] - rj[Z] };
         double sqdist = dotprod(delta);
-        int type_ij = type_offset + (box->atomtype[j] % 10000);
+        int type_ij = type_offset + box->atomtype[j];
 
         if (ENABLE_DHIST)
             hist_add(&box->dhist, sqrt(sqdist));
