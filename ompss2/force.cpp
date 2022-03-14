@@ -54,23 +54,19 @@ dotprod(Vec v)
 static void
 check_max_force(Vec f)
 {
-#ifdef ENABLE_MAX_FORCE
     if (dotprod(f) > MAX_FORCE_SQ) {
-        fprintf(stderr, "WARNING: force too large: %e %e %e\n", f[X], f[Y], f[Z]);
-        //abort();
+        fprintf(stderr, "force too large: %e %e %e\n", f[X], f[Y], f[Z]);
+        abort();
     }
-#endif
 }
 
 static void
 check_min_interactions(int ninteractions, int n)
 {
-#ifdef ENABLE_INTERACTIONS_CHECK
     if (ninteractions < n / 2) {
         fprintf(stderr, "too few interactions: %d\n", ninteractions);
         abort();
     }
-#endif
 }
 
 /* Updates the force acting on a given atom at index `i` by taking
@@ -95,8 +91,8 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
         int j = ineigh[k];
 
         /* FIXME: the self atom cannot appear in the neighbor list */
-        if (i == j)
-            abort();
+        //if (i == j)
+        //    abort();
 
         /* Get neighbor atom position */
         Vec rj = {
@@ -127,24 +123,21 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
         local_f[Y] += delta[Y] * forcemag;
         local_f[Z] += delta[Z] * forcemag;
 
-        check_max_force(local_f);
+        if (ENABLE_MIN_INTERACTIONS_CHECK)
+            ninteractions++;
 
-        ninteractions++;
+        if (ENABLE_REALTIME_ENERGY) {
+            /* Accumulate Van der Waals energy and virial temperature in
+             * real time per bin. Energy needs correction to account the
+             * R_force approximation. */
+            double pot = 4.0 * (sr6 - 1.0) * sr6eps;
 
-#ifdef ENABLE_REALTIME_ENERGY
-        /* Accumulate Van der Waals energy and virial temperature in
-         * real time per bin. Energy needs correction to account the
-         * R_force approximation. */
-        double pot = 4.0 * (sr6 - 1.0) * sr6eps;
-#ifdef ENABLE_ECUT_CORRECTION
-        pot -= sim->e_cut;
-#endif
-        if (j >= box->nlocal) {
-            bin->potghost_energy += pot;
+            if (ENABLE_ECUT_CORRECTION)
+                pot -= sim->e_cut;
+
+            bin->vdwl_energy += pot;
+            bin->virial_temp += sqdist * forcemag;
         }
-        bin->vdwl_energy += pot;
-        bin->virial_temp += sqdist * forcemag;
-#endif
     }
 
     double *f = box->f[i];
@@ -156,13 +149,11 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
     if(ENABLE_FHIST)
         hist_add(&box->fhist, log(1 + sqrt(dotprod(f))));
 
-    check_max_force(f);
-    check_min_interactions(ninteractions, n);
+    if (ENABLE_MAX_FORCE_CHECK)
+        check_max_force(f);
 
-    if (box->i == 0 && i == 18520) {
-        fprintf(stderr, "XXX atom %d has force %e %e %e\n",
-                i, f[X], f[Y], f[Z]);
-    }
+    if (ENABLE_MIN_INTERACTIONS_CHECK)
+        check_min_interactions(ninteractions, n);
 }
 
 /* Update force for all atoms in the given bin index */
@@ -170,11 +161,10 @@ static void
 update_force_bin(Sim *sim, Force *force, Box *box, Bin *bin, int ntypes)
 {
     /* Reset energy accumulators per bin */
-#ifdef ENABLE_REALTIME_ENERGY
-    bin->potghost_energy = 0.0;
-    bin->vdwl_energy = 0.0;
-    bin->virial_temp = 0.0;
-#endif
+    if (ENABLE_REALTIME_ENERGY) {
+        bin->vdwl_energy = 0.0;
+        bin->virial_temp = 0.0;
+    }
 
     for (int i = 0; i < bin->natoms; i++) {
         /* Compute the actual atom index */
@@ -223,7 +213,8 @@ update_force_box(Sim *sim, Force *force, Box *box, int ntypes)
     if(ENABLE_DHIST)
         hist_clear(&box->dhist);
 
-    dump_atoms(sim, box);
+    if (ENABLE_ATOM_TRACKING)
+        dump_atoms(sim, box);
 
     /* TODO: We may be able to iterate only through the bins in the box
      * domain */

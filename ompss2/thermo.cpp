@@ -36,99 +36,17 @@
 #include <stdlib.h>
 #include <math.h>
 
-//Thermo::Thermo() { }
-//Thermo::~Thermo() { }
-//
-//void Thermo::setup(double rho_in, Integrate &integrate, Atom &atom, int units)
-//{
-//    rho = rho_in;
-//    ntimes = integrate.ntimes;
-//
-//    int maxstat;
-//
-//    if (nstat == 0)
-//        maxstat = 2;
-//    else
-//        maxstat = ntimes / nstat + 2;
-//
-//    int nboxes = atom.boxes_per_process;
-//
-//    /* Store the local values per box during the simulation and perform
-//     * the reductions at the end. Not critical for performance, so we
-//     * can just use 2 level arrays */
-//
-//    steparr = (int **) malloc(maxstat * sizeof(int *));
-//    tmparr  = (double **) malloc(maxstat * sizeof(double *));
-//    engarr  = (double **) malloc(maxstat * sizeof(double *));
-//    prsarr  = (double **) malloc(maxstat * sizeof(double *));
-//
-//    for (int i = 0; i < maxstat; i++) {
-//        steparr[i] = (int *) malloc(nboxes * sizeof(int));
-//        tmparr[i]  = (double *) malloc(nboxes * sizeof(double));
-//        engarr[i]  = (double *) malloc(nboxes * sizeof(double));
-//        prsarr[i]  = (double *) malloc(nboxes * sizeof(double));
-//    }
-//
-//    if (units == LJ) {
-//        mvv2e = 1.0;
-//        dof_boltz = (atom.natoms * 3 - 3);
-//        t_scale = mvv2e / dof_boltz;
-//        p_scale = 1.0 / 3 / atom.box.xprd / atom.box.yprd / atom.box.zprd;
-//        e_scale = 0.5;
-//    } else if (units == METAL) {
-//        mvv2e = 1.036427e-04;
-//        dof_boltz = (atom.natoms * 3 - 3) * 8.617343e-05;
-//        t_scale = mvv2e / dof_boltz;
-//        p_scale = 1.602176e+06 / 3 / atom.box.xprd / atom.box.yprd / atom.box.zprd;
-//        e_scale = 524287.985533; // 16.0;
-//        integrate.dtforce /= mvv2e;
-//    }
-//}
-//
-//void Thermo::compute(int iflag, Atom *atoms[], Force *force, Timer &timer)
-//{
-//    double t, eng, p;
-//
-//    // DSM: nstat is an input file parameter, description: "thermo calculation every this many steps"
-//    if (iflag > 0 && iflag % nstat)
-//        return;
-//
-//    if (iflag == -1 && nstat > 0 && ntimes % nstat == 0)
-//        return;
-//
-//    t_act = 0;
-//    p_act = 0;
-//
-//    int istep = iflag;
-//
-//    if (iflag == -1)
-//        istep = ntimes;
-//
-//    if (iflag == 0)
-//        mstat = 0;
-//
-//    temperature(atoms, mstat);
-//    energy(atoms, force, mstat);
-//    pressure(atoms, force, mstat);
-//
-//    mstat++;
-//
-//    /* TODO: Print table at the end */
-//}
-
 static void
 thermo_update_box(Sim *sim, Box *box)
 {
     /* We can reduce the values from all the allocated bins, even if we
      * only are interested in the ones in the box domain, as they have 0
      * value. */
-    box->potghost_energy = 0.0;
     box->vdwl_energy = 0.0;
     box->virial_temp = 0.0;
 
     for (int i = 0; i < box->nbinsalloc; i++) {
         Bin *bin = &box->bin[i];
-        box->potghost_energy += bin->potghost_energy;
         box->vdwl_energy += bin->vdwl_energy;
         box->virial_temp += bin->virial_temp;
     }
@@ -181,7 +99,7 @@ get_temperature(Sim *sim)
     /* Adjust temperature units */
     temp *= sim->t_scale;
 
-    fprintf(stderr, "temperature = %e\n", temp);
+    //fprintf(stderr, "temperature = %e\n", temp);
 
     return temp;
 }
@@ -189,25 +107,21 @@ get_temperature(Sim *sim)
 void
 thermo_update(Sim *sim)
 {
-    double local_potghost_energy = 0.0;
     double local_vdwl_energy = 0.0;
     double local_virial_temp = 0.0;
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         thermo_update_box(sim, box);
 
-        local_potghost_energy += box->potghost_energy;
         local_vdwl_energy += box->vdwl_energy;
         local_virial_temp += box->virial_temp;
     }
 
-    double potghost_energy, vdwl_energy, virial_temp;
-    MPI_Reduce(&local_potghost_energy, &potghost_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    double vdwl_energy, virial_temp;
     MPI_Reduce(&local_vdwl_energy, &vdwl_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_virial_temp, &virial_temp, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
     /* Correct reduced units and compute energy */
-    double potg_energy = (potghost_energy * sim->e_scale) / sim->ntotatoms;
     double pot_energy = (vdwl_energy * sim->e_scale) / sim->ntotatoms;
     double kin_energy = get_temperature(sim) * 3.0 / 2.0;
     double tot_energy = pot_energy + kin_energy;
@@ -216,11 +130,11 @@ thermo_update(Sim *sim)
     if (sim->rank != 0)
         return;
 
-#ifdef ENABLE_REALTIME_ENERGY
-    FILE *f = fopen(REALTIME_ENERGY_FILE, "a");
-    fprintf(f, "%d,%e,%e,%e,%e\n", sim->iter, pot_energy, kin_energy, tot_energy, potg_energy);
-    fclose(f);
-#endif
+    if (ENABLE_REALTIME_ENERGY) {
+        FILE *f = fopen("energy.csv", "a");
+        fprintf(f, "%d,%e,%e,%e\n", sim->iter, pot_energy, kin_energy, tot_energy);
+        fclose(f);
+    }
 
 }
 
@@ -240,11 +154,11 @@ thermo_init(Sim *sim)
         }
     }
 
-#ifdef ENABLE_REALTIME_ENERGY
-    FILE *f = fopen(REALTIME_ENERGY_FILE, "w");
-    fprintf(f, "iter,Epot,Ekin,Etot,Epotg\n");
-    fclose(f);
-#endif
+    if (ENABLE_REALTIME_ENERGY) {
+        FILE *f = fopen("energy.csv", "w");
+        fprintf(f, "iter,Epot,Ekin,Etot\n");
+        fclose(f);
+    }
 }
 
 ///* reduced potential energy */

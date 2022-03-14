@@ -813,10 +813,10 @@ setup_subdomains_box(Sim *sim, Box *box)
 
                     sub->neigh[sub->nneigh++] = neigh;
 
-                    fprintf(stderr, "box %d sub (%2d %2d %2d): adding neigh (%2d %2d %2d)\n",
-                            box->i,
-                            sub->delta[X], sub->delta[Y], sub->delta[Z],
-                            neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
+//                    fprintf(stderr, "box %d sub (%2d %2d %2d): adding neigh (%2d %2d %2d)\n",
+//                            box->i,
+//                            sub->delta[X], sub->delta[Y], sub->delta[Z],
+//                            neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
                 }
             }
         }

@@ -73,18 +73,16 @@ integrate_position_box(Sim *sim, Box *box)
         for (int d = X; d <= Z; d++)
             box->r[i][d] += sim->dt * box->v[i][d];
 
-        if (!in_domain(box->r[i], box->dommax)) {
-            fprintf(stderr, "box %d: atom %d at %e %e %e moved outside max domain\n",
-                    box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
-            abort();
+        if (ENABLE_DOMAIN_CHECK) {
+            if (!in_domain(box->r[i], box->dommax)) {
+                fprintf(stderr, "box %d: atom %d at %e %e %e moved outside max domain\n",
+                        box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
+                abort();
+            }
         }
 
-        if (box->i == 0 && (i == 4 || i == 235)) {
-            fprintf(stderr, "XXX box %d: atom %3d at %e %e %e\n",
-                    box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
-        }
-
-        check_velocity(sim, box->v[i], sim->dt);
+        if (ENABLE_MAX_VELOCITY_CHECK)
+            check_velocity(sim, box->v[i], sim->dt);
     }
 }
 

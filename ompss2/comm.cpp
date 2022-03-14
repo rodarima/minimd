@@ -69,8 +69,8 @@ build_tag(Box *box, Neigh *neigh)
 static void
 box_pack_rvt(Sim *sim, Box *box)
 {
-    fprintf(stderr, "packing out atoms for box %2d with nlocal %d\n",
-            box->i, box->nlocal);
+//    fprintf(stderr, "packing out atoms for box %2d with nlocal %d\n",
+//            box->i, box->nlocal);
 
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++)
@@ -91,16 +91,16 @@ box_pack_rvt(Sim *sim, Box *box)
 
         Neigh *neigh = &box->neigh[delta2neigh(delta)];
 
-        fprintf(stderr,     "box %d packing atom %3d in neigh %d at %e %e %e\n",
-                box->i, i, neigh->i, r[X], r[Y], r[Z]);
+//        fprintf(stderr,     "box %d packing atom %3d in neigh %d at %e %e %e\n",
+//                box->i, i, neigh->i, r[X], r[Y], r[Z]);
 
         /* Enforce PBC before packing the atom position */
         if (neigh->wraps) {
             for (int d = X; d <= Z; d++)
                 r[d] += neigh->addpbc[d];
 
-            fprintf(stderr, "               atom %3d wraps, now at %e %e %e\n",
-                    i, r[X], r[Y], r[Z]);
+//            fprintf(stderr, "               atom %3d wraps, now at %e %e %e\n",
+//                    i, r[X], r[Y], r[Z]);
         }
 
         int type = box->atomtype[i] + 10000 * (box->i + 50);
@@ -115,23 +115,23 @@ box_pack_rvt(Sim *sim, Box *box)
 
     }
 
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        if (neigh->send_rvt.natoms > 0) {
-            fprintf(stderr, "packed %d atoms in box%d:neigh%02d\n",
-                    neigh->send_rvt.natoms,
-                    box->i, neigh->i);
-        }
-    }
+//    for (int i = 0; i < NNEIGH; i++) {
+//        Neigh *neigh = &box->neigh[i];
+//        if (neigh->send_rvt.natoms > 0) {
+//            fprintf(stderr, "packed %d atoms in box%d:neigh%02d\n",
+//                    neigh->send_rvt.natoms,
+//                    box->i, neigh->i);
+//        }
+//    }
 }
 
 static void
 box_send_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
-    if (neigh->send_rvt.natoms > 0) {
-        fprintf(stderr, "box %d sending %d atoms to neigh %d\n",
-                box->i, neigh->send_rvt.natoms, neigh->i);
-    }
+//    if (neigh->send_rvt.natoms > 0) {
+//        fprintf(stderr, "box %d sending %d atoms to neigh %d\n",
+//                box->i, neigh->send_rvt.natoms, neigh->i);
+//    }
 
     if (neigh->rank != sim->rank) {
         /* Use MPI for inter process comm */
@@ -155,12 +155,12 @@ box_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
         Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
         packbuf_shmcopy(&srcneigh->send_rvt, &dstneigh->recv_rvt);
 
-        if (srcneigh->send_rvt.natoms > 0) {
-            fprintf(stderr, "shmcopy %d atoms from box%d:neigh%02d -> box%d:neigh%02d\n",
-                    srcneigh->send_rvt.natoms,
-                    srcbox->i, srcneigh->i,
-                    dstbox->i, dstneigh->i);
-        }
+//        if (srcneigh->send_rvt.natoms > 0) {
+//            fprintf(stderr, "shmcopy %d atoms from box%d:neigh%02d -> box%d:neigh%02d\n",
+//                    srcneigh->send_rvt.natoms,
+//                    srcbox->i, srcneigh->i,
+//                    dstbox->i, dstneigh->i);
+//        }
     }
 
 }
@@ -238,21 +238,21 @@ check_atom(Sim *sim, Box *box, Vec r)
 static void
 box_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
-    if (neigh->recv_rvt.natoms > 0) {
-        fprintf(stderr, "box %d: unpacking %d atoms from neigh %d\n",
-                box->i, neigh->recv_rvt.natoms, neigh->i);
-    }
+//    if (neigh->recv_rvt.natoms > 0) {
+//        fprintf(stderr, "box %d: unpacking %d atoms from neigh %d\n",
+//                box->i, neigh->recv_rvt.natoms, neigh->i);
+//    }
     /* Ensure we have room to place the new local atoms */
     int n = box->nlocal + neigh->recv_rvt.natoms;
     box_realloc(box, n);
 
-    /* Here we are receiving new local atoms that have just moved into
-     * our box. Ensure that there was a ghost atom before and that is
-     * not too close to an already existing atom */
-    for (int i = 0; i < neigh->recv_rvt.natoms; i++) {
-        double *r = &neigh->recv_rvt.buf[i * (NDIM * 2 + 1)];
-        //check_atom(sim, box, *(Vec *) r);
-    }
+//    /* Here we are receiving new local atoms that have just moved into
+//     * our box. Ensure that there was a ghost atom before and that is
+//     * not too close to an already existing atom */
+//    for (int i = 0; i < neigh->recv_rvt.natoms; i++) {
+//        double *r = &neigh->recv_rvt.buf[i * (NDIM * 2 + 1)];
+//        check_atom(sim, box, *(Vec *) r);
+//    }
 
     /* Unpack at the end of the local atoms */
     Vec *r = &box->r[box->nlocal];
@@ -267,13 +267,11 @@ box_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 void
 comm_atoms_correct_box(Sim *sim)
 {
-    fprintf(stderr, "-- exchange: packing atoms\n");
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_pack_rvt(sim, box);
     }
 
-    fprintf(stderr, "-- exchange: sending atoms\n");
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -282,7 +280,6 @@ comm_atoms_correct_box(Sim *sim)
         }
     }
 
-    fprintf(stderr, "-- exchange: receiving atoms\n");
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -291,7 +288,6 @@ comm_atoms_correct_box(Sim *sim)
         }
     }
 
-    fprintf(stderr, "-- exchange: unpacking atoms\n");
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -304,8 +300,8 @@ comm_atoms_correct_box(Sim *sim)
 static void
 box_pack_borders(Sim *sim, Box *box)
 {
-    fprintf(stderr, "packing borders for box %2d with nlocal %d\n",
-            box->i, box->nlocal);
+//    fprintf(stderr, "packing borders for box %2d with nlocal %d\n",
+//            box->i, box->nlocal);
 
 //    for (int i = 0; i < box->nlocal; i++) {
 //        if (!in_domain(box->r[i], box->domhalo)) {
@@ -329,7 +325,7 @@ box_pack_borders(Sim *sim, Box *box)
         if (in_domain_delta(box->r[i], box->domcore, delta))
             continue;
 
-        if (!in_domain(box->r[i], box->dombox)) {
+        if (ENABLE_DOMAIN_CHECK && !in_domain(box->r[i], box->dombox)) {
             fprintf(stderr, "box %d contains local atom %d at %e %e %e outside box domain\n",
                     box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
             abort();
@@ -342,20 +338,20 @@ box_pack_borders(Sim *sim, Box *box)
 
             Neigh *neigh = sub->neigh[j];
 
-            fprintf(stderr, "atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
-                    i, delta[X], delta[Y], delta[Z], neigh->i,
-                    sub->nneigh);
+//            fprintf(stderr, "atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
+//                    i, delta[X], delta[Y], delta[Z], neigh->i,
+//                    sub->nneigh);
 
             /* Enforce PBC before packing the atom position */
             if (neigh->wraps) {
-                fprintf(stderr, "wrapping neigh %d atom %d position from %e %e %e\n",
-                        neigh->i, i, r[X], r[Y], r[Z]);
+//                fprintf(stderr, "wrapping neigh %d atom %d position from %e %e %e\n",
+//                        neigh->i, i, r[X], r[Y], r[Z]);
     
                 for (int d = X; d <= Z; d++)
                     r[d] += neigh->addpbc[d];
     
-                fprintf(stderr, "wrapped  neigh %d atom %d position to   %e %e %e\n",
-                        neigh->i, i, r[X], r[Y], r[Z]);
+//                fprintf(stderr, "wrapped  neigh %d atom %d position to   %e %e %e\n",
+//                        neigh->i, i, r[X], r[Y], r[Z]);
             }
 
             /* Encode the origin of the atom in the type */
@@ -368,13 +364,13 @@ box_pack_borders(Sim *sim, Box *box)
 //        abort();
 //    }
 
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        fprintf(stderr, "box %2d neigh %2d at delta %2d %2d %2d has %8d ghosts\n",
-                box->i, neigh->i,
-                neigh->delta[X], neigh->delta[Y], neigh->delta[Z],
-                neigh->send_rt.natoms);
-    }
+//    for (int i = 0; i < NNEIGH; i++) {
+//        Neigh *neigh = &box->neigh[i];
+//        fprintf(stderr, "box %2d neigh %2d at delta %2d %2d %2d has %8d ghosts\n",
+//                box->i, neigh->i,
+//                neigh->delta[X], neigh->delta[Y], neigh->delta[Z],
+//                neigh->send_rt.natoms);
+//    }
 }
 
 static void
@@ -390,8 +386,8 @@ box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     int oldalloc = box->nalloc;
     box_realloc(box, ntot);
 
-    fprintf(stderr, "unpacking %d atoms from neigh %d into box %d (%d -> %d)\n",
-            neigh->recv_rt.natoms, neigh->i, box->i, nend, ntot);
+//    fprintf(stderr, "unpacking %d atoms from neigh %d into box %d (%d -> %d)\n",
+//            neigh->recv_rt.natoms, neigh->i, box->i, nend, ntot);
 
     //fprintf(stderr, "box %d realloc from %d to %d (nnew=%d nend=%d ntot=%d)\n",
     //        box->i, oldalloc, box->nalloc, nnew, nend, ntot);
@@ -407,7 +403,7 @@ box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 //                    i, r[X], r[Y], r[Z]);
 //            abort();
 //        }
-        if (in_domain(r, box->dombox)) {
+        if (ENABLE_DOMAIN_CHECK && in_domain(r, box->dombox)) {
             fprintf(stderr, "error: unpacked ghost atom %d at %e %e %e inside box domain\n",
                     i, r[X], r[Y], r[Z]);
             abort();
@@ -515,7 +511,7 @@ comm_borders(Sim *sim)
 static void
 box_pack_ghost_r(Sim *sim, Box *box)
 {
-    fprintf(stderr, "packing internal ghosts from box %d\n", box->i);
+//    fprintf(stderr, "packing internal ghosts from box %d\n", box->i);
 
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++) {
@@ -597,10 +593,10 @@ recv_ghost_position(Sim *sim)
                 packbuf_shmcopy(&srcneigh->send_r, &dstneigh->recv_r);
             }
 
-            if (natoms != 0) {
-                fprintf(stderr, "box %d: unpacked %d ghost atoms from neigh %d\n",
-                        box->i, natoms, j);
-            }
+//            if (natoms != 0) {
+//                fprintf(stderr, "box %d: unpacked %d ghost atoms from neigh %d\n",
+//                        box->i, natoms, j);
+//            }
         }
     }
 }

@@ -81,31 +81,42 @@ typedef int    Range[NDIM][NLIM];
 
 /* Print a histogram of the force magnitudes per box. It should be
  * smooth. */
-#define ENABLE_FHIST 1
+#define ENABLE_FHIST 0
 
 /* Print a histogram of the velocity magnitudes per box. */
-#define ENABLE_VHIST 1
+#define ENABLE_VHIST 0
 
 /* Print a histogram of the distance between nearby atoms. */
-#define ENABLE_DHIST 1
+#define ENABLE_DHIST 0
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
-#define ENABLE_REALTIME_ENERGY
-#define REALTIME_ENERGY_FILE "energy.csv"
+#define ENABLE_REALTIME_ENERGY 1
 
 /* Halts the simulation if the force is too large */
-#define ENABLE_MAX_FORCE
+#define ENABLE_MAX_FORCE_CHECK 0
 #define MAX_FORCE_SQ (5000*5000)
+
+/* Ensures the atom doesn't move more than the size of the box in a
+ * single iteration */
+#define ENABLE_MAX_VELOCITY_CHECK 0
 
 /* Correct the potential energy at R_force for atoms that leave the
  * interaction zone (also referred to e_cut) */
-#define ENABLE_ECUT_CORRECTION
+#define ENABLE_ECUT_CORRECTION 1
+
+/* Writes the position of the atoms per iteration. Introduces a lot of
+ * overhead */
+#define ENABLE_ATOM_TRACKING 0
 
 /* Halts the simulation if an atom doesn't interact with at least half
  * the neighbors (they are too far away to interact). This may happen
  * with too many time steps without re-neighboring. */
-#define ENABLE_MIN_INTERACTIONS
+#define ENABLE_MIN_INTERACTIONS_CHECK 0
+
+/* Enable domain checks: ensures the atoms are inside the box or other
+ * space domains */
+#define ENABLE_DOMAIN_CHECK 0
 
 /* Ensure that no new atom is too close to a local atom (slow) */
 //#define ENABLE_NEW_ATOM_CHECK
