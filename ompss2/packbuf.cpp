@@ -5,6 +5,18 @@
 
 #define PACKBUF_INCR 2000
 
+static void
+packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
+{
+    if (pb->state != prev) {
+        fprintf(stderr, "error: packbuf in state %d, expected %d\n",
+                pb->state, prev);
+        abort();
+    }
+
+    pb->state = next;
+}
+
 /* Grows the buffer so that the allocated capacity can hold at least n
  * atoms. */
 static void
@@ -43,6 +55,8 @@ packbuf_grow_extra(PackBuf *pb, int nextra)
 void
 packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag)
 {
+    packbuf_switch(pb, PB_READY, PB_SENDING);
+
     fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
             pb->natoms, remoterank);
 
@@ -54,6 +68,10 @@ packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag)
 
     MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize, MPI_DOUBLE,
             remoterank, tag, pb->comm, &pb->req);
+
+    /* FIXME: Wait for the communication to finish */
+
+    packbuf_switch(pb, PB_SENDING, PB_READY);
 }
 
 void
@@ -75,6 +93,7 @@ packbuf_mpisend(PackBuf *pb, int remoterank, int tag)
 void
 packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms)
 {
+    packbuf_switch(pb, PB_READY, PB_RECVING);
     fprintf(stderr, "packbuf receiving %d atoms from rank %d\n",
             natoms, remoterank);
 
@@ -91,6 +110,7 @@ packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms)
     }
 
     pb->natoms = natoms;
+    packbuf_switch(pb, PB_RECVING, PB_READY);
 }
 
 void
@@ -107,11 +127,17 @@ packbuf_mpirecv(PackBuf *pb, int remoterank, int tag)
 void
 packbuf_shmcopy(PackBuf *src, PackBuf *dst)
 {
+    packbuf_switch(src, PB_READY, PB_COPYING);
+    packbuf_switch(dst, PB_READY, PB_COPYING);
+
     if (src->natoms != 0) {
         packbuf_grow(dst, src->natoms);
         memcpy(dst->buf, src->buf, src->natoms * src->atomsize * sizeof(double));
     }
     dst->natoms = src->natoms;
+
+    packbuf_switch(dst, PB_COPYING, PB_READY);
+    packbuf_switch(src, PB_COPYING, PB_READY);
 }
 
 /* FIXME: move to .h so the compiler can optimize the constant NULL
@@ -119,6 +145,7 @@ packbuf_shmcopy(PackBuf *src, PackBuf *dst)
 void
 packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
 {
+    packbuf_switch(pb, PB_READY, PB_ADDING);
     /* Ensure we have room for another atom */
     packbuf_grow_extra(pb, 1);
 
@@ -148,6 +175,8 @@ packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
         fprintf(stderr, "packbuf_add atom size mismatch\n");
         abort();
     }
+
+    packbuf_switch(pb, PB_ADDING, PB_READY);
 }
 
 void
@@ -161,6 +190,7 @@ packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom)
 void
 packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
 {
+    packbuf_switch(pb, PB_READY, PB_UNPACKING);
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
             for (int d = X; d <= Z; d++)
@@ -176,11 +206,13 @@ packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
             types[i] = (int) pb->buf[j++];
         }
     }
+    packbuf_switch(pb, PB_UNPACKING, PB_READY);
 }
 
 void
 packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
 {
+    packbuf_switch(pb, PB_READY, PB_UNPACKING);
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
             for (int d = X; d <= Z; d++)
@@ -196,41 +228,7 @@ packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
             types[sel[i]] = (int) pb->buf[j++];
         }
     }
-}
-
-void
-packbuf_add_rt(PackBuf *pb, Vec r, int type)
-{
-    /* Ensure we have room for another atom */
-    packbuf_grow_extra(pb, 1);
-
-    int j = pb->natoms * pb->atomsize;
-
-//    fprintf(stderr, "packing r %e %e %e into %p\n",
-//            r[X], r[Y], r[Z], &pb->buf[j]);
-
-    for (int d = X; d <= Z; d++)
-        pb->buf[j++] = r[d];
-
-    /* FIXME: We are sending the type as a double */
-    pb->buf[j++] = (double) type;
-
-    pb->natoms++;
-}
-
-void
-packbuf_unpack_rt(PackBuf *pb, Vec *r, int *types)
-{
-    for (int i = 0, j = 0; i < pb->natoms; i++) {
-
-        if (j+4 > pb->natoms * pb->atomsize)
-            abort();
-
-        for (int d = X; d <= Z; d++)
-            r[i][d] = pb->buf[j++];
-
-        types[i] = (int) pb->buf[j++];
-    }
+    packbuf_switch(pb, PB_UNPACKING, PB_READY);
 }
 
 void
@@ -247,4 +245,5 @@ packbuf_init(PackBuf *pb, int enable_sel, int atomsize)
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
     MPI_Comm_dup(MPI_COMM_WORLD, &pb->comm);
+    packbuf_switch(pb, PB_GARBAGE, PB_READY);
 }

@@ -81,13 +81,13 @@ typedef int    Range[NDIM][NLIM];
 
 /* Print a histogram of the force magnitudes per box. It should be
  * smooth. */
-#define ENABLE_FHIST 0
+#define ENABLE_FHIST 1
 
 /* Print a histogram of the velocity magnitudes per box. */
-#define ENABLE_VHIST 0
+#define ENABLE_VHIST 1
 
 /* Print a histogram of the distance between nearby atoms. */
-#define ENABLE_DHIST 0
+#define ENABLE_DHIST 1
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
@@ -99,7 +99,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Ensures the atom doesn't move more than the size of the box in a
  * single iteration */
-#define ENABLE_MAX_VELOCITY_CHECK 0
+#define ENABLE_MAX_VELOCITY_CHECK 1
 
 /* Correct the potential energy at R_force for atoms that leave the
  * interaction zone (also referred to e_cut) */
@@ -112,11 +112,15 @@ typedef int    Range[NDIM][NLIM];
 /* Halts the simulation if an atom doesn't interact with at least half
  * the neighbors (they are too far away to interact). This may happen
  * with too many time steps without re-neighboring. */
-#define ENABLE_MIN_INTERACTIONS_CHECK 0
+#define ENABLE_MIN_INTERACTIONS_CHECK 1
 
 /* Enable domain checks: ensures the atoms are inside the box or other
  * space domains */
-#define ENABLE_DOMAIN_CHECK 0
+#define ENABLE_DOMAIN_CHECK 1
+
+/* Checks the number of atoms is expected before and after an operation.
+ * Needs task wait so it can cause other bugs to disappear. */
+#define ENABLE_ATOM_COUNT_CHECK 0
 
 /* Ensure that no new atom is too close to a local atom (slow) */
 //#define ENABLE_NEW_ATOM_CHECK
@@ -147,6 +151,17 @@ typedef struct bin {
 #define NNEIGH (NNEIGHDIM*NNEIGHDIM*NNEIGHDIM - 1)
 #define NSUB 27
 
+enum packbuf_state {
+    PB_GARBAGE = 0,
+    PB_READY = 1,
+    PB_PACKING = 2,
+    PB_SENDING = 3,
+    PB_RECVING = 4,
+    PB_COPYING = 5,
+    PB_UNPACKING = 6,
+    PB_ADDING = 7,
+};
+
 typedef struct {
     int natoms;     /* Number of atoms currently in the buffer */
     int nalloc;     /* Number of atoms allocated */
@@ -154,6 +169,8 @@ typedef struct {
     double *buf;    /* The contiguous buffer */
     int enable_sel; /* If non-zero use selection for packing */
     int *sel;       /* Selection of atoms */
+    int reserved;   /* Reserved for debugging purposes */
+    enum packbuf_state state;
     MPI_Request req;
     MPI_Comm comm;
 } PackBuf;
@@ -369,7 +386,7 @@ void force_init(Sim *sim);
 void force_update(Sim *sim);
 
 void comm_setup(Sim *sim);
-void comm_atoms_correct_box(Sim *sim);
+void comm_tidy(Sim *sim);
 void comm_borders(Sim *sim);
 void comm_ghost_position(Sim *sim);
 

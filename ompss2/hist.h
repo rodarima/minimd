@@ -1,6 +1,8 @@
 #ifndef HIST_H
 #define HIST_H
 
+#include <stdlib.h>
+
 static void
 hist_clear(Hist *h)
 {

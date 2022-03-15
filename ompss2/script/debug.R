@@ -9,53 +9,53 @@ dpi = 200
 h = 3
 w = 4
 
-## ---------------------------------------------------------------------
-#
-#df = read_delim("dhist.csv", delim=",") %>%
-#  mutate(lcount = log(count + 1)) %>%
-#  mutate(capcount = ifelse(count > 0, 1, 0))
-#
-#p <- ggplot(df, aes(x = iter+1, y=limit)) +
-#  geom_tile(aes(fill = lcount)) +
-#  theme_bw() +
-#  scale_fill_viridis() +
-#  labs(fill = "Log count") +
-#  geom_hline(yintercept = 2.5, color = "red") +
-#  geom_hline(yintercept = 2.5+0.3, color = "blue") +
-#  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
-#  labs(x="Iteration", y="Distance", title="Distance histogram in box 0")
-#
-#ggsave("dhist.png", plot=p, width=w, height=h, dpi=dpi)
-#
-## ---------------------------------------------------------------------
-#
-#df = read_delim("fhist.csv", delim=",") %>%
-#  mutate(lcount = log(count + 1))
-#
-#p <- ggplot(df, aes(x = iter + 1, y=limit)) +
-#  geom_tile(aes(fill = lcount)) +
-#  theme_bw() +
-#  scale_fill_viridis() +
-#  labs(fill = "Log count") +
-#  labs(x="Iteration", y="Force", title="Force histogram in box 0")
-#
-#ggsave("fhist.png", plot=p, width=w, height=h, dpi=dpi)
-#
-## ---------------------------------------------------------------------
-#
-#df = read_delim("vhist.csv", delim=",") %>%
-#  mutate(lcount = log(count + 1))
-#
-#p <- ggplot(df, aes(x = iter + 1, y=limit)) +
-#  geom_tile(aes(fill = lcount)) +
-#  theme_bw() +
-#  scale_fill_viridis() +
-#  labs(fill = "Log count") +
-#  labs(x="Iteration", y="Velocity", title="Velocity histogram in box 0")
-#
-#ggsave("vhist.png", plot=p, width=w, height=h, dpi=dpi)
-#
-## ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+
+df = read_delim("dhist.csv", delim=",") %>%
+  mutate(lcount = log(count + 1)) %>%
+  mutate(capcount = ifelse(count > 0, 1, 0))
+
+p <- ggplot(df, aes(x = iter+1, y=limit)) +
+  geom_tile(aes(fill = lcount)) +
+  theme_bw() +
+  scale_fill_viridis() +
+  labs(fill = "Log count") +
+  geom_hline(yintercept = 2.5, color = "red") +
+  geom_hline(yintercept = 2.5+0.3, color = "blue") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  labs(x="Iteration", y="Distance", title="Distance histogram in box 0")
+
+ggsave("dhist.png", plot=p, width=w, height=h, dpi=dpi)
+
+# ---------------------------------------------------------------------
+
+df = read_delim("fhist.csv", delim=",") %>%
+  mutate(lcount = log(count + 1))
+
+p <- ggplot(df, aes(x = iter + 1, y=limit)) +
+  geom_tile(aes(fill = lcount)) +
+  theme_bw() +
+  scale_fill_viridis() +
+  labs(fill = "Log count") +
+  labs(x="Iteration", y="Force", title="Force histogram in box 0")
+
+ggsave("fhist.png", plot=p, width=w, height=h, dpi=dpi)
+
+# ---------------------------------------------------------------------
+
+df = read_delim("vhist.csv", delim=",") %>%
+  mutate(lcount = log(count + 1))
+
+p <- ggplot(df, aes(x = iter + 1, y=limit)) +
+  geom_tile(aes(fill = lcount)) +
+  theme_bw() +
+  scale_fill_viridis() +
+  labs(fill = "Log count") +
+  labs(x="Iteration", y="Velocity", title="Velocity histogram in box 0")
+
+ggsave("vhist.png", plot=p, width=w, height=h, dpi=dpi)
+
+# ---------------------------------------------------------------------
 
 df = read_delim("energy.csv", delim=",")
 

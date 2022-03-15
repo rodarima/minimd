@@ -107,6 +107,7 @@ get_temperature(Sim *sim)
 void
 thermo_update(Sim *sim)
 {
+    #pragma oss taskwait
     double local_vdwl_energy = 0.0;
     double local_virial_temp = 0.0;
     for (int i = 0; i < sim->nboxes; i++) {

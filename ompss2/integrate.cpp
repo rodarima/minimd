@@ -63,6 +63,11 @@ dotprod(Vec v)
 
 /* Performs a half-integration updating the velocity and position of the
  * particles of the given box by using the force */
+#pragma oss task \
+    label("integrate_position_box") \
+    in(*(char **)&box->f) \
+    inout(*(char **)&box->r) \
+    inout(*(char **)&box->v)
 static void
 integrate_position_box(Sim *sim, Box *box)
 {
@@ -97,6 +102,10 @@ integrate_position(Sim *sim)
 
 /* Finishes the integration by updating the velocity of the local atoms
  * */
+#pragma oss task \
+    label("integrate_velocity_box") \
+    in(*(char **)&box->f) \
+    inout(*(char **)&box->v)
 static void
 integrate_velocity_box(Sim *sim, Box *box)
 {
@@ -111,7 +120,7 @@ integrate_velocity_box(Sim *sim, Box *box)
             hist_add(&box->vhist, log(1 + dotprod(box->v[i])));
     }
 
-    if (ENABLE_VHIST)
+    if (ENABLE_VHIST && box->i == 0)
         hist_print(&box->vhist, sim->iter);
 }
 

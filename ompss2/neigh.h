@@ -4,6 +4,7 @@
 #include "types.h"
 #include "dom.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 static inline int
 opposite_neigh(int i)

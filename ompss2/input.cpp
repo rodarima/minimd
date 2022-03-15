@@ -30,9 +30,10 @@
 ---------------------------------------------------------------------- */
 
 #include "mpi.h"
-#include <cstdio>
-#include <cstdlib>
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
 
 #include "atom.h"
 #include "force.h"

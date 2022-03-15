@@ -36,6 +36,10 @@ add_nearby_atom(Nearby *nearby, int iatom)
     nearby->atom[nearby->natoms++] = iatom;
 }
 
+#pragma oss task label("build_nearby_atoms_box") \
+    in(*(char **)&box->r) \
+    in(*(char **)&box->bin) \
+    out(*(char **)&box->nearby)
 static void
 build_nearby_atoms_box(Sim *sim, Box *box)
 {
@@ -98,25 +102,19 @@ build_nearby_atoms_box(Sim *sim, Box *box)
     }
 }
 
+#pragma oss task label("bin_atoms") \
+    in(*(char **)&box->r) \
+    out(*(char **)&box->bin)
 static void
 bin_atoms(Sim *sim, Box *box)
 {
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-        clear_bins(box);
+    clear_bins(box);
 
-        for (int j = 0; j < box->nlocal + box->nghost; j++) {
-            int ibin = get_atom_bin(sim, box, box->r[j]);
-            Bin *bin = &box->bin[ibin];
+    for (int j = 0; j < box->nlocal + box->nghost; j++) {
+        int ibin = get_atom_bin(sim, box, box->r[j]);
+        Bin *bin = &box->bin[ibin];
 
-            add_atom_bin(bin, j);
-        }
-
-//        for (int k = 0; k < box->nbinsalloc; k++) {
-//            Bin *bin = &box->bin[k];
-//            fprintf(stderr, "box %d bin %d has %d atoms\n",
-//                    box->i, k, bin->natoms);
-//        }
+        add_atom_bin(bin, j);
     }
 }
 

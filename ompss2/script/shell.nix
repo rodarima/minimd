@@ -24,7 +24,7 @@ in
     name = "minimd";
     NIX_HARDENING_ENABLE = "";
     buildInputs = with pkgs.bsc; [ nanos6 extrae openmpi icc
-    #mcxx
+    mcxx
     clangOmpss2Fixed pkgs.cmake
     rWrapper (tampi.override {mpi=openmpi;}) ];
     shellHook = ''

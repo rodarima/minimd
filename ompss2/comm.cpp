@@ -5,6 +5,7 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <errno.h>
 #include <math.h>
 
@@ -66,15 +67,20 @@ build_tag(Box *box, Neigh *neigh)
  * type (t) is copied, as the other information is not needed. Holes are
  * filled with local atoms from the end. Notice that the ghosts are
  * invalidated.*/
+#pragma oss task label("box_tidy_pack_rvt") \
+    inout(*(char **)&box->r) \
+    out({*(char **)&box->neigh[i].send_rvt.buf, i=0;NNEIGH})
 static void
-box_pack_rvt(Sim *sim, Box *box)
+box_tidy_pack_rvt(Sim *sim, Box *box)
 {
 //    fprintf(stderr, "packing out atoms for box %2d with nlocal %d\n",
 //            box->i, box->nlocal);
 
     /* Reset all PackBuf from neighbors */
-    for (int i = 0; i < NNEIGH; i++)
+    for (int i = 0; i < NNEIGH; i++) {
         packbuf_clear(&box->neigh[i].send_rvt);
+        box->neigh[i].send_rvt.reserved = 666;
+    }
 
     /* Invalidate ghosts, as we are going to modify box->nlocal */
     box->nghost = -666;
@@ -115,6 +121,10 @@ box_pack_rvt(Sim *sim, Box *box)
 
     }
 
+    for (int i = 0; i < NNEIGH; i++) {
+        box->neigh[i].send_rvt.reserved = 111;
+    }
+
 //    for (int i = 0; i < NNEIGH; i++) {
 //        Neigh *neigh = &box->neigh[i];
 //        if (neigh->send_rvt.natoms > 0) {
@@ -126,34 +136,59 @@ box_pack_rvt(Sim *sim, Box *box)
 }
 
 static void
-box_send_rvt(Sim *sim, Box *box, Neigh *neigh)
+box_tidy_send_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
 //    if (neigh->send_rvt.natoms > 0) {
 //        fprintf(stderr, "box %d sending %d atoms to neigh %d\n",
 //                box->i, neigh->send_rvt.natoms, neigh->i);
 //    }
 
+
     if (neigh->rank != sim->rank) {
         /* Use MPI for inter process comm */
-        packbuf_mpisend(&neigh->send_rvt, neigh->rank, neigh->i);
+        #pragma oss task label("box_tidy_send_rvt:mpisend") \
+            in(*(char **)&neigh->send_rvt.buf)
+        {
+            if (neigh->send_rvt.reserved != 111)
+                abort();
+            packbuf_mpisend(&neigh->send_rvt, neigh->rank, neigh->i);
+        }
     } else {
-        /* No-op: will be copied in box_recv_rvt */
+        /* No-op: will be copied in box_tidy_recv_rvt */
     }
 }
 
 static void
-box_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
+box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
 {
     /* Receive */
     if (dstneigh->rank != sim->rank) {
         /* Use MPI for inter process comm */
-        packbuf_mpirecv(&dstneigh->recv_rvt, dstneigh->rank, dstneigh->i);
+        #pragma oss task label("box_tidy_recv_rvt:mpirecv") \
+            out(*(char **)&dstneigh->recv_rvt.buf)
+        {
+            dstneigh->recv_rvt.reserved = 666;
+            packbuf_mpirecv(&dstneigh->recv_rvt, dstneigh->rank, dstneigh->i);
+            dstneigh->recv_rvt.reserved = 111;
+        }
     } else {
         /* Shared memory for intra-process. This can be avoided if
          * we pack directly into the receiving buffer. */
         Box *srcbox = dstneigh->box;
         Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
-        packbuf_shmcopy(&srcneigh->send_rvt, &dstneigh->recv_rvt);
+
+        #pragma oss task label("box_tidy_recv_rvt:shmcopy") \
+            in(*(char **)&srcneigh->send_rvt.buf) \
+            out(*(char **)&dstneigh->recv_rvt.buf)
+        {
+            if (srcneigh->send_rvt.reserved != 111)
+                abort();
+            dstneigh->recv_rvt.reserved = 666;
+
+            packbuf_shmcopy(&srcneigh->send_rvt, &dstneigh->recv_rvt);
+
+            dstneigh->recv_rvt.reserved = 111;
+        }
 
 //        if (srcneigh->send_rvt.natoms > 0) {
 //            fprintf(stderr, "shmcopy %d atoms from box%d:neigh%02d -> box%d:neigh%02d\n",
@@ -234,8 +269,13 @@ check_atom(Sim *sim, Box *box, Vec r)
     }
 }
 
+#pragma oss task label("box_tidy_unpack_rvt") \
+    inout(*(char **)&box->r) \
+    inout(*(char **)&box->v) \
+    inout(*(char **)&box->f) \
+    in(*(char **)&neigh->recv_rvt.buf)
 static void
-box_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
+box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
 //    if (neigh->recv_rvt.natoms > 0) {
 //        fprintf(stderr, "box %d: unpacking %d atoms from neigh %d\n",
@@ -264,18 +304,20 @@ box_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 }
 
 void
-comm_atoms_correct_box(Sim *sim)
+comm_tidy(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        box_pack_rvt(sim, box);
+        box_tidy_pack_rvt(sim, box);
     }
+
+    //#pragma oss taskwait
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
-            box_send_rvt(sim, box, neigh);
+            box_tidy_send_rvt(sim, box, neigh);
         }
     }
 
@@ -283,7 +325,7 @@ comm_atoms_correct_box(Sim *sim)
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
-            box_recv_rvt(sim, box, neigh->opposite);
+            box_tidy_recv_rvt(sim, box, neigh->opposite);
         }
     }
 
@@ -291,13 +333,15 @@ comm_atoms_correct_box(Sim *sim)
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
-            box_unpack_rvt(sim, box, neigh->opposite);
+            box_tidy_unpack_rvt(sim, box, neigh->opposite);
         }
     }
 }
 
+#pragma oss task label("box_border_pack_rt") \
+    in(*(char **)&box->r) out({box->neigh[i].send_rt.buf, i=0;NNEIGH})
 static void
-box_pack_borders(Sim *sim, Box *box)
+box_border_pack_rt(Sim *sim, Box *box)
 {
 //    fprintf(stderr, "packing borders for box %2d with nlocal %d\n",
 //            box->i, box->nlocal);
@@ -373,7 +417,64 @@ box_pack_borders(Sim *sim, Box *box)
 }
 
 static void
-box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
+box_border_send_rt(Sim *sim, Box *box, Neigh *neigh)
+{
+    if (neigh->rank != sim->rank) {
+        #pragma oss task label("box_border_send_rt:mpisend") \
+            in(*(char *)&neigh->send_rt.buf)
+        packbuf_mpisend(&neigh->send_rt, neigh->rank, neigh->i);
+    } else {
+        /* No-op: will be copied via shared memory at recv */
+    }
+}
+
+static void
+box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh)
+{
+    /* Clear receive buffer */
+    packbuf_clear(&dstneigh->recv_rt);
+
+    if (dstneigh->rank != sim->rank) {
+        #pragma oss task label("box_border_recv_rt:mpirecv") \
+            out(*(char *)&dstneigh->recv_rt.buf)
+        packbuf_mpirecv(&dstneigh->recv_rt, dstneigh->rank, dstneigh->i);
+    } else {
+        /* Get the source box from the neighbor and find the
+         * neighbor which contains the send buffer. Example:
+         *
+         * +Y
+         * ^
+         * |   +-----+         In this example, box_0 must receive
+         * |   |box_1|         the atoms from box_1. The neighbor
+         * |   |     |         neigh_15 pointing upwards (+Y) is
+         *     +--|--+         where the recv buffer is located.
+         *        v neigh_10   
+         *          (0, -1, 0) However, we must first access the
+         *                     neigh_15->box to find box_1, and
+         *          neigh_15   then compute the opposite neighbor.
+         *        ^ (0, +1, 0) 
+         *     +--|--+         The opposite neighbor is at
+         *     |box_0|         neigh_10 = opposite_neigh(15)
+         *     |     |         The send buffer is then used from
+         *     +-----+         neigh_10.
+         *
+         */
+        Box *srcbox = dstneigh->box;
+        Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
+        #pragma oss task label("box_border_recv_rt:shmcopy") \
+            in(*(char *)&srcneigh->send_rt.buf) out(*(char *)&dstneigh->recv_rt.buf)
+        {
+            packbuf_shmcopy(&srcneigh->send_rt, &dstneigh->recv_rt);
+            //fprintf(stderr, "box %d neigh %d has in recv_rt %d atoms\n",
+            //        box->i, dstneigh->i, dstneigh->recv_rt.natoms);
+        }
+    }
+}
+
+#pragma oss task label("box_border_unpack_rt") \
+    in(*(char *)&neigh->recv_rt.buf) out(*(char **)&box->r)
+static void
+box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 {
     if (neigh->recv_rt.natoms == 0)
         return;
@@ -413,102 +514,49 @@ box_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     box->nghost += nnew;
 }
 
-static void
-comm_borders_pack(Sim *sim)
+void
+comm_borders(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-
-        box_pack_borders(sim, box);
+        box_border_pack_rt(sim, box);
     }
-}
 
-static void
-comm_borders_send(Sim *sim)
-{
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
             Neigh *neigh = &box->neigh[j];
-            if (neigh->rank != sim->rank) {
-                packbuf_mpisend(&neigh->send_rt, neigh->rank, neigh->i);
-            } else {
-                /* No-op: will be copied via shared memory at recv */
-            }
+            box_border_send_rt(sim, box, neigh);
         }
     }
-}
 
-static void
-comm_borders_recv(Sim *sim)
-{
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
             /* Use the inverse order for reception */
             Neigh *dstneigh = box->neigh[j].opposite;
-
-            /* Clear receive buffer */
-            packbuf_clear(&dstneigh->recv_rt);
-
-            if (dstneigh->rank != sim->rank) {
-                packbuf_mpirecv(&dstneigh->recv_rt, dstneigh->rank, dstneigh->i);
-            } else {
-                /* Get the source box from the neighbor and find the
-                 * neighbor which contains the send buffer. Example:
-                 *
-                 * +Y
-                 * ^
-                 * |   +-----+         In this example, box_0 must receive
-                 * |   |box_1|         the atoms from box_1. The neighbor
-                 * |   |     |         neigh_15 pointing upwards (+Y) is
-                 *     +--|--+         where the recv buffer is located.
-                 *        v neigh_10   
-                 *          (0, -1, 0) However, we must first access the
-                 *                     neigh_15->box to find box_1, and
-                 *          neigh_15   then compute the opposite neighbor.
-                 *        ^ (0, +1, 0) 
-                 *     +--|--+         The opposite neighbor is at
-                 *     |box_0|         neigh_10 = opposite_neigh(15)
-                 *     |     |         The send buffer is then used from
-                 *     +-----+         neigh_10.
-                 *
-                 */
-                Box *srcbox = dstneigh->box;
-                Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
-                packbuf_shmcopy(&srcneigh->send_rt, &dstneigh->recv_rt);
-            }
+            box_border_recv_rt(sim, box, dstneigh);
         }
     }
-}
 
-static void
-comm_borders_unpack(Sim *sim)
-{
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
             /* Use the inverse order for unpack */
             Neigh *opp = box->neigh[j].opposite;
-            box_unpack_rt(sim, box, opp);
+            box_border_unpack_rt(sim, box, opp);
         }
-
-        if (box->nghost == 0)
-            abort();
+        //if (box->nghost == 0)
+        //    abort();
     }
 }
 
-void
-comm_borders(Sim *sim)
-{
-    comm_borders_pack(sim);
-    comm_borders_send(sim);
-    comm_borders_recv(sim);
-    comm_borders_unpack(sim);
-}
-
+#pragma oss task label("box_ghost_pack_r") \
+    in(*(char **)&box->r) \
+    in({*(char *)&box->neigh[i].send_rt.buf, i=0;NNEIGH}) \
+    inout({*(char *)&box->neigh[i].send_r.buf, i=0;NNEIGH})
 static void
-box_pack_ghost_r(Sim *sim, Box *box)
+box_ghost_pack_r(Sim *sim, Box *box)
 {
 //    fprintf(stderr, "packing internal ghosts from box %d\n", box->i);
 
@@ -540,68 +588,83 @@ box_pack_ghost_r(Sim *sim, Box *box)
 
             packbuf_add(&neigh->send_r, &r, NULL, NULL);
         }
+
+        //fprintf(stderr, "box %d neigh %d: packed %d internal ghosts\n",
+        //        box->i, neigh->i, neigh->send_r.natoms);
+        neigh->send_r.reserved = 666;
+    }
+
+}
+
+static void
+box_ghost_send_r(Sim *sim, Box *box, Neigh *srcneigh)
+{
+    if (srcneigh->rank != sim->rank) {
+        /* Only send the atom buffer, the receive end already
+         * knows the size */
+        #pragma oss task label("box_ghost_send_r") \
+            in(*(char *)&srcneigh->send_r.buf)
+        packbuf_mpisend_buf(&srcneigh->send_r, srcneigh->rank, srcneigh->i);
+    } else {
+        /* No-op: will be copied via shared memory at recv */
     }
 }
 
 static void
-send_ghost_position(Sim *sim)
+box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
 {
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-        for (int j = 0; j < NNEIGH; j++) {
-            Neigh *neigh = &box->neigh[j];
-            if (neigh->rank != sim->rank) {
-                /* Only send the atom buffer, the receive end already
-                 * knows the size */
-                packbuf_mpisend_buf(&neigh->send_r, neigh->rank, neigh->i);
-            } else {
-                /* No-op: will be copied via shared memory at recv */
-            }
-        }
-    }
-}
-
-static void
-recv_ghost_position(Sim *sim)
-{
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-        for (int j = 0; j < NNEIGH; j++) {
-            /* Use the inverse order for reception */
-            Neigh *dstneigh = box->neigh[j].opposite;
-
+    if (dstneigh->rank != sim->rank) {
+        #pragma oss task label("box_ghost_recv_r:mpirecv") \
+            firstprivate(dstneigh) \
+            in(*(char *)&dstneigh->recv_rt.buf) /* For natoms only */ \
+            out(*(char *)&dstneigh->recv_r.buf)
+        {
             /* Get the number of atoms to be received from the pack
              * buffer used in the borders */
             int natoms = dstneigh->recv_rt.natoms;
-
-            /* Clear receive buffer */
             packbuf_clear(&dstneigh->recv_r);
+            packbuf_mpirecv_buf(&dstneigh->recv_r, dstneigh->rank,
+                    dstneigh->i, natoms);
+        }
+    } else {
+        /* Get the source box from the neighbor and find the
+         * neighbor which contains the send buffer */
+        Box *srcbox = dstneigh->box;
+        Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
 
-            if (dstneigh->rank != sim->rank) {
-                packbuf_mpirecv_buf(&dstneigh->recv_r, dstneigh->rank,
-                        dstneigh->i, natoms);
-            } else {
-                /* Get the source box from the neighbor and find the
-                 * neighbor which contains the send buffer */
-                Box *srcbox = dstneigh->box;
-                Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
-
-                if (srcneigh->send_r.natoms != natoms)
-                    abort();
-
-                packbuf_shmcopy(&srcneigh->send_r, &dstneigh->recv_r);
+        #pragma oss task label("box_ghost_recv_r:shmcopy") \
+            firstprivate(srcneigh, dstneigh) \
+            in(*(char *)&dstneigh->recv_rt.buf) /* For natoms only */ \
+            in(*(char *)&srcneigh->send_r.buf) \
+            out(*(char *)&dstneigh->recv_r.buf)
+        {
+            if (srcneigh->send_r.natoms != dstneigh->recv_rt.natoms) {
+                fprintf(stderr, "box %d srcneigh %d dstneigh %d: natoms don't match\n"
+                            "  srcneigh->send_r.natoms = %d (%d) != dstneigh->recv_rt.natoms = %d\n",
+                        box->i, srcneigh->i, dstneigh->i,
+                        srcneigh->send_r.natoms,
+                        srcneigh->send_r.reserved,
+                        dstneigh->recv_rt.natoms);
+                sleep(1);
+                abort();
             }
-
-//            if (natoms != 0) {
-//                fprintf(stderr, "box %d: unpacked %d ghost atoms from neigh %d\n",
-//                        box->i, natoms, j);
-//            }
+            packbuf_clear(&dstneigh->recv_r);
+            packbuf_shmcopy(&srcneigh->send_r, &dstneigh->recv_r);
         }
     }
+
+//  if (natoms != 0) {
+//      fprintf(stderr, "box %d: unpacked %d ghost atoms from neigh %d\n",
+//              box->i, natoms, j);
+//  }
 }
 
+#pragma oss task label("box_ghost_unpack_r_neigh") \
+    in(*(char *)&neigh->recv_rt.buf) \
+    in(*(char *)&neigh->recv_r.buf) \
+    inout(*(char **)&box->r)
 static void
-box_unpack_r(Sim *sim, Box *box, Neigh *neigh)
+box_ghost_unpack_r_neigh(Sim *sim, Box *box, Neigh *neigh)
 {
     if (neigh->recv_r.natoms == 0)
         return;
@@ -623,23 +686,25 @@ box_unpack_r(Sim *sim, Box *box, Neigh *neigh)
 }
 
 static void
-unpack_ghost_position(Sim *sim)
+box_ghost_unpack_r(Sim *sim, Box *box)
 {
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
+    int old_nghost = box->nghost;
+    box->nghost = 0;
 
-        int old_nghost = box->nghost;
-        box->nghost = 0;
+    for (int j = 0; j < NNEIGH; j++) {
+        /* Use the inverse order for unpack */
+        Neigh *opp = box->neigh[j].opposite;
+        box_ghost_unpack_r_neigh(sim, box, opp);
+    }
 
-        for (int j = 0; j < NNEIGH; j++) {
-            /* Use the inverse order for unpack */
-            Neigh *opp = box->neigh[j].opposite;
-            box_unpack_r(sim, box, opp);
-        }
-
+    if (ENABLE_ATOM_COUNT_CHECK) {
+        /* Wait until all unpack have finished */
+        #pragma oss task label("box_ghost_unpack_r:atomcheck") \
+            in(*(char **)&box->r)
         if (box->nghost != old_nghost) {
             fprintf(stderr, "nghost atoms don't match %d != %d\n",
                     box->nghost, old_nghost);
+            sleep(1);
             abort();
         }
     }
@@ -651,11 +716,28 @@ comm_ghost_position(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        box_pack_ghost_r(sim, box);
+        box_ghost_pack_r(sim, box);
     }
 
-    send_ghost_position(sim);
-    recv_ghost_position(sim);
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *srcneigh = &box->neigh[j];
+            box_ghost_send_r(sim, box, srcneigh);
+        }
+    }
 
-    unpack_ghost_position(sim);
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            /* Use the inverse order for reception */
+            Neigh *dstneigh = box->neigh[j].opposite;
+            box_ghost_recv_r(sim, box, dstneigh);
+        }
+    }
+
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        box_ghost_unpack_r(sim, box);
+    }
 }

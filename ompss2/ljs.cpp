@@ -420,17 +420,16 @@ setup_atoms_box(Sim *sim, Box *box)
 
         /* Place atom here */
         box_add_atom(box, r, v, type);
-
-//        /* FIXME: Remove me */
-//        if (box->nlocal == sim->ntotatoms) {
-//            break;
-//        }
     }
 }
 
 static void
 check_natoms(Sim *sim)
 {
+    if (!ENABLE_ATOM_COUNT_CHECK)
+        return;
+
+    #pragma oss taskwait
     /* Ensure the total number of atoms is correct */
     int global_natoms = 0;
     int rank_natoms = 0;
@@ -964,16 +963,21 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* Move atoms to their correct box.
      * FIXME: this should be unneeded, as the atoms must be already
      * initialized in their correct box. */
-    comm_atoms_correct_box(sim);
+    comm_tidy(sim);
+    #pragma oss taskwait
 
     /* Copy the ghost atoms into the neighbor processes */
     comm_borders(sim);
+    #pragma oss taskwait
 
     build_nearby_atoms(sim);
+    #pragma oss taskwait
 
     force_update(sim);
+    #pragma oss taskwait
 
     thermo_update(sim);
+    #pragma oss taskwait
 }
 
 void
@@ -988,21 +992,20 @@ sim_run(Sim *sim)
 
         /* Update atoms positions and half velocities */
         integrate_position(sim);
+        check_natoms(sim);
 
         if (!recompute_neigh) {
             comm_ghost_position(sim);
         } else {
-            /* expensive */
-            comm_atoms_correct_box(sim);
+            comm_tidy(sim);
             check_natoms(sim);
-            /* TODO: implement atom sorting */
-            //sort_atoms(atoms, &comm);
+            //sort_atoms(sim);
             comm_borders(sim);
             check_natoms(sim);
             build_nearby_atoms(sim);
-            check_natoms(sim);
         }
 
+        check_natoms(sim);
         force_update(sim);
         integrate_velocity(sim);
 

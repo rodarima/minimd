@@ -204,6 +204,12 @@ dump_atoms(Sim *sim, Box *box)
 }
 
 /* Update force for the local atoms in a box */
+#pragma oss task \
+    label("update_force_box") \
+    in(*(char **)&box->r) \
+    in(*(char **)&box->bin) \
+    in(*(char **)&box->nearby) \
+    inout(*(char **)&box->f)
 static void
 update_force_box(Sim *sim, Force *force, Box *box, int ntypes)
 {
