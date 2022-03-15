@@ -105,23 +105,32 @@ integrate_position(Sim *sim)
 #pragma oss task \
     label("integrate_velocity_box") \
     in(*(char **)&box->f) \
-    inout(*(char **)&box->v)
+    in(*(char **)&box->iter) \
+    inout(*(char **)&box->v) \
+    inout(*(char **)&box->temperature)
 static void
 integrate_velocity_box(Sim *sim, Box *box)
 {
     if (ENABLE_VHIST)
         hist_clear(&box->vhist);
 
+    if (ENABLE_REALTIME_ENERGY)
+        box->temperature = 0.0;
+
     for (int i = 0; i < box->nlocal; i++) {
         for (int d = X; d <= Z; d++)
             box->v[i][d] += sim->dtforce * box->f[i][d];
+
+        if (ENABLE_REALTIME_ENERGY) {
+            box->temperature += dotprod(box->v[i]) * sim->mass;
+        }
 
         if (ENABLE_VHIST)
             hist_add(&box->vhist, log(1 + dotprod(box->v[i])));
     }
 
     if (ENABLE_VHIST && box->i == 0)
-        hist_print(&box->vhist, sim->iter);
+        hist_print(&box->vhist, box->iter);
 }
 
 void

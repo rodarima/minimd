@@ -845,6 +845,13 @@ setup_packbuf(Sim *sim)
             packbuf_init(&neigh->recv_rt,   1, NDIM + 1);
             packbuf_init(&neigh->send_rvt,  0, NDIM + NDIM + 1);
             packbuf_init(&neigh->recv_rvt,  0, NDIM + NDIM + 1);
+
+            packbuf_debug_switch(&neigh->send_r, PB_GARBAGE, PB_READY);
+            packbuf_debug_switch(&neigh->recv_r, PB_GARBAGE, PB_READY);
+            packbuf_debug_switch(&neigh->send_rt, PB_GARBAGE, PB_READY);
+            packbuf_debug_switch(&neigh->recv_rt, PB_GARBAGE, PB_READY);
+            packbuf_debug_switch(&neigh->send_rvt, PB_GARBAGE, PB_READY);
+            packbuf_debug_switch(&neigh->recv_rvt, PB_GARBAGE, PB_READY);
         }
     }
 }
@@ -983,6 +990,11 @@ sim_init(Sim *sim, int argc, char *argv[])
 void
 sim_run(Sim *sim)
 {
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        box->iter = 0;
+    }
+
     /* Main simulation loop */
     for (sim->iter = 0; sim->iter < sim->timesteps; sim->iter++) {
         fprintf(stderr, "===== RUNNING ITERATION %d =====\n", sim->iter);
@@ -1005,13 +1017,23 @@ sim_run(Sim *sim)
             build_nearby_atoms(sim);
         }
 
+//    #pragma oss taskwait /* Fixes the problem */
         check_natoms(sim);
         force_update(sim);
         integrate_velocity(sim);
 
         if (print_thermo_stats)
             thermo_update(sim);
+
+        for (int i = 0; i < sim->nboxes; i++) {
+            Box *box = &sim->box[i];
+            /* Wait for the velocity or thermo to finish */
+            #pragma oss task in(box->v) inout(box->iter)
+            box->iter++;
+        }
     }
+
+    #pragma oss taskwait
 }
 
 void

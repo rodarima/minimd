@@ -64,7 +64,8 @@ static void
 check_min_interactions(int ninteractions, int n)
 {
     if (ninteractions < n / 2) {
-        fprintf(stderr, "too few interactions: %d\n", ninteractions);
+        fprintf(stderr, "too few interactions: %d/%d\n",
+                ninteractions, n);
         abort();
     }
 }
@@ -136,7 +137,7 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
                 pot -= sim->e_cut;
 
             bin->vdwl_energy += pot;
-            bin->virial_temp += sqdist * forcemag;
+            bin->virial_pressure += sqdist * forcemag;
         }
     }
 
@@ -163,7 +164,7 @@ update_force_bin(Sim *sim, Force *force, Box *box, Bin *bin, int ntypes)
     /* Reset energy accumulators per bin */
     if (ENABLE_REALTIME_ENERGY) {
         bin->vdwl_energy = 0.0;
-        bin->virial_temp = 0.0;
+        bin->virial_pressure = 0.0;
     }
 
     for (int i = 0; i < bin->natoms; i++) {
@@ -206,9 +207,11 @@ dump_atoms(Sim *sim, Box *box)
 /* Update force for the local atoms in a box */
 #pragma oss task \
     label("update_force_box") \
+    in(*(char **)&box->iter) \
     in(*(char **)&box->r) \
     in(*(char **)&box->bin) \
     in(*(char **)&box->nearby) \
+    inout(*(char **)&box->vdwl_energy, *(char **)&box->virial_pressure) \
     inout(*(char **)&box->f)
 static void
 update_force_box(Sim *sim, Force *force, Box *box, int ntypes)
@@ -222,18 +225,29 @@ update_force_box(Sim *sim, Force *force, Box *box, int ntypes)
     if (ENABLE_ATOM_TRACKING)
         dump_atoms(sim, box);
 
+    /* Accumulate energies in the box */
+    if (ENABLE_REALTIME_ENERGY) {
+        box->vdwl_energy = 0.0;
+        box->virial_pressure = 0.0;
+    }
+
     /* TODO: We may be able to iterate only through the bins in the box
      * domain */
     for (int i = 0; i < box->nbinsalloc; i++) {
         Bin *bin = &box->bin[i];
         update_force_bin(sim, force, box, bin, ntypes);
+
+        if (ENABLE_REALTIME_ENERGY) {
+            box->vdwl_energy += bin->vdwl_energy;
+            box->virial_pressure += bin->virial_pressure;
+        }
     }
 
     if(ENABLE_FHIST && box->i == 0)
-        hist_print(&box->fhist, sim->iter);
+        hist_print(&box->fhist, box->iter);
 
     if(ENABLE_DHIST && box->i == 0)
-        hist_print(&box->dhist, sim->iter);
+        hist_print(&box->dhist, box->iter);
 
     /* Increase the iteration for this box */
     box->force_iter++;

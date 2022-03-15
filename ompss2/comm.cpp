@@ -21,7 +21,6 @@ int TAMPI_Iwaitall(int n, MPI_Request *r, MPI_Status *s) {
 }
 #endif
 
-
 /* Ensures that at least n atoms fit in the box (both local and ghosts) */
 static void
 box_realloc(Box *box, int n)
@@ -79,7 +78,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++) {
         packbuf_clear(&box->neigh[i].send_rvt);
-        box->neigh[i].send_rvt.reserved = 666;
+        packbuf_debug_switch(&box->neigh[i].send_rvt, PB_READY, PB_PACKING);
     }
 
     /* Invalidate ghosts, as we are going to modify box->nlocal */
@@ -122,7 +121,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
     }
 
     for (int i = 0; i < NNEIGH; i++) {
-        box->neigh[i].send_rvt.reserved = 111;
+        packbuf_debug_switch(&box->neigh[i].send_rvt, PB_PACKING, PB_READY);
     }
 
 //    for (int i = 0; i < NNEIGH; i++) {
@@ -149,9 +148,9 @@ box_tidy_send_rvt(Sim *sim, Box *box, Neigh *neigh)
         #pragma oss task label("box_tidy_send_rvt:mpisend") \
             in(*(char **)&neigh->send_rvt.buf)
         {
-            if (neigh->send_rvt.reserved != 111)
-                abort();
+            packbuf_debug_switch(&neigh->send_rvt, PB_READY, PB_SENDING);
             packbuf_mpisend(&neigh->send_rvt, neigh->rank, neigh->i);
+            packbuf_debug_switch(&neigh->send_rvt, PB_SENDING, PB_READY);
         }
     } else {
         /* No-op: will be copied in box_tidy_recv_rvt */
@@ -167,9 +166,9 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
         #pragma oss task label("box_tidy_recv_rvt:mpirecv") \
             out(*(char **)&dstneigh->recv_rvt.buf)
         {
-            dstneigh->recv_rvt.reserved = 666;
+            packbuf_debug_switch(&dstneigh->recv_rvt, PB_READY, PB_RECVING);
             packbuf_mpirecv(&dstneigh->recv_rvt, dstneigh->rank, dstneigh->i);
-            dstneigh->recv_rvt.reserved = 111;
+            packbuf_debug_switch(&dstneigh->recv_rvt, PB_RECVING, PB_READY);
         }
     } else {
         /* Shared memory for intra-process. This can be avoided if
@@ -181,13 +180,13 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
             in(*(char **)&srcneigh->send_rvt.buf) \
             out(*(char **)&dstneigh->recv_rvt.buf)
         {
-            if (srcneigh->send_rvt.reserved != 111)
-                abort();
-            dstneigh->recv_rvt.reserved = 666;
+            packbuf_debug_switch(&srcneigh->send_rvt, PB_READY, PB_COPYING);
+            packbuf_debug_switch(&dstneigh->recv_rvt, PB_READY, PB_COPYING);
 
             packbuf_shmcopy(&srcneigh->send_rvt, &dstneigh->recv_rvt);
 
-            dstneigh->recv_rvt.reserved = 111;
+            packbuf_debug_switch(&srcneigh->send_rvt, PB_COPYING, PB_READY);
+            packbuf_debug_switch(&dstneigh->recv_rvt, PB_COPYING, PB_READY);
         }
 
 //        if (srcneigh->send_rvt.natoms > 0) {
@@ -272,11 +271,12 @@ check_atom(Sim *sim, Box *box, Vec r)
 #pragma oss task label("box_tidy_unpack_rvt") \
     inout(*(char **)&box->r) \
     inout(*(char **)&box->v) \
-    inout(*(char **)&box->f) \
+    inout(*(char **)&box->f) /* May realloc f too */\
     in(*(char **)&neigh->recv_rvt.buf)
 static void
 box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
+    packbuf_debug_switch(&neigh->recv_rvt, PB_READY, PB_UNPACKING);
 //    if (neigh->recv_rvt.natoms > 0) {
 //        fprintf(stderr, "box %d: unpacking %d atoms from neigh %d\n",
 //                box->i, neigh->recv_rvt.natoms, neigh->i);
@@ -301,6 +301,7 @@ box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 
     /* Adjust the number of local atoms in the box */
     box->nlocal = n;
+    packbuf_debug_switch(&neigh->recv_rvt, PB_UNPACKING, PB_READY);
 }
 
 void
@@ -310,8 +311,6 @@ comm_tidy(Sim *sim)
         Box *box = &sim->box[i];
         box_tidy_pack_rvt(sim, box);
     }
-
-    //#pragma oss taskwait
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
@@ -356,6 +355,7 @@ box_border_pack_rt(Sim *sim, Box *box)
 
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++) {
+        packbuf_debug_switch(&box->neigh[i].send_rt, PB_READY, PB_PACKING);
         packbuf_clear(&box->neigh[i].send_rt);
     }
 
@@ -403,6 +403,11 @@ box_border_pack_rt(Sim *sim, Box *box)
         }
 
     }
+
+    for (int i = 0; i < NNEIGH; i++) {
+        packbuf_debug_switch(&box->neigh[i].send_rt, PB_PACKING, PB_READY);
+    }
+
 //    if (box->i == 1) {
 //        abort();
 //    }
@@ -421,8 +426,12 @@ box_border_send_rt(Sim *sim, Box *box, Neigh *neigh)
 {
     if (neigh->rank != sim->rank) {
         #pragma oss task label("box_border_send_rt:mpisend") \
-            in(*(char *)&neigh->send_rt.buf)
-        packbuf_mpisend(&neigh->send_rt, neigh->rank, neigh->i);
+            in(*(char **)&neigh->send_rt.buf)
+        {
+            packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_SENDING);
+            packbuf_mpisend(&neigh->send_rt, neigh->rank, neigh->i);
+            packbuf_debug_switch(&neigh->send_rt, PB_SENDING, PB_READY);
+        }
     } else {
         /* No-op: will be copied via shared memory at recv */
     }
@@ -431,13 +440,17 @@ box_border_send_rt(Sim *sim, Box *box, Neigh *neigh)
 static void
 box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh)
 {
-    /* Clear receive buffer */
-    packbuf_clear(&dstneigh->recv_rt);
-
     if (dstneigh->rank != sim->rank) {
         #pragma oss task label("box_border_recv_rt:mpirecv") \
-            out(*(char *)&dstneigh->recv_rt.buf)
-        packbuf_mpirecv(&dstneigh->recv_rt, dstneigh->rank, dstneigh->i);
+            out(*(char **)&dstneigh->recv_rt.buf)
+        {
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_RECVING);
+            /* Clear receive buffer */
+            //fprintf(stderr, "clearing box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
+            packbuf_clear(&dstneigh->recv_rt);
+            packbuf_mpirecv(&dstneigh->recv_rt, dstneigh->rank, dstneigh->i);
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_RECVING, PB_READY);
+        }
     } else {
         /* Get the source box from the neighbor and find the
          * neighbor which contains the send buffer. Example:
@@ -462,22 +475,33 @@ box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh)
         Box *srcbox = dstneigh->box;
         Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
         #pragma oss task label("box_border_recv_rt:shmcopy") \
-            in(*(char *)&srcneigh->send_rt.buf) out(*(char *)&dstneigh->recv_rt.buf)
+            in(*(char **)&srcneigh->send_rt.buf) out(*(char **)&dstneigh->recv_rt.buf)
         {
+            packbuf_debug_switch(&srcneigh->send_rt, PB_READY, PB_COPYING);
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_COPYING);
+            /* Clear receive buffer */
+            //fprintf(stderr, "clearing box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
+            packbuf_clear(&dstneigh->recv_rt);
             packbuf_shmcopy(&srcneigh->send_rt, &dstneigh->recv_rt);
+            //fprintf(stderr, "set box%d:neigh%d recv_rt %d\n",
+            //        box->i, dstneigh->i, dstneigh->recv_rt.natoms);
             //fprintf(stderr, "box %d neigh %d has in recv_rt %d atoms\n",
             //        box->i, dstneigh->i, dstneigh->recv_rt.natoms);
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_COPYING, PB_READY);
+            packbuf_debug_switch(&srcneigh->send_rt, PB_COPYING, PB_READY);
         }
     }
 }
 
 #pragma oss task label("box_border_unpack_rt") \
-    in(*(char *)&neigh->recv_rt.buf) out(*(char **)&box->r)
+    in(*(char **)&neigh->recv_rt.buf) out(*(char **)&box->r)
 static void
 box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 {
     if (neigh->recv_rt.natoms == 0)
         return;
+
+    packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_UNPACKING);
 
     /* Ensure we have room to place the new ghost atoms */
     int nnew = neigh->recv_rt.natoms;
@@ -512,6 +536,8 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 
     /* Adjust the number of ghost atoms in the box */
     box->nghost += nnew;
+
+    packbuf_debug_switch(&neigh->recv_rt, PB_UNPACKING, PB_READY);
 }
 
 void
@@ -553,8 +579,8 @@ comm_borders(Sim *sim)
 
 #pragma oss task label("box_ghost_pack_r") \
     in(*(char **)&box->r) \
-    in({*(char *)&box->neigh[i].send_rt.buf, i=0;NNEIGH}) \
-    inout({*(char *)&box->neigh[i].send_r.buf, i=0;NNEIGH})
+    in({*(char **)&box->neigh[i].send_rt.buf, i=0;NNEIGH}) \
+    inout({*(char **)&box->neigh[i].send_r.buf, i=0;NNEIGH})
 static void
 box_ghost_pack_r(Sim *sim, Box *box)
 {
@@ -563,12 +589,15 @@ box_ghost_pack_r(Sim *sim, Box *box)
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++) {
         packbuf_clear(&box->neigh[i].send_r);
+        packbuf_debug_switch(&box->neigh[i].send_r, PB_READY, PB_PACKING);
     }
 
     /* Use the selection in send_rt populated by borders to pack the
      * atom position */
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
+
+        packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_READING);
         PackBuf *pb = &neigh->send_rt;
 
         for (int j = 0; j < pb->natoms; j++) {
@@ -591,9 +620,10 @@ box_ghost_pack_r(Sim *sim, Box *box)
 
         //fprintf(stderr, "box %d neigh %d: packed %d internal ghosts\n",
         //        box->i, neigh->i, neigh->send_r.natoms);
-        neigh->send_r.reserved = 666;
-    }
 
+        packbuf_debug_switch(&neigh->send_rt, PB_READING, PB_READY);
+        packbuf_debug_switch(&neigh->send_r, PB_PACKING, PB_READY);
+    }
 }
 
 static void
@@ -603,8 +633,12 @@ box_ghost_send_r(Sim *sim, Box *box, Neigh *srcneigh)
         /* Only send the atom buffer, the receive end already
          * knows the size */
         #pragma oss task label("box_ghost_send_r") \
-            in(*(char *)&srcneigh->send_r.buf)
-        packbuf_mpisend_buf(&srcneigh->send_r, srcneigh->rank, srcneigh->i);
+            in(*(char **)&srcneigh->send_r.buf)
+        {
+            packbuf_debug_switch(&srcneigh->send_r, PB_READY, PB_PACKING);
+            packbuf_mpisend_buf(&srcneigh->send_r, srcneigh->rank, srcneigh->i);
+            packbuf_debug_switch(&srcneigh->send_r, PB_PACKING, PB_READY);
+        }
     } else {
         /* No-op: will be copied via shared memory at recv */
     }
@@ -616,15 +650,21 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
     if (dstneigh->rank != sim->rank) {
         #pragma oss task label("box_ghost_recv_r:mpirecv") \
             firstprivate(dstneigh) \
-            in(*(char *)&dstneigh->recv_rt.buf) /* For natoms only */ \
-            out(*(char *)&dstneigh->recv_r.buf)
+            in(*(char **)&dstneigh->recv_rt.buf) /* For natoms only */ \
+            out(*(char **)&dstneigh->recv_r.buf)
         {
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_READING);
+            packbuf_debug_switch(&dstneigh->recv_r, PB_READY, PB_RECVING);
             /* Get the number of atoms to be received from the pack
              * buffer used in the borders */
+            fprintf(stderr, "reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
             int natoms = dstneigh->recv_rt.natoms;
             packbuf_clear(&dstneigh->recv_r);
             packbuf_mpirecv_buf(&dstneigh->recv_r, dstneigh->rank,
                     dstneigh->i, natoms);
+
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
+            packbuf_debug_switch(&dstneigh->recv_r, PB_RECVING, PB_READY);
         }
     } else {
         /* Get the source box from the neighbor and find the
@@ -634,22 +674,32 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
 
         #pragma oss task label("box_ghost_recv_r:shmcopy") \
             firstprivate(srcneigh, dstneigh) \
-            in(*(char *)&dstneigh->recv_rt.buf) /* For natoms only */ \
-            in(*(char *)&srcneigh->send_r.buf) \
-            out(*(char *)&dstneigh->recv_r.buf)
+            in(*(char **)&dstneigh->recv_rt.buf) /* For natoms only */ \
+            in(*(char **)&srcneigh->send_r.buf) \
+            out(*(char **)&dstneigh->recv_r.buf)
         {
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_READING);
+            packbuf_debug_switch(&dstneigh->recv_r,  PB_READY, PB_COPYING);
+            packbuf_debug_switch(&srcneigh->send_r,  PB_READY, PB_COPYING);
+
+            //fprintf(stderr, "reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
             if (srcneigh->send_r.natoms != dstneigh->recv_rt.natoms) {
                 fprintf(stderr, "box %d srcneigh %d dstneigh %d: natoms don't match\n"
-                            "  srcneigh->send_r.natoms = %d (%d) != dstneigh->recv_rt.natoms = %d\n",
+                            "  srcneigh->send_r.natoms = %d != dstneigh->recv_rt.natoms = %d\n",
                         box->i, srcneigh->i, dstneigh->i,
                         srcneigh->send_r.natoms,
-                        srcneigh->send_r.reserved,
                         dstneigh->recv_rt.natoms);
                 sleep(1);
                 abort();
             }
             packbuf_clear(&dstneigh->recv_r);
             packbuf_shmcopy(&srcneigh->send_r, &dstneigh->recv_r);
+            //fprintf(stderr, "setting box%d:neigh%d recv_r natoms=%d\n",
+            //        box->i, dstneigh->i, dstneigh->recv_r.natoms);
+
+            packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
+            packbuf_debug_switch(&dstneigh->recv_r,  PB_COPYING, PB_READY);
+            packbuf_debug_switch(&srcneigh->send_r,  PB_COPYING, PB_READY);
         }
     }
 
@@ -659,36 +709,50 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
 //  }
 }
 
-#pragma oss task label("box_ghost_unpack_r_neigh") \
-    in(*(char *)&neigh->recv_rt.buf) \
-    in(*(char *)&neigh->recv_r.buf) \
-    inout(*(char **)&box->r)
 static void
 box_ghost_unpack_r_neigh(Sim *sim, Box *box, Neigh *neigh)
 {
-    if (neigh->recv_r.natoms == 0)
-        return;
+    packbuf_debug_switch(&neigh->recv_r, PB_READY, PB_RECVING);
+    packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_READING);
 
     if (neigh->recv_rt.natoms != neigh->recv_r.natoms)
         abort();
 
-    int i = box->nlocal + box->nghost;
+    if (neigh->recv_r.natoms != 0) {
+        int nnew = neigh->recv_r.natoms;
+        int ntot = box->nlocal + box->nghost + nnew;
+        if (ntot > box->nalloc) {
+            fprintf(stderr, "error: box%d:neigh%d cannot unpack %d atoms, capacity exeeeded\n",
+                    box->i, neigh->i, nnew);
+            abort();
+        }
 
-    /* The unpack order must be kept the same to match the ghost atom
-     * order given by borders */
-    packbuf_unpack(&neigh->recv_r, &box->r[i], NULL, NULL);
+        int i = box->nlocal + box->nghost;
 
-    /* We cannot check the domain bounds of the new ghost atom
-     * positions, as they are moving around, even exceeding the halo
-     * domain */
+        /* The unpack order must be kept the same to match the ghost atom
+         * order given by borders */
+        packbuf_unpack(&neigh->recv_r, &box->r[i], NULL, NULL);
 
-    box->nghost += neigh->recv_r.natoms;
+        /* We cannot check the domain bounds of the new ghost atom
+         * positions, as they are moving around, even exceeding the halo
+         * domain */
+
+        box->nghost += neigh->recv_r.natoms;
+    }
+
+    packbuf_debug_switch(&neigh->recv_r, PB_RECVING, PB_READY);
+    packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
 }
 
+#pragma oss task label("box_ghost_unpack_r_neigh") \
+    in({*(char **)&box->neigh[i].recv_rt.buf, i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_r.buf,  i=0;NNEIGH}) \
+    inout(*(char **)&box->r)
 static void
 box_ghost_unpack_r(Sim *sim, Box *box)
 {
     int old_nghost = box->nghost;
+    /* FIXME: cannot change the nghosts from main! */
     box->nghost = 0;
 
     for (int j = 0; j < NNEIGH; j++) {
@@ -699,8 +763,8 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 
     if (ENABLE_ATOM_COUNT_CHECK) {
         /* Wait until all unpack have finished */
-        #pragma oss task label("box_ghost_unpack_r:atomcheck") \
-            in(*(char **)&box->r)
+//        #pragma oss task label("box_ghost_unpack_r:atomcheck") \
+//            in(*(char **)&box->r)
         if (box->nghost != old_nghost) {
             fprintf(stderr, "nghost atoms don't match %d != %d\n",
                     box->nghost, old_nghost);

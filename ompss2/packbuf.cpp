@@ -17,6 +17,18 @@ packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
     pb->state = next;
 }
 
+void
+packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
+{
+    if (pb->debug_state != prev) {
+        fprintf(stderr, "error: packbuf in debug_state %d, expected %d\n",
+                pb->debug_state, prev);
+        abort();
+    }
+
+    pb->debug_state = next;
+}
+
 /* Grows the buffer so that the allocated capacity can hold at least n
  * atoms. */
 static void

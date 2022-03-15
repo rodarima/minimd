@@ -36,23 +36,6 @@
 #include <stdlib.h>
 #include <math.h>
 
-static void
-thermo_update_box(Sim *sim, Box *box)
-{
-    /* We can reduce the values from all the allocated bins, even if we
-     * only are interested in the ones in the box domain, as they have 0
-     * value. */
-    box->vdwl_energy = 0.0;
-    box->virial_temp = 0.0;
-
-    for (int i = 0; i < box->nbinsalloc; i++) {
-        Bin *bin = &box->bin[i];
-        box->vdwl_energy += bin->vdwl_energy;
-        box->virial_temp += bin->virial_temp;
-    }
-
-}
-
 static double
 get_temperature(Sim *sim)
 {
@@ -104,39 +87,67 @@ get_temperature(Sim *sim)
     return temp;
 }
 
-void
-thermo_update(Sim *sim)
+#pragma oss task label("thermo_update") \
+    in({*(char **)&sim->box[i].iter, i=0;sim->nboxes}) \
+    in({*(char **)&sim->box[i].vdwl_energy, i=0;sim->nboxes}) \
+    in({*(char **)&sim->box[i].virial_pressure, i=0;sim->nboxes}) \
+    in({*(char **)&sim->box[i].temperature, i=0;sim->nboxes})
+static void
+thermo_update_internal(Sim *sim, int iter)
 {
-    #pragma oss taskwait
     double local_vdwl_energy = 0.0;
-    double local_virial_temp = 0.0;
+    double local_virial_pressure = 0.0;
+    double local_temperature = 0.0;
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        thermo_update_box(sim, box);
 
         local_vdwl_energy += box->vdwl_energy;
-        local_virial_temp += box->virial_temp;
+        local_virial_pressure += box->virial_pressure;
+        local_temperature += box->temperature;
     }
 
-    double vdwl_energy, virial_temp;
-    MPI_Reduce(&local_vdwl_energy, &vdwl_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_virial_temp, &virial_temp, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    double vdwl_energy, virial_pressure, temperature;
 
-    /* Correct reduced units and compute energy */
-    double pot_energy = (vdwl_energy * sim->e_scale) / sim->ntotatoms;
-    double kin_energy = get_temperature(sim) * 3.0 / 2.0;
+    MPI_Reduce(&local_vdwl_energy, &vdwl_energy,
+            1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_virial_pressure, &virial_pressure,
+            1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_temperature, &temperature,
+            1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    /* Correct reduced units */
+    vdwl_energy *= sim->e_scale;
+    temperature *= sim->t_scale;
+
+    /* Not initialized yet at -1 */
+    if (iter == -1) {
+        temperature = get_temperature(sim);
+    }
+
+    /* Compute energy */
+    double pot_energy = vdwl_energy / sim->ntotatoms;
+    double kin_energy = temperature * 3.0 / 2.0;
     double tot_energy = pot_energy + kin_energy;
 
     /* Only the rank 0 prints the report */
     if (sim->rank != 0)
         return;
 
+    fprintf(stderr, "thermo iter %d\n", iter);
+
     if (ENABLE_REALTIME_ENERGY) {
         FILE *f = fopen("energy.csv", "a");
-        fprintf(f, "%d,%e,%e,%e\n", sim->iter, pot_energy, kin_energy, tot_energy);
+        fprintf(f, "%d,%e,%e,%e\n", iter, pot_energy, kin_energy, tot_energy);
         fclose(f);
     }
 
+}
+
+void
+thermo_update(Sim *sim)
+{
+    if (ENABLE_REALTIME_ENERGY)
+        thermo_update_internal(sim, sim->iter);
 }
 
 void
@@ -151,7 +162,7 @@ thermo_init(Sim *sim)
             bin->pot_energy = 0.0;
             bin->kin_energy = 0.0;
             bin->vdwl_energy = 0.0;
-            bin->virial_temp = 0.0;
+            bin->virial_pressure = 0.0;
         }
     }
 

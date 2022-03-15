@@ -142,7 +142,7 @@ typedef struct bin {
     double pot_energy; /* Potential energy */
     double kin_energy; /* Kinetic energy */
     double vdwl_energy; /* Van der Waals pairwise energy */
-    double virial_temp; /* Virial temperature */
+    double virial_pressure; /* Virial temperature */
     double potghost_energy; /* Potential energy of the ghosts only */
 } Bin;
 
@@ -160,6 +160,7 @@ enum packbuf_state {
     PB_COPYING = 5,
     PB_UNPACKING = 6,
     PB_ADDING = 7,
+    PB_READING = 8,
 };
 
 typedef struct {
@@ -169,7 +170,7 @@ typedef struct {
     double *buf;    /* The contiguous buffer */
     int enable_sel; /* If non-zero use selection for packing */
     int *sel;       /* Selection of atoms */
-    int reserved;   /* Reserved for debugging purposes */
+    enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
     MPI_Request req;
     MPI_Comm comm;
@@ -244,6 +245,8 @@ typedef struct box {
 
     int nstencil; /* # of bins in stencil */
     int *stencil; /* stencil list of bin offsets */
+
+    int iter; /* Iteration of this box */
     
     Domain dombox;  /* Extension of the box in space units */
     Domain domcore; /* Extension of the box minus R_neigh */
@@ -268,8 +271,9 @@ typedef struct box {
     double pot_energy; /* Potential energy */
     double kin_energy; /* Kinetic energy */
     double vdwl_energy; /* Van der Waals pairwise energy */
-    double virial_temp; /* Virial temperature */
+    double virial_pressure; /* Virial pressure */
     double potghost_energy; /* Potential energy of the ghosts only */
+    double temperature;
 
     Hist fhist; /* Force histogram */
     Hist vhist; /* Velocity histogram */
@@ -392,6 +396,7 @@ void comm_ghost_position(Sim *sim);
 
 void *safe_realloc(void *ptr, size_t size);
 
+void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
 void packbuf_mpisend(PackBuf *pb, int remoterank, int tag);
 void packbuf_mpirecv(PackBuf *pb, int remoterank, int tag);
 void packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag);
