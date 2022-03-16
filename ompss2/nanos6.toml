@@ -16,8 +16,8 @@
 	dependencies = "discrete"
 	# Choose the instrumentation variant to run. Default is "none"
 	# Possible values: "none", "ctf", "extrae", "graph", "lint", "stats", "verbose"
-	#instrument = "none"
-	instrument = "ctf"
+	instrument = "none"
+	#instrument = "ctf"
 
 [turbo]
 	# Choose whether enabling floating-point unit optimizations in all Nanos6 threads. Enabling this

@@ -173,6 +173,9 @@ setup_bin_stencil(Sim *sim, Box *box, int enclosed_nbins[NDIM])
                 /* Check if the bin is within R_neigh distance */
                 if (get_bindist(i, sim->binlen) < R_neigh_sq) {
                     box->stencil[box->nstencil++] = coord2index(i, box->nbinshalo);
+                } else {
+                    fprintf(stderr, "rejecting bin at %d %d %d\n",
+                            i[X], i[Y], i[Z]);
                 }
             }
         }
@@ -207,15 +210,20 @@ setup_bins_box(Sim *sim, Box *box)
         box->nbinshalo[d] = hi - lo;
         box->nbinsalloc *= box->nbinshalo[d];
 
+        /* FIXME: Simplify the computation of possible bins */
+
         /* The number of bins inside the R_neigh radius */
         enclosed_nbins[d] = sim->R_neigh / sim->binlen[d];
 
         /* Enlarge if the bin is larger than the radius */
-        if (enclosed_nbins[d] * sim->binlen[d] < 1e-6 * sim->R_neigh)
+        if (enclosed_nbins[d] * sim->binlen[d] < (1 - 1e-6) * sim->R_neigh)
             enclosed_nbins[d]++;
 
         total_enclosed *= 2 * enclosed_nbins[d] + 1;
     }
+
+    fprintf(stderr, "box = %d enclosed_nbins = (%d %d %d)\n",
+            box->i, enclosed_nbins[X], enclosed_nbins[Y], enclosed_nbins[Z]);
 
     /* Allocate bins and stencil */
     box->bin = (Bin *) malloc(box->nbinsalloc * sizeof(Bin));
@@ -352,8 +360,6 @@ setup_atoms_box(Sim *sim, Box *box)
      * unique seed to generate a unique velocity. Exercise RNG between
      * calls to avoid correlations in adjacent atoms */
 
-    double xtmp, ytmp, ztmp, vx, vy, vz;
-
     int ind[NDIM] = { 0 };
     int s[NDIM] = { 0 };
     int o[NDIM] = { 0 };
@@ -420,6 +426,9 @@ setup_atoms_box(Sim *sim, Box *box)
 
         /* Place atom here */
         box_add_atom(box, r, v, type);
+
+        if (ENABLE_ONLY_NTOTATOMS && box->nlocal >= ENABLE_ONLY_NTOTATOMS)
+            break;
     }
 }
 
@@ -557,8 +566,12 @@ setup_temperature(Sim *sim)
     /* Adjust the temperature by scaling the atoms velocity */
     double t = get_temperature(sim);
     double factor = sqrt(sim->t_request / t);
-//    /* FIXME: remove me */
-//    factor = 10.0;
+
+    fprintf(stderr, "v factor = %e\n", factor);
+
+    if (ENABLE_ONLY_NTOTATOMS)
+        factor = 150;
+        //factor = 1e-5;
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
@@ -574,7 +587,7 @@ setup_temperature(Sim *sim)
     double relerr = fabs(t_corrected - sim->t_request) / fabs(sim->t_request);
 
     /* This holds when relerr is nan too */
-    if (! (relerr < 10e2 * DBL_EPSILON)) {
+    if (ENABLE_ONLY_NTOTATOMS == 0 && (! (relerr < 10e2 * DBL_EPSILON))) {
         fprintf(stderr, "temperature relative error %e (t_corrected=%e vs t_requested=%e)\n",
                 relerr, t_corrected, sim->t_request);
         abort();
@@ -613,11 +626,13 @@ setup_params(Sim *sim)
      */
     /* FIXME: remove me */
     sim->ntotatoms = 4 * sim->npoints[X] * sim->npoints[Y] * sim->npoints[Z];
-    //sim->ntotatoms = 2;
+
+    if (ENABLE_ONLY_NTOTATOMS > 0)
+        sim->ntotatoms = ENABLE_ONLY_NTOTATOMS;
 
     /* Unit conversion constants */
     sim->mvv2e = 1.0;
-    sim->dof_boltz = (sim->ntotatoms * 3 - 3);
+    sim->dof_boltz = sim->ntotatoms > 1 ? (sim->ntotatoms * 3 - 3) : 1.0;
     sim->t_scale = sim->mvv2e / sim->dof_boltz;
     sim->p_scale = 1.0 / 3.0 / sim->boxlen[X] / sim->boxlen[Y] / sim->boxlen[Z];
     sim->e_scale = 0.5;

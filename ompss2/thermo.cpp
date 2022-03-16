@@ -125,7 +125,7 @@ thermo_update_internal(Sim *sim, int iter)
     }
 
     /* Compute energy */
-    double pot_energy = vdwl_energy / sim->ntotatoms;
+    double pot_energy = sim->ntotatoms > 1 ? vdwl_energy / (sim->ntotatoms) : vdwl_energy;
     double kin_energy = temperature * 3.0 / 2.0;
     double tot_energy = pot_energy + kin_energy;
 
@@ -140,7 +140,6 @@ thermo_update_internal(Sim *sim, int iter)
         fprintf(f, "%d,%e,%e,%e\n", iter, pot_energy, kin_energy, tot_energy);
         fclose(f);
     }
-
 }
 
 void

@@ -103,16 +103,20 @@ typedef int    Range[NDIM][NLIM];
 
 /* Correct the potential energy at R_force for atoms that leave the
  * interaction zone (also referred to e_cut) */
-#define ENABLE_ECUT_CORRECTION 1
+#define ENABLE_ECUT_CORRECTION 0
 
 /* Writes the position of the atoms per iteration. Introduces a lot of
  * overhead */
-#define ENABLE_ATOM_TRACKING 0
+#define ENABLE_ATOM_TRACKING 1
 
 /* Halts the simulation if an atom doesn't interact with at least half
  * the neighbors (they are too far away to interact). This may happen
  * with too many time steps without re-neighboring. */
 #define ENABLE_MIN_INTERACTIONS_CHECK 1
+
+/* Counts the number of total force interactions and dumps it into a CSV
+ * file. */
+#define ENABLE_COUNT_INTERACTIONS 1
 
 /* Enable domain checks: ensures the atoms are inside the box or other
  * space domains */
@@ -121,6 +125,9 @@ typedef int    Range[NDIM][NLIM];
 /* Checks the number of atoms is expected before and after an operation.
  * Needs task wait so it can cause other bugs to disappear. */
 #define ENABLE_ATOM_COUNT_CHECK 0
+
+/* Uses only these many atoms. Use 0 to run normally */
+#define ENABLE_ONLY_NTOTATOMS 0
 
 /* Ensure that no new atom is too close to a local atom (slow) */
 //#define ENABLE_NEW_ATOM_CHECK
@@ -274,6 +281,7 @@ typedef struct box {
     double virial_pressure; /* Virial pressure */
     double potghost_energy; /* Potential energy of the ghosts only */
     double temperature;
+    int ninteractions;
 
     Hist fhist; /* Force histogram */
     Hist vhist; /* Velocity histogram */

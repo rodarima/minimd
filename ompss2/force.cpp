@@ -31,25 +31,13 @@
 
 #include "force.h"
 #include "types.h"
-#include "neighbor.h"
+#include "neigh.h"
 #include "hist.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-static double
-dotprod(Vec v)
-{
-    double sum = 0.0;
-
-    for (int i = 0; i < NDIM; i++) {
-        sum += v[i] * v[i];
-    }
-
-    return sum;
-}
 
 static void
 check_max_force(Vec f)
@@ -86,6 +74,7 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
     };
 
     int ninteractions = 0;
+    double epot0 = bin->vdwl_energy;
 
     /* This loop is performance critical */
     for (int k = 0; k < n; k++) {
@@ -114,6 +103,9 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
         if (sqdist >= force->R_force_sq[type_ij])
             continue;
 
+//        fprintf(stderr, "atom %4d: interacts with nearby %4d sqdist %e\n",
+//                i, j, sqdist);
+
         double sr2 = 1.0 / sqdist;
         double sr6 = sr2 * sr2 * sr2 * force->sigma6[type_ij];
         double sr6eps = sr6 * force->epsilon[type_ij];
@@ -124,8 +116,10 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
         local_f[Y] += delta[Y] * forcemag;
         local_f[Z] += delta[Z] * forcemag;
 
-        if (ENABLE_MIN_INTERACTIONS_CHECK)
-            ninteractions++;
+//        fprintf(stderr, "atom %4d: force now (%e %e %e)\n",
+//                i, local_f[X], local_f[Y], local_f[Z]);
+
+        ninteractions++;
 
         if (ENABLE_REALTIME_ENERGY) {
             /* Accumulate Van der Waals energy and virial temperature in
@@ -138,6 +132,11 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
 
             bin->vdwl_energy += pot;
             bin->virial_pressure += sqdist * forcemag;
+
+//            fprintf(stderr, "atom %4d: at (%e %e %e)\n",
+//                    i, ri[X], ri[Y], ri[Z]);
+//            fprintf(stderr, "atom %4d: delta energy %e\n",
+//                    i, bin->vdwl_energy - epot0);
         }
     }
 
@@ -155,6 +154,17 @@ update_force_atom(Sim *sim, Force *force, Box *box, Bin *bin, int i, int n, int 
 
     if (ENABLE_MIN_INTERACTIONS_CHECK)
         check_min_interactions(ninteractions, n);
+
+    if (ENABLE_COUNT_INTERACTIONS) {
+        box->ninteractions += ninteractions;
+
+        if (box->iter == -1 && ninteractions != 54)
+            abort();
+    }
+
+//    fprintf(stderr, "XXX atom %d had %d/%d interactions\n",
+//            i, ninteractions, n);
+//    fprintf(stderr, "XXX\n");
 }
 
 /* Update force for all atoms in the given bin index */
@@ -202,6 +212,26 @@ dump_atoms(Sim *sim, Box *box)
                 nearby);
     }
     fclose(f);
+
+    if (sim->iter == -1) {
+        FILE *f = fopen("atomneigh.csv", "w");
+        fprintf(f, "iter,atom,i,neigh,x,y,z\n");
+        fclose(f);
+    }
+
+    {
+        FILE *f = fopen("atomneigh.csv", "a");
+        for (int j = 0; j < box->nlocal; j++) {
+            for (int i = 0; i < box->nearby[j].natoms; i++) {
+                int neigh = box->nearby[j].atom[i];
+                Vec *r = &box->r[neigh];
+                fprintf(f, "%d,%d,%d,%d,%e,%e,%e\n",
+                        sim->iter, j, i, neigh,
+                        (*r)[X], (*r)[Y], (*r)[Z]);
+            }
+        }
+        fclose(f);
+    }
 }
 
 /* Update force for the local atoms in a box */
@@ -216,10 +246,10 @@ dump_atoms(Sim *sim, Box *box)
 static void
 update_force_box(Sim *sim, Force *force, Box *box, int ntypes)
 {
-    if(ENABLE_FHIST)
+    if (ENABLE_FHIST)
         hist_clear(&box->fhist);
 
-    if(ENABLE_DHIST)
+    if (ENABLE_DHIST)
         hist_clear(&box->dhist);
 
     if (ENABLE_ATOM_TRACKING)
@@ -231,16 +261,50 @@ update_force_box(Sim *sim, Force *force, Box *box, int ntypes)
         box->virial_pressure = 0.0;
     }
 
-    /* TODO: We may be able to iterate only through the bins in the box
-     * domain */
-    for (int i = 0; i < box->nbinsalloc; i++) {
-        Bin *bin = &box->bin[i];
-        update_force_bin(sim, force, box, bin, ntypes);
+    box->ninteractions = 0;
+
+    int ENABLE_FORCE_BY_BINS = 1;
+    if (ENABLE_FORCE_BY_BINS) {
+        /* TODO: We may be able to iterate only through the bins in the
+         * box domain */
+        for (int i = 0; i < box->nbinsalloc; i++) {
+            Bin *bin = &box->bin[i];
+            update_force_bin(sim, force, box, bin, ntypes);
+
+            if (ENABLE_REALTIME_ENERGY) {
+                box->vdwl_energy += bin->vdwl_energy;
+                box->virial_pressure += bin->virial_pressure;
+            }
+        }
+    } else {
+        /* Reset energy accumulators per bin */
+        if (ENABLE_REALTIME_ENERGY) {
+            for (int i = 0; i < box->nbinsalloc; i++) {
+                Bin *bin = &box->bin[i];
+                bin->vdwl_energy = 0.0;
+                bin->virial_pressure = 0.0;
+            }
+        }
+
+        for (int i = 0; i < box->nlocal; i++) {
+            int ibin = get_atom_bin(sim, box, box->r[i]);
+            Bin *bin = &box->bin[ibin];
+            update_force_atom(sim, force, box, bin, i,
+                    box->nearby[i].natoms, box->nearby[i].atom, ntypes);
+        }
 
         if (ENABLE_REALTIME_ENERGY) {
-            box->vdwl_energy += bin->vdwl_energy;
-            box->virial_pressure += bin->virial_pressure;
+            for (int i = 0; i < box->nbinsalloc; i++) {
+                Bin *bin = &box->bin[i];
+                box->vdwl_energy += bin->vdwl_energy;
+                box->virial_pressure += bin->virial_pressure;
+            }
         }
+    }
+
+    if (ENABLE_COUNT_INTERACTIONS) {
+        fprintf(stderr, "iter %d box %d total interactions %d\n",
+                sim->iter, box->i, box->ninteractions);
     }
 
     if(ENABLE_FHIST && box->i == 0)

@@ -56,16 +56,25 @@ build_nearby_atoms_box(Sim *sim, Box *box)
         int iindbin = get_atom_bin(sim, box, box->r[iatom]);
         Bin *ibin = &box->bin[iindbin];
 
+        if (sim->iter == -1 && iatom == 7)
+            fprintf(stderr, "XXX searching nearby from bin %d in %d bins\n",
+                    iindbin, box->nstencil);
+
         /* Find nearing atoms in the stencil bins */
         for (int j = 0; j < box->nstencil; j++) {
             int jindbin = iindbin + box->stencil[j];
+
+            if (sim->iter == -1 && iatom == 7)
+                fprintf(stderr, "XXX looking in bin %d\n", jindbin);
 
             /* The bin should not fall outside the bin range, even if we
              * iterate through atoms in the corner, as the local atoms
              * are inside the box domain and the stencil should only
              * reach bins within the halo domain. */
             if (jindbin < 0 || jindbin >= box->nbinsalloc) {
-                fprintf(stderr, "near atom bin is outside the range\n");
+                /* FIXME: we shouldn't enter here */
+                continue;
+                fprintf(stderr, "near atom bin %d is outside the range\n", jindbin);
                 abort();
             }
 
@@ -93,6 +102,11 @@ build_nearby_atoms_box(Sim *sim, Box *box)
 
                 /* You have gone too far */
                 if (dist_sq >= R_neigh_sq) {
+                    if (sim->iter == -1 && iatom == 7 && rj[Y] == 0.0 &&
+                            rj[Z] == 0.0) {
+                        fprintf(stderr, "XXX ignoring nearby atom %d at %e %e %e\n",
+                                jatom, rj[X], rj[Y], rj[Z]);
+                    }
                     continue;
                 }
 
