@@ -632,7 +632,12 @@ setup_params(Sim *sim)
 
     /* Unit conversion constants */
     sim->mvv2e = 1.0;
-    sim->dof_boltz = sim->ntotatoms > 1 ? (sim->ntotatoms * 3 - 3) : 1.0;
+
+    if (ENABLE_NTOTATOMS_CORRECTION)
+        sim->dof_boltz = sim->ntotatoms * 3;
+    else
+        sim->dof_boltz = (sim->ntotatoms - 1) * 3;
+
     sim->t_scale = sim->mvv2e / sim->dof_boltz;
     sim->p_scale = 1.0 / 3.0 / sim->boxlen[X] / sim->boxlen[Y] / sim->boxlen[Z];
     sim->e_scale = 0.5;
@@ -1037,8 +1042,10 @@ sim_run(Sim *sim)
         force_update(sim);
         integrate_velocity(sim);
 
-        if (print_thermo_stats)
+        if (print_thermo_stats) {
+            fprintf(stderr, "thermo update called!\n");
             thermo_update(sim);
+        }
 
         for (int i = 0; i < sim->nboxes; i++) {
             Box *box = &sim->box[i];
@@ -1047,6 +1054,12 @@ sim_run(Sim *sim)
             box->iter++;
         }
     }
+
+    #pragma oss taskwait
+
+    /* Always run the thermo update at the end to check the energy error
+     * */
+    thermo_update(sim);
 
     #pragma oss taskwait
 }

@@ -87,6 +87,24 @@ get_temperature(Sim *sim)
     return temp;
 }
 
+static void
+check_final_energy(Sim *sim, double pot, double kin, double tot)
+{
+    /* Can only check if the two energy corrections are enabled */
+    if (ENABLE_ECUT_CORRECTION && ENABLE_NTOTATOMS_CORRECTION) {
+        double relerr = fabs((sim->E0_tot - tot) / sim->E0_tot);
+
+        if (relerr >= MAX_ENERGY_REL_ERROR) {
+            fprintf(stderr, "fatal: the final total energy diverges too much %e (max %e)\n",
+                    relerr, MAX_ENERGY_REL_ERROR);
+            abort();
+        }
+
+        fprintf(stderr, "total energy relative error %e (max %e)\n",
+                relerr, MAX_ENERGY_REL_ERROR);
+    }
+}
+
 #pragma oss task label("thermo_update") \
     in({*(char **)&sim->box[i].iter, i=0;sim->nboxes}) \
     in({*(char **)&sim->box[i].vdwl_energy, i=0;sim->nboxes}) \
@@ -125,13 +143,22 @@ thermo_update_internal(Sim *sim, int iter)
     }
 
     /* Compute energy */
-    double pot_energy = sim->ntotatoms > 1 ? vdwl_energy / (sim->ntotatoms) : vdwl_energy;
+    double pot_energy = vdwl_energy / sim->ntotatoms;
     double kin_energy = temperature * 3.0 / 2.0;
     double tot_energy = pot_energy + kin_energy;
 
     /* Only the rank 0 prints the report */
     if (sim->rank != 0)
         return;
+
+    /* Save initial values of energy */
+    if (iter == -1) {
+        sim->E0_pot = pot_energy;
+        sim->E0_kin = kin_energy;
+        sim->E0_tot = tot_energy;
+    } else if (iter == sim->timesteps - 1) {
+        check_final_energy(sim, pot_energy, kin_energy, tot_energy);
+    }
 
     fprintf(stderr, "thermo iter %d\n", iter);
 

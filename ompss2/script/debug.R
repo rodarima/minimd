@@ -6,8 +6,8 @@ library(readr)
 library(viridis)
 
 dpi = 300
-h = 4
-w = 6
+h = 3
+w = 4
 
 # ---------------------------------------------------------------------
 
@@ -50,10 +50,12 @@ p = ggplot(df, aes(x=iter)) +
 ggsave("energy-error.png", plot=p, width=w, height=h, dpi=dpi)
 
 p = ggplot(df, aes(x=iter)) +
-  geom_line(aes(y=Etot - Etot[1])) +
-  geom_point(aes(y=Etot - Etot[1])) +
+  geom_line(aes(y=Etot - Etot[1], linetype="Corrected")) +
+  geom_line(data=dfref, aes(y=Etot - Etot[1], linetype="Reference")) +
+  geom_hline(yintercept = 0.0005 * df$Etot[1], color = "red") +
+  geom_hline(yintercept = -0.0005 * df$Etot[1], color = "red") +
   theme_bw() +
-  labs(x="Timestep", y="Delta energy", title="Total energy")
+  labs(x="Timestep", y="Energy", title="Total energy")
 
 ggsave("etot.png", plot=p, width=w, height=h, dpi=dpi)
 

@@ -23,7 +23,7 @@ in
   pkgs.mkShell {
     name = "minimd";
     NIX_HARDENING_ENABLE = "";
-    buildInputs = with pkgs.bsc; [ nanos6 extrae openmpi icc
+    buildInputs = with pkgs.bsc; [ pkgs.python3 babeltrace2 nanos6 extrae openmpi icc
     mcxx
     clangOmpss2Fixed pkgs.cmake
     rWrapper (tampi.override {mpi=openmpi;}) ];
