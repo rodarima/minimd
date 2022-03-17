@@ -130,6 +130,9 @@ typedef int    Range[NDIM][NLIM];
 /* Ensure that no ghost atom is too close to a local atom (slow) */
 //#define ENABLE_GHOST_ATOM_CHECK
 
+/* Update the force following bin order instead of atom sequence */
+#define ENABLE_FORCE_BY_BINS 1
+
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
 /* These options cause the energy values reported by the simulation to

@@ -107,10 +107,18 @@ dotprod(Vec v)
     return sum;
 }
 
+static void
+vec_diff(Vec delta, Vec ri, Vec rj)
+{
+    for (int d = X; d <= Z; d++)
+        delta[d] = ri[d] - rj[d];
+}
+
 static double
 get_distsq(Vec ri, Vec rj)
 {
-    Vec delta = { ri[X] - rj[X], ri[Y] - rj[Y], ri[Z] - rj[Z] };
+    Vec delta;
+    vec_diff(delta, ri, rj);
     return dotprod(delta);
 }
 
