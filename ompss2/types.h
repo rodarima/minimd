@@ -185,6 +185,8 @@ typedef struct bin {
 #define NNEIGH (NNEIGHDIM*NNEIGHDIM*NNEIGHDIM - 1)
 #define NSUB 27
 
+/* Used to mark the status of the buffer, so we can detect concurrent
+ * access to the buffer and explain what was using it before */
 enum packbuf_state {
     PB_GARBAGE = 0,
     PB_READY = 1,
@@ -195,6 +197,7 @@ enum packbuf_state {
     PB_UNPACKING = 6,
     PB_ADDING = 7,
     PB_READING = 8,
+    PB_CLEANING = 9,
 };
 
 typedef struct {
@@ -207,6 +210,7 @@ typedef struct {
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
     MPI_Request req;
+    int waitreq;    /* Wait for the request before writing the buffer */
     MPI_Comm comm;
 } PackBuf;
 

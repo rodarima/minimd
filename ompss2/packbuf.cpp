@@ -69,19 +69,16 @@ packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag)
 {
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-    fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
-            pb->natoms, remoterank);
+//    fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
+//            pb->natoms, remoterank);
 
     if (remoterank < 0)
         abort();
 
-    if (pb->natoms == 0)
-        return;
-
-    MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize, MPI_DOUBLE,
-            remoterank, tag, pb->comm, &pb->req);
-
-    /* FIXME: Wait for the communication to finish */
+    if (pb->natoms != 0) {
+        MPI_Send((void *) pb->buf, pb->natoms * pb->atomsize,
+                MPI_DOUBLE, remoterank, tag, pb->comm);
+    }
 
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
@@ -89,8 +86,8 @@ packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag)
 void
 packbuf_mpisend(PackBuf *pb, int remoterank, int tag)
 {
-    fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
-            pb->natoms, remoterank);
+//    fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
+//            pb->natoms, remoterank);
 
     if (remoterank < 0)
         abort();
@@ -106,8 +103,8 @@ void
 packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
-    fprintf(stderr, "packbuf receiving %d atoms from rank %d\n",
-            natoms, remoterank);
+//    fprintf(stderr, "packbuf receiving %d atoms from rank %d\n",
+//            natoms, remoterank);
 
     if (natoms > 0) {
         /* Grow the buffer if needed */
@@ -116,9 +113,8 @@ packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms)
         /* And received that many atoms */
         int size = natoms * pb->atomsize;
 
-        //pb->ready = 0;
-        MPI_Irecv((void *) pb->buf, size, MPI_DOUBLE,
-                remoterank, tag, pb->comm, &pb->req);
+        MPI_Recv((void *) pb->buf, size, MPI_DOUBLE,
+                remoterank, tag, pb->comm, MPI_STATUS_IGNORE);
     }
 
     pb->natoms = natoms;
@@ -243,10 +239,23 @@ packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
     packbuf_switch(pb, PB_UNPACKING, PB_READY);
 }
 
+static void
+packbuf_wait(PackBuf *pb)
+{
+    if (pb->waitreq) {
+        MPI_Status s;
+        MPI_Wait(&pb->req, &s);
+        pb->waitreq = 0;
+    }
+}
+
 void
 packbuf_clear(PackBuf *pb)
 {
+    packbuf_switch(pb, PB_READY, PB_CLEANING);
+    //packbuf_wait(pb);
     pb->natoms = 0;
+    packbuf_switch(pb, PB_CLEANING, PB_READY);
 }
 
 void
