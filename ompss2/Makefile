@@ -15,16 +15,16 @@ LDFLAGS+=-fompss-2
 CXXFLAGS+=-DUSE_TAMPI
 LDFLAGS+=-ltampi-c
 
-#CXXFLAGS+=-O0
-CXXFLAGS+=-O3
+CXXFLAGS+=-O0
+#CXXFLAGS+=-O3
 
-#CXXFLAGS+=-g
-#LDFLAGS+=-g
+CXXFLAGS+=-g
+LDFLAGS+=-g
 #CXXFLAGS+=-k
 #CXXFLAGS+=--line-markers
 
-#CXXFLAGS+=-fsanitize=address
-#LDFLAGS+=-fsanitize=address
+CXXFLAGS+=-fsanitize=address
+LDFLAGS+=-fsanitize=address
 
 #CXXFLAGS+=-Wno-attributes
 
