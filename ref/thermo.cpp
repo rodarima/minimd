@@ -108,6 +108,58 @@ void Thermo::compute(MMD_int iflag, Atom &atom, Neighbor &neighbor, Force* force
 
     if(threads->mpi_me == 0) {
       fprintf(stdout, "%i %e %e %e %6.3lf\n", istep, t, eng, p, istep == 0 ? 0.0 : timer.array[TIME_TOTAL]);
+
+      if (istep == 0) {
+          FILE *f = fopen("energy.csv", "w");
+          fprintf(f, "iter,Epot,Ekin,Etot\n");
+          fclose(f);
+      }
+
+      {
+          FILE *f = fopen("energy.csv", "a");
+          double pot_energy = eng;
+          double kin_energy = t * 3.0 / 2.0;
+          double tot_energy = pot_energy + kin_energy;
+          fprintf(f, "%d,%e,%e,%e\n", istep, pot_energy, kin_energy, tot_energy);
+          fclose(f);
+      }
+
+      if (istep == 0) {
+          FILE *f = fopen("atompos.csv", "w");
+          fprintf(f, "iter,atom,ghost,x,y,z,neigh\n");
+          fclose(f);
+      }
+
+      {
+          FILE *f = fopen("atompos.csv", "a");
+          for (int j = 0; j < atom.nlocal + atom.nghost; j++) {
+              double *x = &atom.x[j * PAD];
+              int ghost = j >= atom.nlocal;
+              int nearby = ghost ? 0 : neighbor.numneigh[j];
+              fprintf(f, "%d,%d,%d,%e,%e,%e,%d\n",
+                      istep, j, ghost, x[0], x[1], x[2], nearby);
+          }
+          fclose(f);
+      }
+
+      if (istep == 0) {
+          FILE *f = fopen("atomneigh.csv", "w");
+          fprintf(f, "iter,atom,i,neigh,x,y,z\n");
+          fclose(f);
+      }
+
+      {
+          FILE *f = fopen("atomneigh.csv", "a");
+          for (int j = 0; j < atom.nlocal; j++) {
+              for (int i = 0; i < neighbor.numneigh[j]; i++) {
+                  int neigh = neighbor.neighbors[j * neighbor.maxneighs + i];
+                  double *x = &atom.x[neigh * PAD];
+                  fprintf(f, "%d,%d,%d,%d,%e,%e,%e\n",
+                          istep, j, i, neigh, x[0], x[1], x[2]);
+              }
+          }
+          fclose(f);
+      }
     }
 
     timer.array[TIME_TOTAL] = oldtime;
