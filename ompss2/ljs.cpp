@@ -173,9 +173,6 @@ setup_bin_stencil(Sim *sim, Box *box, int enclosed_nbins[NDIM])
                 /* Check if the bin is within R_neigh distance */
                 if (get_bindist(i, sim->binlen) < R_neigh_sq) {
                     box->stencil[box->nstencil++] = coord2index(i, box->nbinshalo);
-                } else {
-                    fprintf(stderr, "rejecting bin at %d %d %d\n",
-                            i[X], i[Y], i[Z]);
                 }
             }
         }
