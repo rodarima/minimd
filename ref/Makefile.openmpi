@@ -6,15 +6,16 @@ SHELL = /bin/sh
 
 AVX ?= yes
 SIMD ?= yes
+DEBUG ?= yes
 
 #.IGNORE:
 
 # System-specific settings
 
 CC =		mpicxx
-CCFLAGS =	-O3 -DMPICH_IGNORE_CXX_SEEK -fopenmp -DNOCHUNK
+CCFLAGS =	-O0 -DMPICH_IGNORE_CXX_SEEK -DNOCHUNK
 LINK =		mpicxx 
-LINKFLAGS =	-O3 -fopenmp
+LINKFLAGS =	-O0
 USRLIB = 	
 SYSLIB =	
 SIZE =		size

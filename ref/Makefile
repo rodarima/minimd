@@ -17,6 +17,8 @@ OBJ =	$(SRC:.cpp=.o)
 
 # Help
 
+all: openmpi
+
 help:
 	@echo 'Type "make target {Options}" where target is one of:'
 	@echo '      openmpi     (using OpenMPI)'
@@ -41,13 +43,13 @@ help:
 	@echo '      make intel -j 32 KNC=yes ANSI_ALIAS=yes SIMD=no'
 
 # Targets
+	#@if [ ! -d Obj_$@ ]; then mkdir Obj_$@; fi
+	#@cp -p $(SRC) $(INC) Obj_$@
+	#@cp Makefile.$@ Obj_$@/Makefile
+	#@cd Obj_$@; \
 
 openmpi:
-	@if [ ! -d Obj_$@ ]; then mkdir Obj_$@; fi
-	@cp -p $(SRC) $(INC) Obj_$@
-	@cp Makefile.$@ Obj_$@/Makefile
-	@cd Obj_$@; \
-	$(MAKE)  "OBJ = $(OBJ)" "INC = $(INC)" "EXE = ../$(EXE)" ../$(EXE)
+	$(MAKE) -f Makefile.openmpi "OBJ = $(OBJ)" "INC = $(INC)" "EXE = $(EXE)" $(EXE)
 #	@if [ -d Obj_$@ ]; then cd Obj_$@; rm $(SRC) $(INC) Makefile*; fi
 
 cray:
