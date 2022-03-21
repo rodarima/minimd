@@ -475,6 +475,8 @@ void create_velocity(double t_request, Atom &atom, Thermo &thermo)
   MPI_Allreduce(&vztot, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   vztot = tmp / atom.natoms;
 
+  fprintf(stderr, "velocity centering = %e %e %e\n", vxtot, vytot, vztot);
+
   for(i = 0; i < atom.nlocal; i++) {
     atom.v[i * PAD + 0] -= vxtot;
     atom.v[i * PAD + 1] -= vytot;
@@ -485,6 +487,8 @@ void create_velocity(double t_request, Atom &atom, Thermo &thermo)
   thermo.t_act = 0;
   double t = thermo.temperature(atom);
   double factor = sqrt(t_request / t);
+
+  fprintf(stderr, "velocity factor = %e\n", factor);
 
   for(i = 0; i < atom.nlocal; i++) {
     atom.v[i * PAD + 0] *= factor;
