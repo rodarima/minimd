@@ -428,6 +428,8 @@ int Neighbor::setup(Atom &atom)
     stencil[nstencil++] = 0;
   }
 
+  fprintf(stderr, "nextx=%d nexty=%d nextz=%d\n", nextx, nexty, nextz);
+
   for(k = kstart; k <= nextz; k++) {
     for(j = -nexty; j <= nexty; j++) {
       for(i = -nextx; i <= nextx; i++) {
@@ -438,6 +440,8 @@ int Neighbor::setup(Atom &atom)
       }
     }
   }
+
+  fprintf(stderr, "nstencil = %d\n", nstencil);
 
   mbins = mbinx * mbiny * mbinz;
 
