@@ -1,2 +1,9 @@
+miniMD_*
+data/
+trace*
 outputs
 tags
+*.csv
+*.png
+.gdb_history
+bugs/
