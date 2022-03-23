@@ -222,6 +222,7 @@ typedef struct neigh {
     int i;              /* Local index of this neighbor in the box */
     int boxcoord[NDIM]; /* Corresponding box coordinate without wrapping */
     int boxcoordw[NDIM];/* Corresponding box coordinate wrapped */
+    int boxid;          /* Corresponding box id */
     int delta[NDIM];    /* Delta vector in boxes */
     int rank;           /* Neighbor process rank */
     int rankcoord[NDIM];/* Neighbor process coordinates without wrapping */
@@ -400,7 +401,8 @@ typedef struct sim {
     int nbinsbox[NDIM];  /* # of bins in the box domain */
     Vec binlen; /* Length of each bin per dimension */
 
-    int nboxesdim[NDIM]; /* Total number of boxes per dimension */
+    int nboxesdim[NDIM];	/* Total number of boxes per dimension */
+    int ranknboxesdim[NDIM];	/* # of boxes per dimension of this rank */
     Vec boxlen;
     Vec worldlen;
 

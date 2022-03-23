@@ -76,6 +76,17 @@ setup_boxes(Sim *sim)
     sim->nboxesdim[Y] = sim->nboxes;
     sim->nboxesdim[Z] = sim->nprocsz;
 
+    /* Number of boxes of this rank */
+    for (int d = X; d <= Z; d++) {
+        if ((sim->nboxesdim[d] % sim->nranksdim[d]) != 0) {
+            fprintf(stderr, "cannot evenly divide %d total boxes into %d ranks in the %c dimension\n",
+                    sim->nboxesdim[d], sim->nranksdim[d], "XYZ"[d]);
+            abort();
+        }
+
+        sim->ranknboxesdim[d] = sim->nboxesdim[d] / sim->nranksdim[d];
+    }
+
     /* Separation between points in the atom lattice */
     sim->lattice_sep = pow((4.0 / sim->rho), (1.0 / 3.0));
 
@@ -688,13 +699,16 @@ setup_neighbors_box(Sim *sim, Box *box)
                         neigh->rankcoord[d] = -1;
                         neigh->boxcoordw[d] = sim->nboxesdim[d] - 1;
                     } else if (neigh->boxcoord[d] >= sim->nboxesdim[d]) {
-                        neigh->rankcoord[d] = sim->rankdim[d];
+                        neigh->rankcoord[d] = sim->nranksdim[d];
                         neigh->boxcoordw[d] = 0;
                     } else {
-                        neigh->rankcoord[d] = neigh->boxcoord[d] / sim->nboxesdim[d];
+                        neigh->rankcoord[d] = neigh->boxcoord[d] / sim->ranknboxesdim[d];
                         neigh->boxcoordw[d] = neigh->boxcoord[d];
                     }
                 }
+
+                /* Set the box id based on the Y coordinate */
+                neigh->boxid = neigh->boxcoordw[Y];
 
                 /* Use the rank coordinates to find the rank */
                 MPI_Cart_rank(sim->cartesian, neigh->rankcoord, &neigh->rank);
