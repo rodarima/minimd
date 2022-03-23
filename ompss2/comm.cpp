@@ -145,7 +145,7 @@ box_tidy_send_rvt(Sim *sim, Box *box, Neigh *neigh)
 }
 
 static void
-box_waitrecv_natoms(Sim *sim, Box *box, size_t off)
+box_waitmpi_natoms(Sim *sim, Box *box, size_t off)
 {
     MPI_Request req[NNEIGH];
     int nreq = 0;
@@ -167,7 +167,7 @@ box_waitrecv_natoms(Sim *sim, Box *box, size_t off)
 }
 
 static void
-box_waitrecv_buf(Sim *sim, Box *box, size_t off)
+box_waitmpi_buf(Sim *sim, Box *box, size_t off)
 {
     MPI_Request req[NNEIGH];
     int nreq = 0;
@@ -186,15 +186,6 @@ box_waitrecv_buf(Sim *sim, Box *box, size_t off)
     }
 
     //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
-}
-
-static void
-box_waitrecv(Sim *sim, Box *box, size_t off, int only_natoms)
-{
-    if (only_natoms)
-        box_waitrecv_natoms(sim, box, off);
-    else
-        box_waitrecv_buf(sim, box, off);
 }
 
 static void
@@ -364,13 +355,21 @@ comm_tidy(Sim *sim)
 {
     fprintf(stderr, "rank%d -- comm_tidy -- begins\n", sim->rank);
 
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_tidy -- waitmpi send_rvt buffer\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++) {
+            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, send_rvt));
+            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_rvt));
+        }
+    }
+
     fprintf(stderr, "rank%d -- comm_tidy -- pack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_tidy_pack_rvt(sim, box);
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- send\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_tidy -- send send_rvt natoms+buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -379,7 +378,7 @@ comm_tidy(Sim *sim)
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- recv n\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_tidy -- recv recv_rvt natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -389,13 +388,13 @@ comm_tidy(Sim *sim)
     }
 
     /* Wait for all natom messages to get buffer sizes */
-    if (1) {
-        fprintf(stderr, "rank%d -- comm_tidy -- waitrecv n\n", sim->rank);
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_tidy -- waitmpi recv_rvt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
-            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rvt), 1);
+            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, recv_rvt));
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- recv buf\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_tidy -- recv recv_rvt buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -404,13 +403,13 @@ comm_tidy(Sim *sim)
         }
     }
 
-    if (1) {
-        fprintf(stderr, "rank%d -- comm_tidy -- waitrecv buf\n", sim->rank);
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_tidy -- waitmpi recv_rvt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
-            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rvt), 0);
+            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_rvt));
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- unpack\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_tidy -- unpack recv_rvt\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -619,7 +618,7 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 }
 
 static void
-box_border_waitrecv_rt(Sim *sim, Box *box)
+box_border_waitmpi_rt(Sim *sim, Box *box)
 {
     MPI_Request req[NNEIGH];
 
@@ -641,14 +640,21 @@ box_border_waitrecv_rt(Sim *sim, Box *box)
 void
 comm_borders(Sim *sim)
 {
-    MPI_Barrier(MPI_COMM_WORLD);
-    fprintf(stderr, "rank%d -- comm_borders -- pack\n", sim->rank);
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_borders -- waitmpi send_rt buf+natoms\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++) {
+            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, send_rt));
+            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_rt));
+        }
+    }
+
+    fprintf(stderr, "rank%d -- comm_borders -- pack send_rt buf+natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_border_pack_rt(sim, box);
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- send\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_borders -- send send_rt buf+natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -657,7 +663,7 @@ comm_borders(Sim *sim)
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- recv natoms\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_borders -- recv recv_rt natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -667,13 +673,13 @@ comm_borders(Sim *sim)
         }
     }
 
-    if (1) {
-        fprintf(stderr, "rank%d -- comm_borders -- waitrecv\n", sim->rank);
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_borders -- waitmpi recv_rt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
-            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rt), 1);
+            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, recv_rt));
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- recv buf\n", sim->rank);
+    fprintf(stderr, "rank%d -- comm_borders -- recv recv_rt buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -683,10 +689,10 @@ comm_borders(Sim *sim)
         }
     }
 
-    if (1) {
-        fprintf(stderr, "rank%d -- comm_borders -- waitrecv\n", sim->rank);
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_borders -- waitmpi recv_rt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
-            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rt), 0);
+            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_rt));
     }
 
     fprintf(stderr, "rank%d -- comm_borders -- unpack\n", sim->rank);
@@ -904,11 +910,20 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 void
 comm_ghost_position(Sim *sim)
 {
+    /* No need to wait for natoms as its not sent */
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_ghost -- waitmpi send_r buf\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++)
+            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_r));
+    }
+
+    fprintf(stderr, "rank%d -- comm_ghost -- pack_r buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_ghost_pack_r(sim, box);
     }
 
+    fprintf(stderr, "rank%d -- comm_ghost -- send_r buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -917,6 +932,8 @@ comm_ghost_position(Sim *sim)
         }
     }
 
+    /* No need to receive the number of atoms, as it is known */
+    fprintf(stderr, "rank%d -- comm_ghost -- recv_r buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -926,11 +943,11 @@ comm_ghost_position(Sim *sim)
         }
     }
 
-    /* Wait for all buffer messages to complete */
-    if (1) {
-        fprintf(stderr, "rank%d -- comm_ghost -- waitrecv buf\n", sim->rank);
+    /* Wait for all buffer messages to complete before unpack */
+    if (ENABLE_NONBLOCKING_MPI) {
+        fprintf(stderr, "rank%d -- comm_ghost -- waitmpi recv_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
-            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_r), 0);
+            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_r));
     }
 
 

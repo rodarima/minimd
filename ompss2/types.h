@@ -133,6 +133,9 @@ typedef int    Range[NDIM][NLIM];
 /* Update the force following bin order instead of atom sequence */
 #define ENABLE_FORCE_BY_BINS 1
 
+/* Use MPI_Isend and MPI_Irecv */
+#define ENABLE_NONBLOCKING_MPI 1
+
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
 /* These options cause the energy values reported by the simulation to

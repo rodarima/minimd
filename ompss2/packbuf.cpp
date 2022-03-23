@@ -72,6 +72,11 @@ packbuf_mpisend_buf(PackBuf *pb)
     fprintf(stderr, "packbuf_mpisend_buf: natoms=%d remoterank=%d tag=%d\n",
             pb->natoms, pb->remoterank, pb->tag);
 
+    if (pb->waitreq) {
+        fprintf(stderr, "packbuf_mpisend_buf: buffer in use\n");
+        abort();
+    }
+
     if (pb->natoms != 0) {
         MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize,
                 MPI_DOUBLE, pb->remoterank, pb->tag, *pb->comm, &pb->req);
@@ -86,6 +91,11 @@ packbuf_mpisend(PackBuf *pb)
 {
     fprintf(stderr, "packbuf_mpisend: natoms=%d remoterank=%d tag=%d\n",
             pb->natoms, pb->remoterank, pb->tag);
+
+    if (pb->waitreqn) {
+        fprintf(stderr, "packbuf_mpisend: buffer in use\n");
+        abort();
+    }
 
     void *buf = (void *) &pb->natoms;
     MPI_Isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
@@ -103,6 +113,11 @@ packbuf_mpirecv_buf(PackBuf *pb, int natoms)
 
     fprintf(stderr, "packbuf_mpirecv_buf: natoms=%d remoterank=%d tag=%d\n",
             natoms, pb->remoterank, pb->tag);
+
+    if (pb->waitreq) {
+        fprintf(stderr, "packbuf_mpirecv_buf: buffer in use\n");
+        abort();
+    }
 
     if (natoms > 0) {
         /* Grow the buffer if needed */
@@ -126,6 +141,11 @@ packbuf_mpirecv_natoms(PackBuf *pb)
     /* Find out how many atoms I need to make room for */
     fprintf(stderr, "packbuf_mpirecv_natoms: natoms=? remoterank=%d tag=%d\n",
             pb->remoterank, pb->tag);
+
+    if (pb->waitreqn) {
+        fprintf(stderr, "packbuf_mpirecv_natoms: buffer in use\n");
+        abort();
+    }
 
     MPI_Irecv((void *) &pb->recvnatoms, 1, MPI_INT,
             pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
@@ -166,6 +186,11 @@ packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
     packbuf_switch(pb, PB_READY, PB_ADDING);
     /* Ensure we have room for another atom */
     packbuf_grow_extra(pb, 1);
+
+    if (pb->waitreqn || pb->waitreq) {
+        fprintf(stderr, "packbuf_add: buffer in use\n");
+        abort();
+    }
 
     int j = pb->natoms * pb->atomsize;
 
@@ -209,6 +234,12 @@ void
 packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
 {
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
+
+    if (pb->waitreqn || pb->waitreq) {
+        fprintf(stderr, "packbuf_unpack: buffer in use\n");
+        abort();
+    }
+
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
             for (int d = X; d <= Z; d++)
@@ -231,6 +262,12 @@ void
 packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
 {
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
+
+    if (pb->waitreqn || pb->waitreq) {
+        fprintf(stderr, "packbuf_unpack_sel: buffer in use\n");
+        abort();
+    }
+
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
             for (int d = X; d <= Z; d++)
@@ -249,22 +286,18 @@ packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
     packbuf_switch(pb, PB_UNPACKING, PB_READY);
 }
 
-static void
-packbuf_wait(PackBuf *pb)
-{
-    if (pb->waitreq) {
-        MPI_Status s;
-        MPI_Wait(&pb->req, &s);
-        pb->waitreq = 0;
-    }
-}
-
 void
 packbuf_clear(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_CLEANING);
-    //packbuf_wait(pb);
+
+    if (pb->waitreqn || pb->waitreq) {
+        fprintf(stderr, "packbuf_unpack_sel: buffer in use\n");
+        abort();
+    }
+
     pb->natoms = 0;
+
     packbuf_switch(pb, PB_CLEANING, PB_READY);
 }
 
