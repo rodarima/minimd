@@ -298,10 +298,10 @@ update_force_box(Sim *sim, Box *box)
         fprintf(stderr, "iter %d box %d total interactions %d\n",
                 sim->iter, box->i, box->ninteractions);
 
-    if(ENABLE_FHIST && box->i == 0)
+    if(ENABLE_FHIST && box->i == 0 && sim->rank == 0)
         hist_print(&box->fhist, box->iter);
 
-    if(ENABLE_DHIST && box->i == 0)
+    if(ENABLE_DHIST && box->i == 0 && sim->rank == 0)
         hist_print(&box->dhist, box->iter);
 
     /* Increase the iteration for this box */

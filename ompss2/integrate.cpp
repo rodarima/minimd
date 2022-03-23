@@ -129,7 +129,7 @@ integrate_velocity_box(Sim *sim, Box *box)
             hist_add(&box->vhist, log(1 + dotprod(box->v[i])));
     }
 
-    if (ENABLE_VHIST && box->i == 0)
+    if (ENABLE_VHIST && box->i == 0 && sim->rank == 0)
         hist_print(&box->vhist, box->iter);
 }
 
