@@ -29,6 +29,8 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
+//#define ENABLE_DEBUG
+#include "log.h"
 #include "types.h"
 #include "neigh.h"
 
@@ -1084,7 +1086,8 @@ sim_run(Sim *sim)
 
     /* Main simulation loop */
     for (sim->iter = 0; sim->iter < sim->timesteps; sim->iter++) {
-        fprintf(stderr, "===== RUNNING ITERATION %d =====\n", sim->iter);
+		if (sim->rank == 0)
+			err("===== RUNNING ITERATION %d =====\n", sim->iter);
 
         int recompute_neigh = ((sim->iter + 1) % sim->neighbor_period == 0);
         int print_thermo_stats = ((sim->iter + 1) % sim->thermo_period == 0);
@@ -1109,10 +1112,8 @@ sim_run(Sim *sim)
         force_update(sim);
         integrate_velocity(sim);
 
-        if (print_thermo_stats) {
-            fprintf(stderr, "thermo update called!\n");
+        if (print_thermo_stats)
             thermo_update(sim);
-        }
 
         for (int i = 0; i < sim->nboxes; i++) {
             Box *box = &sim->box[i];

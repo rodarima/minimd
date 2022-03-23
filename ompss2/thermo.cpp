@@ -160,8 +160,6 @@ thermo_update_internal(Sim *sim, int iter)
         check_final_energy(sim, pot_energy, kin_energy, tot_energy);
     }
 
-    fprintf(stderr, "thermo iter %d\n", iter);
-
     if (ENABLE_REALTIME_ENERGY) {
         FILE *f = fopen("energy.csv", "a");
         fprintf(f, "%d,%e,%e,%e\n", iter, pot_energy, kin_energy, tot_energy);

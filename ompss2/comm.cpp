@@ -1,3 +1,5 @@
+//#define ENABLE_DEBUG
+#include "log.h"
 #include "types.h"
 #include "neigh.h"
 #include "dom.h"
@@ -58,7 +60,7 @@ copy_atom_rvt(Box *box, int src, int dst)
 static void
 box_tidy_pack_rvt(Sim *sim, Box *box)
 {
-//    fprintf(stderr, "packing out atoms for box %2d with nlocal %d\n",
+//    dbg("packing out atoms for box %2d with nlocal %d\n",
 //            box->i, box->nlocal);
 
     /* Reset all PackBuf from neighbors */
@@ -82,7 +84,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
 
         Neigh *neigh = &box->neigh[delta2neigh(delta)];
 
-//        fprintf(stderr,     "box %d packing atom %3d in neigh %d at %e %e %e\n",
+//        dbg("box %d packing atom %3d in neigh %d at %e %e %e\n",
 //                box->i, i, neigh->i, r[X], r[Y], r[Z]);
 
         /* Enforce PBC before packing the atom position */
@@ -90,7 +92,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
             for (int d = X; d <= Z; d++)
                 r[d] += neigh->addpbc[d];
 
-//            fprintf(stderr, "               atom %3d wraps, now at %e %e %e\n",
+//            dbg("               atom %3d wraps, now at %e %e %e\n",
 //                    i, r[X], r[Y], r[Z]);
         }
 
@@ -99,7 +101,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
 
         /* Fill the hole with one atom from the end */
         int src = box->nlocal - 1, dst = i;
-        //fprintf(stderr, "box %d moving atom %d to %d\n",
+        //dbg("box %d moving atom %d to %d\n",
         //        box->i, src, dst);
         copy_atom_rvt(box, src, dst);
         box->nlocal--;
@@ -113,7 +115,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
 //    for (int i = 0; i < NNEIGH; i++) {
 //        Neigh *neigh = &box->neigh[i];
 //        if (neigh->send_rvt.natoms > 0) {
-//            fprintf(stderr, "packed %d atoms in box%d:neigh%02d\n",
+//            dbg("packed %d atoms in box%d:neigh%02d\n",
 //                    neigh->send_rvt.natoms,
 //                    box->i, neigh->i);
 //        }
@@ -127,7 +129,7 @@ box_tidy_send_rvt(Sim *sim, Box *box, Neigh *neigh)
         #pragma oss task label("box_tidy_send_rvt:mpisend") \
             in(*(char **)&neigh->send_rvt.buf)
         {
-//            fprintf(stderr, "send_rvt: rank%d:box%d:neigh%d uses mpisend delta=(%d %d %d)\n",
+//            dbg("send_rvt: rank%d:box%d:neigh%d uses mpisend delta=(%d %d %d)\n",
 //                    sim->rank, box->i, neigh->i,
 //                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
 
@@ -136,7 +138,7 @@ box_tidy_send_rvt(Sim *sim, Box *box, Neigh *neigh)
             packbuf_debug_switch(&neigh->send_rvt, PB_SENDING, PB_READY);
         }
     } else {
-//        fprintf(stderr, "send_rvt: rank%d:box%d:neigh%d uses shmcopy delta=(%d %d %d)\n",
+//        dbg("send_rvt: rank%d:box%d:neigh%d uses shmcopy delta=(%d %d %d)\n",
 //                sim->rank, box->i, neigh->i,
 //                neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
 
@@ -155,7 +157,7 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off)
         PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
 
         if (pb->waitreqn) {
-            fprintf(stderr, "rank%d:box%d waiting for natoms in neigh %d\n",
+            dbg("rank%d:box%d waiting for natoms in neigh %d\n",
                     sim->rank, box->i, i);
             MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
             //memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
@@ -177,7 +179,7 @@ box_waitmpi_buf(Sim *sim, Box *box, size_t off)
         PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
 
         if (pb->waitreq) {
-            fprintf(stderr, "rank%d:box%d waiting for buf in neigh %d\n",
+            dbg("rank%d:box%d waiting for buf in neigh %d\n",
                     sim->rank, box->i, i);
             MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
             //memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
@@ -227,7 +229,7 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *neigh, int recvn)
             packbuf_debug_switch(&srcneigh->send_rvt, PB_READY, PB_COPYING);
             packbuf_debug_switch(&dstneigh->recv_rvt, PB_READY, PB_COPYING);
 
-//            fprintf(stderr, "rank%d:box%d:neigh%02d shmcopy\n",
+//            dbg("rank%d:box%d:neigh%02d shmcopy\n",
 //                    sim->rank, dstbox->i, dstneigh->i);
             packbuf_shmcopy(&srcneigh->send_rvt, &dstneigh->recv_rvt);
 
@@ -236,7 +238,7 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *neigh, int recvn)
         }
 
 //        if (srcneigh->send_rvt.natoms > 0) {
-//            fprintf(stderr, "shmcopy %d atoms from box%d:neigh%02d -> box%d:neigh%02d\n",
+//            dbg("shmcopy %d atoms from box%d:neigh%02d -> box%d:neigh%02d\n",
 //                    srcneigh->send_rvt.natoms,
 //                    srcbox->i, srcneigh->i,
 //                    dstbox->i, dstneigh->i);
@@ -248,7 +250,7 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *neigh, int recvn)
 static void
 check_atom(Sim *sim, Box *box, Vec r)
 {
-    fprintf(stderr, "matching incoming atom at %e %e %e\n",
+    dbg("matching incoming atom at %e %e %e\n",
             r[X], r[Y], r[Z]);
 
     if(!in_domain(r, box->dombox))
@@ -267,10 +269,8 @@ check_atom(Sim *sim, Box *box, Vec r)
     for (int j = 0; j < box->nstencil; j++) {
         int jindbin = iindbin + box->stencil[j];
 
-        if (jindbin < 0 || jindbin >= box->nbinsalloc) {
-            fprintf(stderr, "near atom bin is outside the range\n");
-            abort();
-        }
+        if (jindbin < 0 || jindbin >= box->nbinsalloc)
+            die("near atom bin is outside the range\n");
 
         Bin *jbin = &box->bin[jindbin];
 
@@ -291,16 +291,16 @@ check_atom(Sim *sim, Box *box, Vec r)
 
             /* Ignore atoms which are not too close */
             if (dist >= limit) {
-                fprintf(stderr, "ignoring atom %d in bin %d with dist %f\n",
+                dbg("ignoring atom %d in bin %d with dist %f\n",
                         jatom, jindbin, dist);
                 continue;
             }
 
             if (jatom < box->nlocal) {
-                fprintf(stderr, "WARNING: too close to local %d at %e %e %e\n",
+                err("WARNING: too close to local %d at %e %e %e\n",
                         jatom, rj[X], rj[Y], rj[Z]);
             } else {
-                fprintf(stderr, "potential match with ghost %d with dist %e\n",
+                dbg("potential match with ghost %d with dist %e\n",
                         jatom, dist);
                 match++;
             }
@@ -308,9 +308,8 @@ check_atom(Sim *sim, Box *box, Vec r)
     }
 
     if (match != 1) {
-        fprintf(stderr, "no match, closest %f (ghost %f), limit %f\n",
+        die("no match, closest %f (ghost %f), limit %f\n",
                 closest, closestghost, limit);
-        abort();
     }
 }
 
@@ -324,7 +323,7 @@ box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
     packbuf_debug_switch(&neigh->recv_rvt, PB_READY, PB_UNPACKING);
 //    if (neigh->recv_rvt.natoms > 0) {
-//        fprintf(stderr, "box %d: unpacking %d atoms from neigh %d\n",
+//        dbg("box %d: unpacking %d atoms from neigh %d\n",
 //                box->i, neigh->recv_rvt.natoms, neigh->i);
 //    }
     /* Ensure we have room to place the new local atoms */
@@ -353,23 +352,23 @@ box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 void
 comm_tidy(Sim *sim)
 {
-    fprintf(stderr, "rank%d -- comm_tidy -- begins\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- begins\n", sim->rank);
 
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_tidy -- waitmpi send_rvt buffer\n", sim->rank);
+        dbg("rank%d -- comm_tidy -- waitmpi send_rvt buffer\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, send_rvt));
             box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_rvt));
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- pack\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- pack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_tidy_pack_rvt(sim, box);
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- send send_rvt natoms+buf\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- send send_rvt natoms+buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -378,7 +377,7 @@ comm_tidy(Sim *sim)
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- recv recv_rvt natoms\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- recv recv_rvt natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -389,12 +388,12 @@ comm_tidy(Sim *sim)
 
     /* Wait for all natom messages to get buffer sizes */
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_tidy -- waitmpi recv_rvt natoms\n", sim->rank);
+        dbg("rank%d -- comm_tidy -- waitmpi recv_rvt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
             box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, recv_rvt));
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- recv recv_rvt buf\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- recv recv_rvt buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -404,12 +403,12 @@ comm_tidy(Sim *sim)
     }
 
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_tidy -- waitmpi recv_rvt buf\n", sim->rank);
+        dbg("rank%d -- comm_tidy -- waitmpi recv_rvt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
             box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_rvt));
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- unpack recv_rvt\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- unpack recv_rvt\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -418,7 +417,7 @@ comm_tidy(Sim *sim)
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_tidy -- ends\n", sim->rank);
+    dbg("rank%d -- comm_tidy -- ends\n", sim->rank);
 }
 
 #pragma oss task label("box_border_pack_rt") \
@@ -426,12 +425,12 @@ comm_tidy(Sim *sim)
 static void
 box_border_pack_rt(Sim *sim, Box *box)
 {
-//    fprintf(stderr, "packing borders for box %2d with nlocal %d\n",
+//    dbg("packing borders for box %2d with nlocal %d\n",
 //            box->i, box->nlocal);
 
 //    for (int i = 0; i < box->nlocal; i++) {
 //        if (!in_domain(box->r[i], box->domhalo)) {
-//            fprintf(stderr, "box %d: atom %d at %e %e %e is outside halo domain\n",
+//            dbg("box %d: atom %d at %e %e %e is outside halo domain\n",
 //                    box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
 //            abort();
 //        }
@@ -453,9 +452,8 @@ box_border_pack_rt(Sim *sim, Box *box)
             continue;
 
         if (ENABLE_DOMAIN_CHECK && !in_domain(box->r[i], box->dombox)) {
-            fprintf(stderr, "box %d contains local atom %d at %e %e %e outside box domain\n",
+            die("box %d contains local atom %d at %e %e %e outside box domain\n",
                     box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
-            abort();
         }
 
         Subdomain *sub = &box->sub[delta2subdom(delta)];
@@ -465,19 +463,19 @@ box_border_pack_rt(Sim *sim, Box *box)
 
             Neigh *neigh = sub->neigh[j];
 
-//            fprintf(stderr, "atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
+//            dbg("atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
 //                    i, delta[X], delta[Y], delta[Z], neigh->i,
 //                    sub->nneigh);
 
             /* Enforce PBC before packing the atom position */
             if (neigh->wraps) {
-//                fprintf(stderr, "wrapping neigh %d atom %d position from %e %e %e\n",
+//                dbg("wrapping neigh %d atom %d position from %e %e %e\n",
 //                        neigh->i, i, r[X], r[Y], r[Z]);
     
                 for (int d = X; d <= Z; d++)
                     r[d] += neigh->addpbc[d];
     
-//                fprintf(stderr, "wrapped  neigh %d atom %d position to   %e %e %e\n",
+//                dbg("wrapped  neigh %d atom %d position to   %e %e %e\n",
 //                        neigh->i, i, r[X], r[Y], r[Z]);
             }
 
@@ -498,7 +496,7 @@ box_border_pack_rt(Sim *sim, Box *box)
 
 //    for (int i = 0; i < NNEIGH; i++) {
 //        Neigh *neigh = &box->neigh[i];
-//        fprintf(stderr, "box %2d neigh %2d at delta %2d %2d %2d has %8d ghosts\n",
+//        dbg("box %2d neigh %2d at delta %2d %2d %2d has %8d ghosts\n",
 //                box->i, neigh->i,
 //                neigh->delta[X], neigh->delta[Y], neigh->delta[Z],
 //                neigh->send_rt.natoms);
@@ -557,12 +555,12 @@ box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh, int only_natoms)
             packbuf_debug_switch(&srcneigh->send_rt, PB_READY, PB_COPYING);
             packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_COPYING);
             /* Clear receive buffer */
-            //fprintf(stderr, "clearing box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
+            //dbg("clearing box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
             packbuf_clear(&dstneigh->recv_rt);
             packbuf_shmcopy(&srcneigh->send_rt, &dstneigh->recv_rt);
-            //fprintf(stderr, "set box%d:neigh%d recv_rt %d\n",
+            //dbg("set box%d:neigh%d recv_rt %d\n",
             //        box->i, dstneigh->i, dstneigh->recv_rt.natoms);
-            //fprintf(stderr, "box %d neigh %d has in recv_rt %d atoms\n",
+            //dbg("box %d neigh %d has in recv_rt %d atoms\n",
             //        box->i, dstneigh->i, dstneigh->recv_rt.natoms);
             packbuf_debug_switch(&dstneigh->recv_rt, PB_COPYING, PB_READY);
             packbuf_debug_switch(&srcneigh->send_rt, PB_COPYING, PB_READY);
@@ -587,10 +585,10 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     int oldalloc = box->nalloc;
     box_realloc(box, ntot);
 
-//    fprintf(stderr, "unpacking %d atoms from neigh %d into box %d (%d -> %d)\n",
+//    dbg("unpacking %d atoms from neigh %d into box %d (%d -> %d)\n",
 //            neigh->recv_rt.natoms, neigh->i, box->i, nend, ntot);
 
-    //fprintf(stderr, "box %d realloc from %d to %d (nnew=%d nend=%d ntot=%d)\n",
+    //dbg("box %d realloc from %d to %d (nnew=%d nend=%d ntot=%d)\n",
     //        box->i, oldalloc, box->nalloc, nnew, nend, ntot);
 
     /* Unpack the position and type at the end of the local atoms */
@@ -600,14 +598,13 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
         Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
         /* Relaxed */
 //        if (!in_domain(r, box->domhalo)) {
-//            fprintf(stderr, "error: unpacked ghost atom %d at %e %e %e outside halo domain\n",
+//            dbg("error: unpacked ghost atom %d at %e %e %e outside halo domain\n",
 //                    i, r[X], r[Y], r[Z]);
 //            abort();
 //        }
         if (ENABLE_DOMAIN_CHECK && in_domain(r, box->dombox)) {
-            fprintf(stderr, "error: unpacked ghost atom %d at %e %e %e inside box domain\n",
+            die("error: unpacked ghost atom %d at %e %e %e inside box domain\n",
                     i, r[X], r[Y], r[Z]);
-            abort();
         }
     }
 
@@ -641,20 +638,20 @@ void
 comm_borders(Sim *sim)
 {
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_borders -- waitmpi send_rt buf+natoms\n", sim->rank);
+        dbg("rank%d -- comm_borders -- waitmpi send_rt buf+natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, send_rt));
             box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_rt));
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- pack send_rt buf+natoms\n", sim->rank);
+    dbg("rank%d -- comm_borders -- pack send_rt buf+natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_border_pack_rt(sim, box);
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- send send_rt buf+natoms\n", sim->rank);
+    dbg("rank%d -- comm_borders -- send send_rt buf+natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -663,7 +660,7 @@ comm_borders(Sim *sim)
         }
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- recv recv_rt natoms\n", sim->rank);
+    dbg("rank%d -- comm_borders -- recv recv_rt natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -674,12 +671,12 @@ comm_borders(Sim *sim)
     }
 
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_borders -- waitmpi recv_rt natoms\n", sim->rank);
+        dbg("rank%d -- comm_borders -- waitmpi recv_rt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
             box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, recv_rt));
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- recv recv_rt buf\n", sim->rank);
+    dbg("rank%d -- comm_borders -- recv recv_rt buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -690,12 +687,12 @@ comm_borders(Sim *sim)
     }
 
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_borders -- waitmpi recv_rt buf\n", sim->rank);
+        dbg("rank%d -- comm_borders -- waitmpi recv_rt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
             box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_rt));
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- unpack\n", sim->rank);
+    dbg("rank%d -- comm_borders -- unpack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -707,7 +704,7 @@ comm_borders(Sim *sim)
         //    abort();
     }
 
-    fprintf(stderr, "rank%d -- comm_borders -- ends\n", sim->rank);
+    dbg("rank%d -- comm_borders -- ends\n", sim->rank);
 }
 
 #pragma oss task label("box_ghost_pack_r") \
@@ -717,7 +714,7 @@ comm_borders(Sim *sim)
 static void
 box_ghost_pack_r(Sim *sim, Box *box)
 {
-//    fprintf(stderr, "packing internal ghosts from box %d\n", box->i);
+//    dbg("packing internal ghosts from box %d\n", box->i);
 
     /* Reset all PackBuf from neighbors */
     for (int i = 0; i < NNEIGH; i++) {
@@ -736,8 +733,7 @@ box_ghost_pack_r(Sim *sim, Box *box)
         for (int j = 0; j < pb->natoms; j++) {
             int iatom = pb->sel[j];
             if (iatom < 0 || iatom >= box->nlocal) {
-                fprintf(stderr, "atom %d outside local range\n", iatom);
-                abort();
+                die("atom %d outside local range\n", iatom);
             }
 
             Vec r = { box->r[iatom][X], box->r[iatom][Y], box->r[iatom][Z] };
@@ -751,7 +747,7 @@ box_ghost_pack_r(Sim *sim, Box *box)
             packbuf_add(&neigh->send_r, &r, NULL, NULL);
         }
 
-        //fprintf(stderr, "box %d neigh %d: packed %d internal ghosts\n",
+        //dbg("box %d neigh %d: packed %d internal ghosts\n",
         //        box->i, neigh->i, neigh->send_r.natoms);
 
         packbuf_debug_switch(&neigh->send_rt, PB_READING, PB_READY);
@@ -790,7 +786,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             packbuf_debug_switch(&dstneigh->recv_r, PB_READY, PB_RECVING);
             /* Get the number of atoms to be received from the pack
              * buffer used in the borders */
-            fprintf(stderr, "reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
+            dbg("reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
             int natoms = dstneigh->recv_rt.natoms;
             packbuf_clear(&dstneigh->recv_r);
             packbuf_mpirecv_buf(&dstneigh->recv_r, natoms);
@@ -814,9 +810,9 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             packbuf_debug_switch(&dstneigh->recv_r,  PB_READY, PB_COPYING);
             packbuf_debug_switch(&srcneigh->send_r,  PB_READY, PB_COPYING);
 
-            //fprintf(stderr, "reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
+            //dbg("reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
             if (srcneigh->send_r.natoms != dstneigh->recv_rt.natoms) {
-                fprintf(stderr, "box %d srcneigh %d dstneigh %d: natoms don't match\n"
+                dbg("box %d srcneigh %d dstneigh %d: natoms don't match\n"
                             "  srcneigh->send_r.natoms = %d != dstneigh->recv_rt.natoms = %d\n",
                         box->i, srcneigh->i, dstneigh->i,
                         srcneigh->send_r.natoms,
@@ -826,7 +822,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             }
             packbuf_clear(&dstneigh->recv_r);
             packbuf_shmcopy(&srcneigh->send_r, &dstneigh->recv_r);
-            //fprintf(stderr, "setting box%d:neigh%d recv_r natoms=%d\n",
+            //dbg("setting box%d:neigh%d recv_r natoms=%d\n",
             //        box->i, dstneigh->i, dstneigh->recv_r.natoms);
 
             packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
@@ -836,7 +832,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
     }
 
 //  if (natoms != 0) {
-//      fprintf(stderr, "box %d: unpacked %d ghost atoms from neigh %d\n",
+//      dbg("box %d: unpacked %d ghost atoms from neigh %d\n",
 //              box->i, natoms, j);
 //  }
 }
@@ -854,9 +850,8 @@ box_ghost_unpack_r_neigh(Sim *sim, Box *box, Neigh *neigh)
         int nnew = neigh->recv_r.natoms;
         int ntot = box->nlocal + box->nghost + nnew;
         if (ntot > box->nalloc) {
-            fprintf(stderr, "error: box%d:neigh%d cannot unpack %d atoms, capacity exeeeded\n",
+            die("error: box%d:neigh%d cannot unpack %d atoms, capacity exeeeded\n",
                     box->i, neigh->i, nnew);
-            abort();
         }
 
         int i = box->nlocal + box->nghost;
@@ -898,7 +893,7 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 //        #pragma oss task label("box_ghost_unpack_r:atomcheck") \
 //            in(*(char **)&box->r)
         if (box->nghost != old_nghost) {
-            fprintf(stderr, "nghost atoms don't match %d != %d\n",
+            err("nghost atoms don't match %d != %d\n",
                     box->nghost, old_nghost);
             sleep(1);
             abort();
@@ -912,18 +907,18 @@ comm_ghost_position(Sim *sim)
 {
     /* No need to wait for natoms as its not sent */
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_ghost -- waitmpi send_r buf\n", sim->rank);
+        dbg("rank%d -- comm_ghost -- waitmpi send_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
             box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_r));
     }
 
-    fprintf(stderr, "rank%d -- comm_ghost -- pack_r buf\n", sim->rank);
+    dbg("rank%d -- comm_ghost -- pack_r buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_ghost_pack_r(sim, box);
     }
 
-    fprintf(stderr, "rank%d -- comm_ghost -- send_r buf\n", sim->rank);
+    dbg("rank%d -- comm_ghost -- send_r buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -933,7 +928,7 @@ comm_ghost_position(Sim *sim)
     }
 
     /* No need to receive the number of atoms, as it is known */
-    fprintf(stderr, "rank%d -- comm_ghost -- recv_r buf\n", sim->rank);
+    dbg("rank%d -- comm_ghost -- recv_r buf\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -945,7 +940,7 @@ comm_ghost_position(Sim *sim)
 
     /* Wait for all buffer messages to complete before unpack */
     if (ENABLE_NONBLOCKING_MPI) {
-        fprintf(stderr, "rank%d -- comm_ghost -- waitmpi recv_r buf\n", sim->rank);
+        dbg("rank%d -- comm_ghost -- waitmpi recv_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++)
             box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_r));
     }
