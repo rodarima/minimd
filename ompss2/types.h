@@ -81,13 +81,13 @@ typedef int    Range[NDIM][NLIM];
 
 /* Print a histogram of the force magnitudes per box. It should be
  * smooth. */
-#define ENABLE_FHIST 0
+#define ENABLE_FHIST 1
 
 /* Print a histogram of the velocity magnitudes per box. */
-#define ENABLE_VHIST 0
+#define ENABLE_VHIST 1
 
 /* Print a histogram of the distance between nearby atoms. */
-#define ENABLE_DHIST 0
+#define ENABLE_DHIST 1
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
@@ -119,7 +119,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Checks the number of atoms is expected before and after an operation.
  * Needs task wait so it can cause other bugs to disappear. */
-#define ENABLE_ATOM_COUNT_CHECK 0
+#define ENABLE_ATOM_COUNT_CHECK 1
 
 /* Uses only these many atoms. Use 0 to run normally */
 #define ENABLE_ONLY_NTOTATOMS 0
@@ -202,6 +202,7 @@ enum packbuf_state {
 
 typedef struct {
     int natoms;     /* Number of atoms currently in the buffer */
+    int recvnatoms; /* Number of atoms to be received */
     int nalloc;     /* Number of atoms allocated */
     int atomsize;   /* Number of doubles required per atom */
     double *buf;    /* The contiguous buffer */
@@ -210,9 +211,19 @@ typedef struct {
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
     MPI_Request req;
+    MPI_Request reqn;
+    MPI_Comm *comm;
     int waitreq;    /* Wait for the request before writing the buffer */
-    MPI_Comm comm;
+    int waitreqn;   /* Wait for the request before writing natoms */
+    int remoterank;
+    int tag;
 } PackBuf;
+
+//typedef struct {
+//    PackBuf send;
+//    PackBuf recv;
+//    int tag;
+//} Chan;
 
 typedef struct box Box;
 typedef struct neigh Neigh;
@@ -234,12 +245,13 @@ typedef struct neigh {
     Vec addpbc; /* PBC correction per dimension */
 
     /* Communication packing buffers */
-    PackBuf send_r; /* Send atom positions */
-    PackBuf recv_r; /* Receive atom positions */
-    PackBuf send_rt; /* Send atom positions and types */
-    PackBuf recv_rt; /* Receive atom positions and types */
-    PackBuf send_rvt; /* Send atom position, velocity and type */
-    PackBuf recv_rvt; /* Receive atom positions, velocity and type */
+    PackBuf send_r;     /* Send atom positions */
+    PackBuf recv_r;     /* Receive atom positions */
+    PackBuf send_rt;    /* Send atom positions and types */
+    PackBuf recv_rt;    /* Receive atom positions and types */
+    PackBuf send_rvt;   /* Send atom position, velocity and type */
+    PackBuf recv_rvt;   /* Receive atom positions, velocity and type */
+
 } Neigh;
 
 /* Subdivision of the box into cubic subdomains, each with a list of
@@ -320,6 +332,7 @@ typedef struct box {
     Hist dhist; /* Nearby atom distance histogram */
 
     Neigh neigh[NNEIGH]; /* Neighboring boxes info */
+
 } Box;
 
 typedef struct force {
@@ -422,6 +435,11 @@ typedef struct sim {
     int ntotatoms;
     int iter;	/* Current iteration from the main task */
 
+    /* Communicators for each type of buffer */
+    MPI_Comm comm_r;
+    MPI_Comm comm_rt;
+    MPI_Comm comm_rvt;
+
     Force force;
     Box *box;
 } Sim;
@@ -442,17 +460,18 @@ void comm_ghost_position(Sim *sim);
 void *safe_realloc(void *ptr, size_t size);
 
 void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
-void packbuf_mpisend(PackBuf *pb, int remoterank, int tag);
-void packbuf_mpirecv(PackBuf *pb, int remoterank, int tag);
-void packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag);
-void packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms);
+void packbuf_mpisend(PackBuf *pb);
+void packbuf_mpisend_buf(PackBuf *pb);
+void packbuf_mpirecv(PackBuf *pb, int only_natoms);
+void packbuf_mpirecv_natoms(PackBuf *pb);
+void packbuf_mpirecv_buf(PackBuf *pb, int natoms);
 void packbuf_shmcopy(PackBuf *src, PackBuf *dst);
 void packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type);
 void packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom);
 void packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types);
 void packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel);
 void packbuf_clear(PackBuf *pb);
-void packbuf_init(PackBuf *pb, int enable_sel, int atomsize);
+void packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank, int tag, MPI_Comm *comm);
 
 void build_nearby_atoms(Sim *sim);
 

@@ -65,56 +65,55 @@ packbuf_grow_extra(PackBuf *pb, int nextra)
 }
 
 void
-packbuf_mpisend_buf(PackBuf *pb, int remoterank, int tag)
+packbuf_mpisend_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-//    fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
-//            pb->natoms, remoterank);
-
-    if (remoterank < 0)
-        abort();
+    fprintf(stderr, "packbuf_mpisend_buf: natoms=%d remoterank=%d tag=%d\n",
+            pb->natoms, pb->remoterank, pb->tag);
 
     if (pb->natoms != 0) {
-        MPI_Send((void *) pb->buf, pb->natoms * pb->atomsize,
-                MPI_DOUBLE, remoterank, tag, pb->comm);
+        MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize,
+                MPI_DOUBLE, pb->remoterank, pb->tag, *pb->comm, &pb->req);
+        pb->waitreq = 1;
     }
 
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
 
 void
-packbuf_mpisend(PackBuf *pb, int remoterank, int tag)
+packbuf_mpisend(PackBuf *pb)
 {
-//    fprintf(stderr, "packbuf sending %d atoms to rank %d\n",
-//            pb->natoms, remoterank);
+    fprintf(stderr, "packbuf_mpisend: natoms=%d remoterank=%d tag=%d\n",
+            pb->natoms, pb->remoterank, pb->tag);
 
-    if (remoterank < 0)
-        abort();
+    void *buf = (void *) &pb->natoms;
+    MPI_Isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
+            &pb->reqn);
 
-    /* Send the number of atoms first */
-    MPI_Send((void *) &pb->natoms, 1, MPI_INT,
-            remoterank, tag, pb->comm);
+    pb->waitreqn = 1;
 
-    packbuf_mpisend_buf(pb, remoterank, tag);
+    packbuf_mpisend_buf(pb);
 }
 
 void
-packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms)
+packbuf_mpirecv_buf(PackBuf *pb, int natoms)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
-//    fprintf(stderr, "packbuf receiving %d atoms from rank %d\n",
-//            natoms, remoterank);
+
+    fprintf(stderr, "packbuf_mpirecv_buf: natoms=%d remoterank=%d tag=%d\n",
+            natoms, pb->remoterank, pb->tag);
 
     if (natoms > 0) {
         /* Grow the buffer if needed */
         packbuf_grow(pb, natoms);
 
-        /* And received that many atoms */
+        /* And receive that many atoms */
         int size = natoms * pb->atomsize;
 
-        MPI_Recv((void *) pb->buf, size, MPI_DOUBLE,
-                remoterank, tag, pb->comm, MPI_STATUS_IGNORE);
+        MPI_Irecv((void *) pb->buf, size, MPI_DOUBLE,
+                pb->remoterank, pb->tag, *pb->comm, &pb->req);
+        pb->waitreq = 1;
     }
 
     pb->natoms = natoms;
@@ -122,14 +121,25 @@ packbuf_mpirecv_buf(PackBuf *pb, int remoterank, int tag, int natoms)
 }
 
 void
-packbuf_mpirecv(PackBuf *pb, int remoterank, int tag)
+packbuf_mpirecv_natoms(PackBuf *pb)
 {
     /* Find out how many atoms I need to make room for */
-    int natoms;
-    MPI_Recv((void *) &natoms, 1, MPI_INT,
-            remoterank, tag, pb->comm, MPI_STATUS_IGNORE);
+    fprintf(stderr, "packbuf_mpirecv_natoms: natoms=? remoterank=%d tag=%d\n",
+            pb->remoterank, pb->tag);
 
-    packbuf_mpirecv_buf(pb, remoterank, tag, natoms);
+    MPI_Irecv((void *) &pb->recvnatoms, 1, MPI_INT,
+            pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
+
+    pb->waitreqn = 1;
+}
+
+void
+packbuf_mpirecv(PackBuf *pb, int only_natoms)
+{
+    if (only_natoms)
+        packbuf_mpirecv_natoms(pb);
+    else
+        packbuf_mpirecv_buf(pb, pb->recvnatoms);
 }
 
 void
@@ -259,12 +269,19 @@ packbuf_clear(PackBuf *pb)
 }
 
 void
-packbuf_init(PackBuf *pb, int enable_sel, int atomsize)
+packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
+        int remoterank, int tag, MPI_Comm *comm)
 {
     memset(pb, 0, sizeof(*pb));
 
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
-    MPI_Comm_dup(MPI_COMM_WORLD, &pb->comm);
+    pb->comm = comm;
+
+    if (remoterank < 0)
+        abort();
+
+    pb->remoterank = remoterank;
+    pb->tag = tag;
     packbuf_switch(pb, PB_GARBAGE, PB_READY);
 }

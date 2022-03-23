@@ -12,6 +12,6 @@ lj             force style (lj or eam)
 10             reneighboring every this many steps                          &in.neigh_every
 2.5 0.30       force cutoff and neighbor skin                               &in.force_cut, &in.neigh_cut==neighbor.cutneigh (in.neigh_cut += in.force_cut at end of input)
 1              thermo calculation every this many steps (0 = start,end)     &in.thermo_nstat
-4              boxes per process                                            &in.boxes_per_process
+2              boxes per process                                            &in.boxes_per_process
 2              processes in x-direction
 1              processes in z-direction

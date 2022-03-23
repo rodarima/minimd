@@ -860,22 +860,78 @@ setup_subdomains(Sim *sim)
         setup_subdomains_box(sim, &sim->box[i]);
 }
 
+static int
+build_tag(int boxid, int neighid)
+{
+    int tag = boxid * 1000 + neighid;
+
+    /* Ensure the tag is within the MPI standard limit */
+    if (tag >= 32767) {
+        fprintf(stderr, "tag exceed limit: %d >= %d\n", tag, 32767);
+        abort();
+    }
+
+    return tag;
+}
+
 static void
 setup_packbuf(Sim *sim)
 {
     /* Init all pack buffers */
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
+
+        MPI_Comm_dup(MPI_COMM_WORLD, &sim->comm_r);
+        MPI_Comm_dup(MPI_COMM_WORLD, &sim->comm_rt);
+        MPI_Comm_dup(MPI_COMM_WORLD, &sim->comm_rvt);
+
         for (int j = 0; j < NNEIGH; j++) {
             Neigh *neigh = &box->neigh[j];
 
             /* Setup the number of doubles needed per buffer */
-            packbuf_init(&neigh->send_r,    0, NDIM);
-            packbuf_init(&neigh->recv_r,    0, NDIM);
-            packbuf_init(&neigh->send_rt,   1, NDIM + 1);
-            packbuf_init(&neigh->recv_rt,   1, NDIM + 1);
-            packbuf_init(&neigh->send_rvt,  0, NDIM + NDIM + 1);
-            packbuf_init(&neigh->recv_rvt,  0, NDIM + NDIM + 1);
+            int s[3] = { NDIM, NDIM + 1, 2*NDIM + 1 };
+
+            /* Send to same direction as neigh */
+            int sendrank = neigh->rank;
+            int sendtag = build_tag(box->i, neigh->i);
+
+            packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, &sim->comm_r);
+            packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, &sim->comm_rt);
+            packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, &sim->comm_rvt);
+
+            /*
+             * The recv is tricky, here is a diagram:
+             *
+             * +-------+                           +-------+
+             * |       |                           |       |
+             * | box i -> neigh a  -->--  neigh b <- box j |
+             * |       |                           |       |
+             * +-------+                           +-------+
+             *
+             * To send via (i, a) we use:
+             *
+             *  rank = a->rank
+             *  tag = build_tag(i, a)
+             *
+             * But to receive, in (j, b) we need to use:
+             *
+             *  rank = b->rank
+             *  tag = build_tag(i, a)
+             *
+             * The index of neigh a is b->opposite->i. And the index of
+             * the box i is b->opposite->boxid, so:
+             *
+             *   tag = build_tag(b->opposite->boxid, b->opposite->i)
+             */
+
+            int recvrank = neigh->rank;
+            /* Same tag used for send */
+            Neigh *opp = neigh->opposite;
+            int recvtag = build_tag(opp->boxid, opp->i);
+
+            packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, &sim->comm_r);
+            packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, &sim->comm_rt);
+            packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, &sim->comm_rvt);
 
             packbuf_debug_switch(&neigh->send_r, PB_GARBAGE, PB_READY);
             packbuf_debug_switch(&neigh->recv_r, PB_GARBAGE, PB_READY);

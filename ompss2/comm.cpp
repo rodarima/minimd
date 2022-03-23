@@ -47,20 +47,6 @@ copy_atom_rvt(Box *box, int src, int dst)
     box->atomtype[dst] = box->atomtype[src];
 }
 
-static int
-build_tag(Box *box, Neigh *neigh)
-{
-    int tag = box->i * NNEIGH + neigh->i;
-
-    /* Ensure the tag is within the MPI standard limit */
-    if (tag >= 32767) {
-        fprintf(stderr, "tag exceed limit: %d >= %d\n", tag, 32767);
-        abort();
-    }
-
-    return tag;
-}
-
 /* Removes the atoms that lay outside the box domain and packs them in
  * the appropriate neighbor PackBuf. Only position (r), velocity (v) and
  * type (t) is copied, as the other information is not needed. Holes are
@@ -137,43 +123,110 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
 static void
 box_tidy_send_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
-//    if (neigh->send_rvt.natoms > 0) {
-//        fprintf(stderr, "box %d sending %d atoms to neigh %d\n",
-//                box->i, neigh->send_rvt.natoms, neigh->i);
-//    }
-
-
     if (neigh->rank != sim->rank) {
-        /* Use MPI for inter process comm */
         #pragma oss task label("box_tidy_send_rvt:mpisend") \
             in(*(char **)&neigh->send_rvt.buf)
         {
+//            fprintf(stderr, "send_rvt: rank%d:box%d:neigh%d uses mpisend delta=(%d %d %d)\n",
+//                    sim->rank, box->i, neigh->i,
+//                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
+
             packbuf_debug_switch(&neigh->send_rvt, PB_READY, PB_SENDING);
-            packbuf_mpisend(&neigh->send_rvt, neigh->rank, neigh->i);
+            packbuf_mpisend(&neigh->send_rvt);
             packbuf_debug_switch(&neigh->send_rvt, PB_SENDING, PB_READY);
         }
     } else {
+//        fprintf(stderr, "send_rvt: rank%d:box%d:neigh%d uses shmcopy delta=(%d %d %d)\n",
+//                sim->rank, box->i, neigh->i,
+//                neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
+
         /* No-op: will be copied in box_tidy_recv_rvt */
     }
 }
 
 static void
-box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
+box_waitrecv_natoms(Sim *sim, Box *box, size_t off)
+{
+    MPI_Request req[NNEIGH];
+    int nreq = 0;
+
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
+
+        if (pb->waitreqn) {
+            fprintf(stderr, "rank%d:box%d waiting for natoms in neigh %d\n",
+                    sim->rank, box->i, i);
+            MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
+            //memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
+            pb->waitreqn = 0;
+        }
+    }
+
+    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+}
+
+static void
+box_waitrecv_buf(Sim *sim, Box *box, size_t off)
+{
+    MPI_Request req[NNEIGH];
+    int nreq = 0;
+
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
+
+        if (pb->waitreq) {
+            fprintf(stderr, "rank%d:box%d waiting for buf in neigh %d\n",
+                    sim->rank, box->i, i);
+            MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
+            //memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
+            pb->waitreq = 0;
+        }
+    }
+
+    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+}
+
+static void
+box_waitrecv(Sim *sim, Box *box, size_t off, int only_natoms)
+{
+    if (only_natoms)
+        box_waitrecv_natoms(sim, box, off);
+    else
+        box_waitrecv_buf(sim, box, off);
+}
+
+static void
+box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *neigh, int recvn)
 {
     /* Receive */
-    if (dstneigh->rank != sim->rank) {
+    if (neigh->rank != sim->rank) {
+
         /* Use MPI for inter process comm */
         #pragma oss task label("box_tidy_recv_rvt:mpirecv") \
-            out(*(char **)&dstneigh->recv_rvt.buf)
+            out(*(char **)&neigh->recv_rvt.buf)
         {
-            packbuf_debug_switch(&dstneigh->recv_rvt, PB_READY, PB_RECVING);
-            packbuf_mpirecv(&dstneigh->recv_rvt, dstneigh->rank, dstneigh->i);
-            packbuf_debug_switch(&dstneigh->recv_rvt, PB_RECVING, PB_READY);
+            packbuf_debug_switch(&neigh->recv_rvt, PB_READY, PB_RECVING);
+
+            if (recvn)
+                packbuf_mpirecv_natoms(&neigh->recv_rvt);
+            else
+                packbuf_mpirecv_buf(&neigh->recv_rvt,
+                        neigh->recv_rvt.recvnatoms);
+
+            packbuf_debug_switch(&neigh->recv_rvt, PB_RECVING, PB_READY);
         }
-    } else {
+
+    } else if (!recvn) {
+
         /* Shared memory for intra-process. This can be avoided if
          * we pack directly into the receiving buffer. */
-        Box *srcbox = dstneigh->box;
+        Neigh *dstneigh = neigh;
+        Box *srcbox = dstneigh->opposite->box;
+        if (srcbox == NULL)
+            abort();
+
         Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
 
         #pragma oss task label("box_tidy_recv_rvt:shmcopy") \
@@ -183,6 +236,8 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *dstneigh)
             packbuf_debug_switch(&srcneigh->send_rvt, PB_READY, PB_COPYING);
             packbuf_debug_switch(&dstneigh->recv_rvt, PB_READY, PB_COPYING);
 
+//            fprintf(stderr, "rank%d:box%d:neigh%02d shmcopy\n",
+//                    sim->rank, dstbox->i, dstneigh->i);
             packbuf_shmcopy(&srcneigh->send_rvt, &dstneigh->recv_rvt);
 
             packbuf_debug_switch(&srcneigh->send_rvt, PB_COPYING, PB_READY);
@@ -307,11 +362,15 @@ box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 void
 comm_tidy(Sim *sim)
 {
+    fprintf(stderr, "rank%d -- comm_tidy -- begins\n", sim->rank);
+
+    fprintf(stderr, "rank%d -- comm_tidy -- pack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_tidy_pack_rvt(sim, box);
     }
 
+    fprintf(stderr, "rank%d -- comm_tidy -- send\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -320,14 +379,38 @@ comm_tidy(Sim *sim)
         }
     }
 
+    fprintf(stderr, "rank%d -- comm_tidy -- recv n\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
-            box_tidy_recv_rvt(sim, box, neigh->opposite);
+            box_tidy_recv_rvt(sim, box, neigh->opposite, 1);
         }
     }
 
+    /* Wait for all natom messages to get buffer sizes */
+    if (1) {
+        fprintf(stderr, "rank%d -- comm_tidy -- waitrecv n\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++)
+            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rvt), 1);
+    }
+
+    fprintf(stderr, "rank%d -- comm_tidy -- recv buf\n", sim->rank);
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int i = 0; i < NNEIGH; i++) {
+            Neigh *neigh = &box->neigh[i];
+            box_tidy_recv_rvt(sim, box, neigh->opposite, 0);
+        }
+    }
+
+    if (1) {
+        fprintf(stderr, "rank%d -- comm_tidy -- waitrecv buf\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++)
+            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rvt), 0);
+    }
+
+    fprintf(stderr, "rank%d -- comm_tidy -- unpack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int i = 0; i < NNEIGH; i++) {
@@ -335,6 +418,8 @@ comm_tidy(Sim *sim)
             box_tidy_unpack_rvt(sim, box, neigh->opposite);
         }
     }
+
+    fprintf(stderr, "rank%d -- comm_tidy -- ends\n", sim->rank);
 }
 
 #pragma oss task label("box_border_pack_rt") \
@@ -429,7 +514,7 @@ box_border_send_rt(Sim *sim, Box *box, Neigh *neigh)
             in(*(char **)&neigh->send_rt.buf)
         {
             packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_SENDING);
-            packbuf_mpisend(&neigh->send_rt, neigh->rank, neigh->i);
+            packbuf_mpisend(&neigh->send_rt);
             packbuf_debug_switch(&neigh->send_rt, PB_SENDING, PB_READY);
         }
     } else {
@@ -438,20 +523,13 @@ box_border_send_rt(Sim *sim, Box *box, Neigh *neigh)
 }
 
 static void
-box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh)
+box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh, int only_natoms)
 {
     if (dstneigh->rank != sim->rank) {
         #pragma oss task label("box_border_recv_rt:mpirecv") \
             out(*(char **)&dstneigh->recv_rt.buf)
-        {
-            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_RECVING);
-            /* Clear receive buffer */
-            //fprintf(stderr, "clearing box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
-            packbuf_clear(&dstneigh->recv_rt);
-            packbuf_mpirecv(&dstneigh->recv_rt, dstneigh->rank, dstneigh->i);
-            packbuf_debug_switch(&dstneigh->recv_rt, PB_RECVING, PB_READY);
-        }
-    } else {
+        packbuf_mpirecv(&dstneigh->recv_rt, only_natoms);
+    } else if (!only_natoms) {
         /* Get the source box from the neighbor and find the
          * neighbor which contains the send buffer. Example:
          *
@@ -540,14 +618,37 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     packbuf_debug_switch(&neigh->recv_rt, PB_UNPACKING, PB_READY);
 }
 
+static void
+box_border_waitrecv_rt(Sim *sim, Box *box)
+{
+    MPI_Request req[NNEIGH];
+
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        memcpy(&req[i], &neigh->recv_rt.reqn, sizeof(MPI_Request));
+    }
+
+    MPI_Waitall(NNEIGH, req, MPI_STATUSES_IGNORE);
+
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        memcpy(&req[i], &neigh->recv_rt.req, sizeof(MPI_Request));
+    }
+
+    MPI_Waitall(NNEIGH, req, MPI_STATUSES_IGNORE);
+}
+
 void
 comm_borders(Sim *sim)
 {
+    MPI_Barrier(MPI_COMM_WORLD);
+    fprintf(stderr, "rank%d -- comm_borders -- pack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box_border_pack_rt(sim, box);
     }
 
+    fprintf(stderr, "rank%d -- comm_borders -- send\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -556,15 +657,39 @@ comm_borders(Sim *sim)
         }
     }
 
+    fprintf(stderr, "rank%d -- comm_borders -- recv natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
             /* Use the inverse order for reception */
             Neigh *dstneigh = box->neigh[j].opposite;
-            box_border_recv_rt(sim, box, dstneigh);
+            box_border_recv_rt(sim, box, dstneigh, 1);
         }
     }
 
+    if (1) {
+        fprintf(stderr, "rank%d -- comm_borders -- waitrecv\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++)
+            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rt), 1);
+    }
+
+    fprintf(stderr, "rank%d -- comm_borders -- recv buf\n", sim->rank);
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        for (int j = 0; j < NNEIGH; j++) {
+            /* Use the inverse order for reception */
+            Neigh *dstneigh = box->neigh[j].opposite;
+            box_border_recv_rt(sim, box, dstneigh, 0);
+        }
+    }
+
+    if (1) {
+        fprintf(stderr, "rank%d -- comm_borders -- waitrecv\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++)
+            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_rt), 0);
+    }
+
+    fprintf(stderr, "rank%d -- comm_borders -- unpack\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
@@ -575,6 +700,8 @@ comm_borders(Sim *sim)
         //if (box->nghost == 0)
         //    abort();
     }
+
+    fprintf(stderr, "rank%d -- comm_borders -- ends\n", sim->rank);
 }
 
 #pragma oss task label("box_ghost_pack_r") \
@@ -636,7 +763,7 @@ box_ghost_send_r(Sim *sim, Box *box, Neigh *srcneigh)
             in(*(char **)&srcneigh->send_r.buf)
         {
             packbuf_debug_switch(&srcneigh->send_r, PB_READY, PB_PACKING);
-            packbuf_mpisend_buf(&srcneigh->send_r, srcneigh->rank, srcneigh->i);
+            packbuf_mpisend_buf(&srcneigh->send_r);
             packbuf_debug_switch(&srcneigh->send_r, PB_PACKING, PB_READY);
         }
     } else {
@@ -660,8 +787,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             fprintf(stderr, "reading box%d:neigh%d recv_rt\n", box->i, dstneigh->i);
             int natoms = dstneigh->recv_rt.natoms;
             packbuf_clear(&dstneigh->recv_r);
-            packbuf_mpirecv_buf(&dstneigh->recv_r, dstneigh->rank,
-                    dstneigh->i, natoms);
+            packbuf_mpirecv_buf(&dstneigh->recv_r, natoms);
 
             packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
             packbuf_debug_switch(&dstneigh->recv_r, PB_RECVING, PB_READY);
@@ -799,6 +925,14 @@ comm_ghost_position(Sim *sim)
             box_ghost_recv_r(sim, box, dstneigh);
         }
     }
+
+    /* Wait for all buffer messages to complete */
+    if (1) {
+        fprintf(stderr, "rank%d -- comm_ghost -- waitrecv buf\n", sim->rank);
+        for (int i = 0; i < sim->nboxes; i++)
+            box_waitrecv(sim, &sim->box[i], offsetof(Neigh, recv_r), 0);
+    }
+
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
