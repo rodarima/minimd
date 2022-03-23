@@ -8,23 +8,23 @@ MPILINK=$(MPICXX)
 #CXXFLAGS+=--ompss-2
 #LDFLAGS+=--ompss-2
 
-#CXXFLAGS+=-fompss-2
-#LDFLAGS+=-fompss-2
+CXXFLAGS+=-fompss-2
+LDFLAGS+=-fompss-2
 
 # Use tampi?
-#CXXFLAGS+=-DUSE_TAMPI
-#LDFLAGS+=-ltampi-c
+CXXFLAGS+=-DUSE_TAMPI
+LDFLAGS+=-ltampi-c
 
-CXXFLAGS+=-O0
-#CXXFLAGS+=-O3
+#CXXFLAGS+=-O0
+CXXFLAGS+=-O3
 
-CXXFLAGS+=-g
-LDFLAGS+=-g
+#CXXFLAGS+=-g
+#LDFLAGS+=-g
 #CXXFLAGS+=-k
 #CXXFLAGS+=--line-markers
 
-CXXFLAGS+=-fsanitize=address
-LDFLAGS+=-fsanitize=address
+#CXXFLAGS+=-fsanitize=address
+#LDFLAGS+=-fsanitize=address
 
 #CXXFLAGS+=-Wno-attributes
 

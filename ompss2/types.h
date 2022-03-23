@@ -134,7 +134,7 @@ typedef int    Range[NDIM][NLIM];
 #define ENABLE_FORCE_BY_BINS 1
 
 /* Use MPI_Isend and MPI_Irecv */
-#define ENABLE_NONBLOCKING_MPI 1
+#define ENABLE_NONBLOCKING_MPI 0
 
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
@@ -465,7 +465,6 @@ void *safe_realloc(void *ptr, size_t size);
 void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
 void packbuf_mpisend(PackBuf *pb);
 void packbuf_mpisend_buf(PackBuf *pb);
-void packbuf_mpirecv(PackBuf *pb, int only_natoms);
 void packbuf_mpirecv_natoms(PackBuf *pb);
 void packbuf_mpirecv_buf(PackBuf *pb, int natoms);
 void packbuf_shmcopy(PackBuf *src, PackBuf *dst);

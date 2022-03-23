@@ -68,14 +68,21 @@ packbuf_mpisend_buf(PackBuf *pb)
     dbg("packbuf_mpisend_buf: natoms=%d remoterank=%d tag=%d\n",
             pb->natoms, pb->remoterank, pb->tag);
 
-    if (pb->waitreq)
-        die("packbuf_mpisend_buf: buffer in use\n");
+	if (ENABLE_NONBLOCKING_MPI) {
+		if (pb->waitreq)
+			die("packbuf_mpisend_buf: buffer in use\n");
 
-    if (pb->natoms != 0) {
-        MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize,
-                MPI_DOUBLE, pb->remoterank, pb->tag, *pb->comm, &pb->req);
-        pb->waitreq = 1;
-    }
+		if (pb->natoms != 0) {
+			MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize,
+					MPI_DOUBLE, pb->remoterank, pb->tag, *pb->comm, &pb->req);
+			pb->waitreq = 1;
+		}
+	} else {
+		if (pb->natoms != 0) {
+			MPI_Send((void *) pb->buf, pb->natoms * pb->atomsize,
+					MPI_DOUBLE, pb->remoterank, pb->tag, *pb->comm);
+		}
+	}
 
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
@@ -86,14 +93,19 @@ packbuf_mpisend(PackBuf *pb)
     dbg("packbuf_mpisend: natoms=%d remoterank=%d tag=%d\n",
             pb->natoms, pb->remoterank, pb->tag);
 
-    if (pb->waitreqn)
-        die("packbuf_mpisend: buffer in use\n");
+	if (ENABLE_NONBLOCKING_MPI && pb->waitreqn)
+		die("packbuf_mpisend: buffer in use\n");
 
-    void *buf = (void *) &pb->natoms;
-    MPI_Isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
-            &pb->reqn);
+	void *buf = (void *) &pb->natoms;
 
-    pb->waitreqn = 1;
+	if (ENABLE_NONBLOCKING_MPI) {
+		MPI_Isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
+				&pb->reqn);
+
+		pb->waitreqn = 1;
+	} else {
+		MPI_Send(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm);
+	}
 
     packbuf_mpisend_buf(pb);
 }
@@ -106,21 +118,28 @@ packbuf_mpirecv_buf(PackBuf *pb, int natoms)
     dbg("packbuf_mpirecv_buf: natoms=%d remoterank=%d tag=%d\n",
             natoms, pb->remoterank, pb->tag);
 
-    if (pb->waitreq)
-        die("packbuf_mpirecv_buf: buffer in use\n");
+	if (ENABLE_NONBLOCKING_MPI && pb->waitreq)
+		die("packbuf_mpirecv_buf: buffer in use\n");
 
-    if (natoms > 0) {
-        /* Grow the buffer if needed */
-        packbuf_grow(pb, natoms);
+	if (natoms > 0) {
+		/* Grow the buffer if needed */
+		packbuf_grow(pb, natoms);
 
-        /* And receive that many atoms */
-        int size = natoms * pb->atomsize;
+		/* And receive that many atoms */
+		int size = natoms * pb->atomsize;
 
-        MPI_Irecv((void *) pb->buf, size, MPI_DOUBLE,
-                pb->remoterank, pb->tag, *pb->comm, &pb->req);
-        pb->waitreq = 1;
-    }
+		if (ENABLE_NONBLOCKING_MPI) {
+			MPI_Irecv((void *) pb->buf, size, MPI_DOUBLE,
+					pb->remoterank, pb->tag, *pb->comm, &pb->req);
+			pb->waitreq = 1;
+		} else {
+			MPI_Recv((void *) pb->buf, size, MPI_DOUBLE,
+					pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
+		}
+	}
 
+	/* FIXME: this is dangerous as we are writing the natoms in the buffer
+	while they may be still being written by MPI_Irecv */
     pb->natoms = natoms;
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
@@ -132,22 +151,18 @@ packbuf_mpirecv_natoms(PackBuf *pb)
     dbg("packbuf_mpirecv_natoms: natoms=? remoterank=%d tag=%d\n",
             pb->remoterank, pb->tag);
 
-    if (pb->waitreqn)
-        die("packbuf_mpirecv_natoms: buffer in use\n");
+	if (ENABLE_NONBLOCKING_MPI) {
+		if (pb->waitreqn)
+			die("packbuf_mpirecv_natoms: buffer in use\n");
 
-    MPI_Irecv((void *) &pb->recvnatoms, 1, MPI_INT,
-            pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
+		MPI_Irecv((void *) &pb->recvnatoms, 1, MPI_INT,
+				pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
 
-    pb->waitreqn = 1;
-}
-
-void
-packbuf_mpirecv(PackBuf *pb, int only_natoms)
-{
-    if (only_natoms)
-        packbuf_mpirecv_natoms(pb);
-    else
-        packbuf_mpirecv_buf(pb, pb->recvnatoms);
+		pb->waitreqn = 1;
+	} else {
+		MPI_Recv((void *) &pb->recvnatoms, 1, MPI_INT,
+				pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
+	}
 }
 
 void
