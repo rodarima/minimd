@@ -227,7 +227,7 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *neigh, int only_natoms)
         /* Shared memory for intra-process. This can be avoided if
          * we pack directly into the receiving buffer. */
         Neigh *dstneigh = neigh;
-        Box *srcbox = dstneigh->opposite->box;
+        Box *srcbox = dstneigh->box;
         Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
 
         #pragma oss task label("box_tidy_recv_rvt:shmcopy") \
