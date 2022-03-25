@@ -988,15 +988,14 @@ setup_packbuf(Sim *sim)
              *  tag = build_tag(i, a)
              *
              * The index of neigh a is b->opposite->i. And the index of
-             * the box i is b->opposite->boxid, so:
+             * the box i is b->boxid, so:
              *
-             *   tag = build_tag(b->opposite->boxid, b->opposite->i)
+             *   tag = build_tag(b->boxid, b->opposite->i)
              */
 
             int recvrank = neigh->rank;
-            /* Same tag used for send */
-            Neigh *opp = neigh->opposite;
-            int recvtag = build_tag(opp->boxid, opp->i);
+            /* Same tag used for send in the opposite send direction */
+            int recvtag = build_tag(neigh->boxid, neigh->opposite->i);
 
             packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, &sim->comm_r);
             packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, &sim->comm_rt);
@@ -1189,7 +1188,12 @@ sim_run(Sim *sim)
             Box *box = &sim->box[i];
             /* Wait for the velocity or thermo to finish */
             #pragma oss task in(box->v) inout(box->iter)
-            box->iter++;
+            {
+                if (sim->rank == 0 && i == 0)
+                    err("===== ITERATION %d COMPLETE =====\n", box->iter);
+
+                box->iter++;
+            }
         }
     }
 
