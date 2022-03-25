@@ -81,9 +81,8 @@ setup_boxes(Sim *sim)
     /* Number of boxes of this rank */
     for (int d = X; d <= Z; d++) {
         if ((sim->nboxesdim[d] % sim->nranksdim[d]) != 0) {
-            fprintf(stderr, "cannot evenly divide %d total boxes into %d ranks in the %c dimension\n",
+            die("cannot evenly divide %d total boxes into %d ranks in the %c dimension\n",
                     sim->nboxesdim[d], sim->nranksdim[d], "XYZ"[d]);
-            abort();
         }
 
         sim->ranknboxesdim[d] = sim->nboxesdim[d] / sim->nranksdim[d];
@@ -103,11 +102,8 @@ setup_boxes(Sim *sim)
     /* Ensure R_neigh doesn't overlap */
     for (int d = X; d <= Z; d++) {
         if (sim->R_neigh * 2 >= sim->boxlen[d]) {
-            fprintf(stderr, "error: box too small in dimension %c\n",
-                    "XYZ"[d]);
-            fprintf(stderr, "R_neigh=%e overlaps with box len=%e\n",
-                    sim->R_neigh, sim->boxlen[d]);
-            abort();
+            die("box too small in dimension %c: R_neigh=%e overlaps with box len=%e\n",
+                    "XYZ"[d], sim->R_neigh, sim->boxlen[d]);
         }
     }
 
@@ -190,7 +186,7 @@ setup_bin_stencil(Sim *sim, Box *box, int enclosed_nbins[NDIM])
             }
         }
     }
-    fprintf(stderr, "box = %d nstencil = %d\n", box->i, box->nstencil);
+    dbg("box = %d nstencil = %d\n", box->i, box->nstencil);
 }
 
 static void
@@ -232,13 +228,13 @@ setup_bins_box(Sim *sim, Box *box)
         total_enclosed *= 2 * enclosed_nbins[d] + 1;
     }
 
-    fprintf(stderr, "box = %d enclosed_nbins = (%d %d %d)\n",
+    dbg("box = %d enclosed_nbins = (%d %d %d)\n",
             box->i, enclosed_nbins[X], enclosed_nbins[Y], enclosed_nbins[Z]);
 
     /* Allocate bins and stencil */
     box->bin = (Bin *) malloc(box->nbinsalloc * sizeof(Bin));
     box->stencil = (int *) malloc(total_enclosed * sizeof(int));
-    fprintf(stderr, "box = %d total_enclosed = %d\n", box->i,
+    dbg("box = %d total_enclosed = %d\n", box->i,
             total_enclosed);
 
     for (int i = 0; i < box->nbinsalloc; i++) {
@@ -262,9 +258,7 @@ setup_bins(Sim *sim)
         sim->nbinsbox[d] = neighscale * sim->npoints[d];
 
         if (sim->nbinsbox[d] == 0) {
-            fprintf(stderr, "error: number of bins in dimension %c is 0\n",
-                    "XYZ"[d]);
-            abort();
+            die("number of bins in dimension %c is 0\n", "XYZ"[d]);
         }
 
         /* Setup bin length */
@@ -483,7 +477,7 @@ setup_atoms(Sim *sim)
     /* Setup information per box */
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        fprintf(stderr, "setting atoms for box %d\n", i);
+        dbg("setting atoms for box %d\n", i);
         setup_atoms_box(sim, box);
     }
 
@@ -518,8 +512,7 @@ get_temperature(Sim *sim)
             }
 
             if (isnan(t_local)) {
-                fprintf(stderr, "local temp is nan in box %d\n", ib);
-                abort();
+                die("local temp is nan in box %d\n", ib);
             }
 
             t_local_sum += t_local;
@@ -536,7 +529,7 @@ get_temperature(Sim *sim)
     /* Adjust temperature units */
     temp *= sim->t_scale;
 
-    fprintf(stderr, "temperature = %e\n", temp);
+    dbg("temperature = %e\n", temp);
 
     return temp;
 }
@@ -558,8 +551,7 @@ setup_temperature(Sim *sim)
     }
 
     if (isnan(vlocal[X] + vlocal[Y] + vlocal[Z])) {
-        fprintf(stderr, "local sum of velocities is nan\n");
-        abort();
+        die("local sum of velocities is nan\n");
     }
 
     Vec vtot, vmean;
@@ -569,7 +561,7 @@ setup_temperature(Sim *sim)
         vmean[d] = vtot[d] / sim->ntotatoms;
     }
 
-    fprintf(stderr, "vmean = (%e %e %e)\n", vmean[X], vmean[Y], vmean[Z]);
+    dbg("vmean = (%e %e %e)\n", vmean[X], vmean[Y], vmean[Z]);
 
     /* Zero the mean velocity by shifting each atom vmean */
     for (int i = 0; i < sim->nboxes; i++) {
@@ -585,7 +577,7 @@ setup_temperature(Sim *sim)
     double t = get_temperature(sim);
     double factor = sqrt(sim->t_request / t);
 
-    fprintf(stderr, "v factor = %e\n", factor);
+    dbg("v factor = %e\n", factor);
 
     if (ENABLE_ONLY_NTOTATOMS)
         factor = 150;
@@ -606,7 +598,7 @@ setup_temperature(Sim *sim)
 
     /* This holds when relerr is nan too */
     if (ENABLE_ONLY_NTOTATOMS == 0 && (! (relerr < 10e2 * DBL_EPSILON))) {
-        fprintf(stderr, "temperature relative error %e (t_corrected=%e vs t_requested=%e)\n",
+        die("temperature relative error %e (t_corrected=%e vs t_requested=%e)\n",
                 relerr, t_corrected, sim->t_request);
         abort();
     }
@@ -787,13 +779,6 @@ setup_neighbors_box(Sim *sim, Box *box)
         }
     }
 
-    for (int in = 0; in < NNEIGH; in++) {
-        Neigh *neigh = &box->neigh[in];
-        fprintf(stderr, "neigh %2d (%2d) rank %2d delta (%2d %2d %2d)\n",
-                in, neigh->i, neigh->rank, 
-                neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
-    }
-
     /* Set wrapping */
     for (int in = 0; in < NNEIGH; in++) {
         Neigh *neigh = &box->neigh[in];
@@ -939,8 +924,7 @@ build_tag(int boxid, int neighid)
 
     /* Ensure the tag is within the MPI standard limit */
     if (tag >= 32767) {
-        fprintf(stderr, "tag exceed limit: %d >= %d\n", tag, 32767);
-        abort();
+        die("tag exceed limit: %d >= %d\n", tag, 32767);
     }
 
     return tag;
@@ -1080,7 +1064,7 @@ print_params(Sim *sim)
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        fprintf(stderr, "box %d has %d local atoms\n", box->i, box->nlocal);
+        dbg("box %d has %d local atoms\n", box->i, box->nlocal);
     }
 }
 
@@ -1179,7 +1163,6 @@ sim_run(Sim *sim)
             build_nearby_atoms(sim);
         }
 
-//    #pragma oss taskwait /* Fixes the problem */
         check_natoms_debug(sim);
         force_update(sim);
         integrate_velocity(sim);
@@ -1255,8 +1238,7 @@ int main(int argc, char *argv[])
     MPI_Init_thread(&argc, &argv, MPI_TASK_MULTIPLE, &provided);
 
     if (provided != MPI_TASK_MULTIPLE) {
-        fprintf(stderr, "error: MPI_TASK_MULTIPLE not supported\n");
-        abort();
+        die("MPI_TASK_MULTIPLE not supported\n");
     }
 
     /* Initialize the simulation structures using the input

@@ -5,6 +5,7 @@
 #include "dom.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 static inline int
 opposite_neigh(int i)
@@ -79,6 +80,7 @@ get_atom_bin(Sim *sim, Box *box, Vec r)
     if (!in_domain(r, box->domhalo)) {
         fprintf(stderr, "atom outside halo domain: %e %e %e\n",
                 r[X], r[Y], r[Z]);
+	sleep(1000000);
         abort();
     }
 

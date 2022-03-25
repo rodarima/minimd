@@ -1,6 +1,6 @@
-//#define ENABLE_DEBUG
-#include "log.h"
+#define ENABLE_DEBUG 0
 #include "types.h"
+#include "log.h"
 
 #include <stdlib.h>
 #include <mpi.h>
@@ -10,8 +10,10 @@
 static void
 packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
 {
-    if (pb->state != prev)
-        die("packbuf in state %d, expected %d\n", pb->state, prev);
+    if (pb->state != prev) {
+        die("packbuf in state %d, expected %d (switching to %d)\n",
+                pb->state, prev, next);
+    }
 
     pb->state = next;
 }
@@ -19,8 +21,10 @@ packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
 void
 packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
 {
-    if (pb->debug_state != prev)
-        die("packbuf in debug_state %d, expected %d\n", pb->debug_state, prev);
+    if (pb->debug_state != prev) {
+        die("packbuf in debug_state %d, expected %d (switching to %d)\n",
+                pb->debug_state, prev, next);
+    }
 
     pb->debug_state = next;
 }

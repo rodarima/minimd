@@ -18,8 +18,8 @@ LDFLAGS+=-ltampi-c
 #CXXFLAGS+=-O0
 CXXFLAGS+=-O3
 
-#CXXFLAGS+=-g
-#LDFLAGS+=-g
+CXXFLAGS+=-g
+LDFLAGS+=-g
 #CXXFLAGS+=-k
 #CXXFLAGS+=--line-markers
 

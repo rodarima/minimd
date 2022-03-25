@@ -81,13 +81,13 @@ typedef int    Range[NDIM][NLIM];
 
 /* Print a histogram of the force magnitudes per box. It should be
  * smooth. */
-#define ENABLE_FHIST 1
+#define ENABLE_FHIST 0
 
 /* Print a histogram of the velocity magnitudes per box. */
-#define ENABLE_VHIST 1
+#define ENABLE_VHIST 0
 
 /* Print a histogram of the distance between nearby atoms. */
-#define ENABLE_DHIST 1
+#define ENABLE_DHIST 0
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
@@ -119,7 +119,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Checks the number of atoms is expected before and after an operation.
  * Needs task wait so it can cause other bugs to disappear. */
-#define ENABLE_ATOM_COUNT_CHECK 1
+#define ENABLE_ATOM_COUNT_CHECK 0
 
 /* Uses only these many atoms. Use 0 to run normally */
 #define ENABLE_ONLY_NTOTATOMS 0
@@ -134,7 +134,7 @@ typedef int    Range[NDIM][NLIM];
 #define ENABLE_FORCE_BY_BINS 1
 
 /* Use MPI_Isend and MPI_Irecv */
-#define ENABLE_NONBLOCKING_MPI 0
+#define ENABLE_NONBLOCKING_MPI 1
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */
@@ -208,6 +208,7 @@ enum packbuf_state {
     PB_ADDING = 7,
     PB_READING = 8,
     PB_CLEANING = 9,
+    PB_WAITING = 10,
 };
 
 typedef struct {

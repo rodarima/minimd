@@ -1,6 +1,6 @@
-//#define ENABLE_DEBUG
-#include "log.h"
+#define ENABLE_DEBUG 0
 #include "types.h"
+#include "log.h"
 #include "neigh.h"
 #include "dom.h"
 
@@ -50,7 +50,8 @@ copy_atom_rvt(Box *box, int src, int dst)
 }
 
 #pragma oss task label("box_waitmpi_natoms") \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms , i=0;NNEIGH})
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms , i=0;NNEIGH}) \
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf , i=0;NNEIGH})
 static void
 box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 {
@@ -61,6 +62,8 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
         Neigh *neigh = &box->neigh[i];
         PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
 
+        packbuf_debug_switch(pb, PB_READY, PB_WAITING);
+
         if (pb->waitreqn) {
             dbg("rank%d:box%d waiting for natoms in neigh %d\n",
                     sim->rank, box->i, i);
@@ -68,6 +71,8 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
             //memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
             pb->waitreqn = 0;
         }
+
+        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
     }
 
     //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
@@ -75,6 +80,7 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 
 /* FIXME: We should use in() for send buffers */
 #pragma oss task label("box_waitmpi_buf") \
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms , i=0;NNEIGH}) \
     out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf , i=0;NNEIGH})
 static void
 box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
@@ -86,6 +92,8 @@ box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
         Neigh *neigh = &box->neigh[i];
         PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
 
+        packbuf_debug_switch(pb, PB_READY, PB_WAITING);
+
         if (pb->waitreq) {
             dbg("rank%d:box%d waiting for buf in neigh %d\n",
                     sim->rank, box->i, i);
@@ -93,6 +101,8 @@ box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
             //memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
             pb->waitreq = 0;
         }
+
+        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
     }
 
     //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
@@ -206,16 +216,25 @@ box_tidy_recv_rvt(Sim *sim, Box *dstbox, Neigh *neigh, int only_natoms)
 		if (only_natoms) {
 			/* Only natoms */
 			#pragma oss task label("box_tidy_recv_rvt:mpirecv:natoms") \
-				out(neigh->recv_rvt.recvnatoms)
+				out(neigh->recv_rvt.recvnatoms) \
+				out(*(char **)&neigh->recv_rvt.natoms) \
+				out(*(char **)&neigh->recv_rvt.buf) /* Not needed, but
+                                                       prevents breaking
+                                                       the debug state
+                                                     */
 			{
 				packbuf_debug_switch(&neigh->recv_rvt, PB_READY, PB_RECVING);
 				packbuf_mpirecv_natoms(&neigh->recv_rvt);
 				packbuf_debug_switch(&neigh->recv_rvt, PB_RECVING, PB_READY);
 			}
 		} else { /* The buffer */
+
+            /* FIXME: In this task we shouldn't be updating natoms, as
+             * it is not yet updated */
 			#pragma oss task label("box_tidy_recv_rvt:mpirecv:buf") \
 				in(neigh->recv_rvt.recvnatoms) \
-				out(*(char **)&neigh->recv_rvt.buf)
+				out(*(char **)&neigh->recv_rvt.buf) \
+				out(*(char **)&neigh->recv_rvt.natoms)
 			{
 				packbuf_debug_switch(&neigh->recv_rvt, PB_READY, PB_RECVING);
 				packbuf_mpirecv_buf(&neigh->recv_rvt, neigh->recv_rvt.recvnatoms);
@@ -327,7 +346,8 @@ check_atom(Sim *sim, Box *box, Vec r)
     inout(*(char **)&box->r) \
     inout(*(char **)&box->v) \
     inout(*(char **)&box->f) /* May realloc f too */\
-    in(*(char **)&neigh->recv_rvt.buf)
+    in(*(char **)&neigh->recv_rvt.buf) \
+    in(*(char **)&neigh->recv_rvt.natoms)
 static void
 box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
@@ -544,12 +564,15 @@ box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh, int only_natoms)
     if (dstneigh->rank != sim->rank) {
 		if (only_natoms) {
 			#pragma oss task label("box_border_recv_rt:mpirecv:natoms") \
-				out(dstneigh->recv_rt.recvnatoms)
+				out(dstneigh->recv_rt.recvnatoms) \
+				out(*(char **)&dstneigh->recv_rt.buf) \
+				out(*(char **)&dstneigh->recv_rt.natoms)
 			packbuf_mpirecv_natoms(&dstneigh->recv_rt);
 		} else {
 			#pragma oss task label("box_border_recv_rt:mpirecv:buf") \
 				in(dstneigh->recv_rt.recvnatoms) \
-				out(*(char **)&dstneigh->recv_rt.buf)
+				out(*(char **)&dstneigh->recv_rt.buf) \
+				out(*(char **)&dstneigh->recv_rt.natoms)
 			packbuf_mpirecv_buf(&dstneigh->recv_rt, dstneigh->recv_rt.recvnatoms);
 		}
     } else if (!only_natoms) {
@@ -597,9 +620,10 @@ box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh, int only_natoms)
     }
 }
 
+/* FIXME: We shouldn't need to use inout */
 #pragma oss task label("box_border_unpack_rt") \
-    in(*(char **)&neigh->recv_rt.buf) \
-    in(*(char **)&neigh->recv_rt.natoms) \
+    inout(*(char **)&neigh->recv_rt.buf) \
+    inout(*(char **)&neigh->recv_rt.natoms) \
 	out(*(char **)&box->r)
 static void
 box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
@@ -627,15 +651,15 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 
     for (int i = nend; i < ntot; i++) {
         Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
-        /* Relaxed */
-//        if (!in_domain(r, box->domhalo)) {
-//            dbg("error: unpacked ghost atom %d at %e %e %e outside halo domain\n",
-//                    i, r[X], r[Y], r[Z]);
-//            abort();
-//        }
-        if (ENABLE_DOMAIN_CHECK && in_domain(r, box->dombox)) {
-            die("error: unpacked ghost atom %d at %e %e %e inside box domain\n",
-                    i, r[X], r[Y], r[Z]);
+        if (ENABLE_DOMAIN_CHECK) {
+            if (!in_domain(r, box->domhalo)) {
+                die("rank%d.box%d.neigh%d: unpacked ghost atom %d at %e %e %e outside halo domain\n",
+                    sim->rank, box->i, neigh->i, i, r[X], r[Y], r[Z]);
+            }
+            if (in_domain(r, box->dombox)) {
+                die("rank%d.box%d.neigh%d: unpacked ghost atom %d at %e %e %e inside box domain\n",
+                        sim->rank, box->i, neigh->i, i, r[X], r[Y], r[Z]);
+            }
         }
     }
 
@@ -744,7 +768,7 @@ box_ghost_pack_r(Sim *sim, Box *box)
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
 
-        packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_READING);
+        //packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_READING);
         PackBuf *pb = &neigh->send_rt;
 
         for (int j = 0; j < pb->natoms; j++) {
@@ -767,7 +791,7 @@ box_ghost_pack_r(Sim *sim, Box *box)
         //dbg("box %d neigh %d: packed %d internal ghosts\n",
         //        box->i, neigh->i, neigh->send_r.natoms);
 
-        packbuf_debug_switch(&neigh->send_rt, PB_READING, PB_READY);
+        //packbuf_debug_switch(&neigh->send_rt, PB_READING, PB_READY);
         packbuf_debug_switch(&neigh->send_r, PB_PACKING, PB_READY);
     }
 }
@@ -798,9 +822,11 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
         #pragma oss task label("box_ghost_recv_r:mpirecv") \
             firstprivate(dstneigh) \
             in(*(char **)&dstneigh->recv_rt.buf) /* For natoms only */ \
-            out(*(char **)&dstneigh->recv_r.buf)
+            in(*(char **)&dstneigh->recv_rt.natoms) \
+            out(*(char **)&dstneigh->recv_r.buf) \
+            out(*(char **)&dstneigh->recv_r.natoms)
         {
-            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_READING);
+            //packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_READING);
             packbuf_debug_switch(&dstneigh->recv_r, PB_READY, PB_RECVING);
             /* Get the number of atoms to be received from the pack
              * buffer used in the borders */
@@ -809,7 +835,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             packbuf_clear(&dstneigh->recv_r);
             packbuf_mpirecv_buf(&dstneigh->recv_r, natoms);
 
-            packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
+            //packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
             packbuf_debug_switch(&dstneigh->recv_r, PB_RECVING, PB_READY);
         }
     } else {
@@ -824,7 +850,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             in(*(char **)&srcneigh->send_r.buf) \
             out(*(char **)&dstneigh->recv_r.buf)
         {
-            packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_READING);
+            //packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_READING);
             packbuf_debug_switch(&dstneigh->recv_r,  PB_READY, PB_COPYING);
             packbuf_debug_switch(&srcneigh->send_r,  PB_READY, PB_COPYING);
 
@@ -843,7 +869,7 @@ box_ghost_recv_r(Sim *sim, Box *box, Neigh *dstneigh)
             //dbg("setting box%d:neigh%d recv_r natoms=%d\n",
             //        box->i, dstneigh->i, dstneigh->recv_r.natoms);
 
-            packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
+            //packbuf_debug_switch(&dstneigh->recv_rt, PB_READING, PB_READY);
             packbuf_debug_switch(&dstneigh->recv_r,  PB_COPYING, PB_READY);
             packbuf_debug_switch(&srcneigh->send_r,  PB_COPYING, PB_READY);
         }
@@ -859,7 +885,7 @@ static void
 box_ghost_unpack_r_neigh(Sim *sim, Box *box, Neigh *neigh)
 {
     packbuf_debug_switch(&neigh->recv_r, PB_READY, PB_RECVING);
-    packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_READING);
+    //packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_READING);
 
     if (neigh->recv_rt.natoms != neigh->recv_r.natoms)
         abort();
@@ -886,12 +912,14 @@ box_ghost_unpack_r_neigh(Sim *sim, Box *box, Neigh *neigh)
     }
 
     packbuf_debug_switch(&neigh->recv_r, PB_RECVING, PB_READY);
-    packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
+    //packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
 }
 
 #pragma oss task label("box_ghost_unpack_r_neigh") \
-    in({*(char **)&box->neigh[i].recv_rt.buf, i=0;NNEIGH}) \
-    in({*(char **)&box->neigh[i].recv_r.buf,  i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
     inout(*(char **)&box->r)
 static void
 box_ghost_unpack_r(Sim *sim, Box *box)
