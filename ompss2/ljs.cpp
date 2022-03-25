@@ -302,7 +302,7 @@ random(int *idum)
 }
 
 static void
-advance_index(int s[NDIM], int o[NDIM], int subboxdim)
+advance_index(int s[NDIM], int o[NDIM], int subboxdim, Range idom)
 {
     /* Advance index */
     s[X]++;
@@ -323,7 +323,7 @@ advance_index(int s[NDIM], int o[NDIM], int subboxdim)
 
     /* Wrap outer index */
     for (int d = X; d < Z; d++) {
-        if (o[d] == subboxdim) {
+        if (o[d] * subboxdim > idom[d][HI]) {
             o[d] = 0;
             o[d+1]++;
         }
@@ -348,10 +348,8 @@ setup_atoms_box(Sim *sim, Box *box)
      * sub-box insure loop bounds do not exceed nx,ny,nz */
 
     double dist = 0.5 * sim->lattice_sep;
-    if (dist >= sim->R_force) {
-        fprintf(stderr, "fatal: atoms are too far away to interact\n");
-        exit(1);
-    }
+    if (dist >= sim->R_force)
+        die("atoms are too far away to interact\n");
 
     /* Compute the ranges of indexes that may contain an atom */
     Range idom;
@@ -378,7 +376,7 @@ setup_atoms_box(Sim *sim, Box *box)
     /* TODO: This initialization can probably be simplified even further
      * to three nested loops iterating only in the finer lattice */
 
-    for (; o[Z] * subboxdim <= idom[Z][HI]; advance_index(s, o, subboxdim)) {
+    for (; o[Z] * subboxdim <= idom[Z][HI]; advance_index(s, o, subboxdim, idom)) {
         /* Compute current index vector */
         for (int d = X; d <= Z; d++)
             ind[d] = o[d] * subboxdim + s[d];
@@ -398,8 +396,9 @@ setup_atoms_box(Sim *sim, Box *box)
             }
         }
 
-        if (skip)
+        if (skip) {
             continue;
+        }
 
         /* Compute atom position in space units */
         Vec r;
@@ -415,6 +414,10 @@ setup_atoms_box(Sim *sim, Box *box)
         }
 
         if (skip) {
+            dbg("rank%d:box%d: ignoring point (%d %d %d) with position (%e %e %e)\n",
+                    sim->rank, box->i,
+                    ind[X], ind[Y], ind[Z],
+                    r[X], r[Y], r[Z]);
             continue;
         }
 
