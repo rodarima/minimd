@@ -1,32 +1,36 @@
-CXX=clang++
-#CXX=mcxx
+CC=clang
+#CC=mcxx
 
-MPICXX=I_MPI_CXX=$(CXX) OMPI_CXX=$(CXX) mpicxx
-MPILINK=$(MPICXX)
+MPICC=I_MPI_CC=$(CC) OMPI_CC=$(CC) mpicc
+MPILINK=$(MPICC)
 
-#CXXFLAGS+=-mavx
-#CXXFLAGS+=--ompss-2
+#CFLAGS+=-mavx
+#CFLAGS+=--ompss-2
 #LDFLAGS+=--ompss-2
 
-CXXFLAGS+=-fompss-2
+CFLAGS+=-fompss-2
 LDFLAGS+=-fompss-2
 
+LDFLAGS+=-lm
+
 # Use tampi?
-CXXFLAGS+=-DUSE_TAMPI
+CFLAGS+=-DUSE_TAMPI
 LDFLAGS+=-ltampi-c
 
-#CXXFLAGS+=-O0
-CXXFLAGS+=-O3
+#CFLAGS+=-O0
+CFLAGS+=-O3
 
-CXXFLAGS+=-g
+CFLAGS+=-g
 LDFLAGS+=-g
-#CXXFLAGS+=-k
-#CXXFLAGS+=--line-markers
+#CFLAGS+=-k
+#CFLAGS+=--line-markers
 
-#CXXFLAGS+=-fsanitize=address
+CFLAGS+=-std=c11
+
+#CFLAGS+=-fsanitize=address
 #LDFLAGS+=-fsanitize=address
 
-#CXXFLAGS+=-Wno-attributes
+#CFLAGS+=-Wno-attributes
 
 SRC=$(wildcard *.cpp)
 OBJ=$(SRC:.cpp=.o)
@@ -35,8 +39,8 @@ EXE=miniMD
 all: $(EXE)
 
 # Compile
-%.o: %.cpp
-	$(MPICXX) $(CXXFLAGS) -c -o $@ $^
+%.o: %.c
+	$(MPICC) $(CFLAGS) -c -o $@ $^
 
 # Link
 #$(EXE): $(OBJ)

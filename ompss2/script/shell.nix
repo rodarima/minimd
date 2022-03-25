@@ -23,10 +23,11 @@ in
   pkgs.mkShell {
     name = "minimd";
     NIX_HARDENING_ENABLE = "";
-    buildInputs = with pkgs.bsc; [ pkgs.python3 babeltrace2 nanos6 extrae openmpi icc
+    buildInputs = with pkgs.bsc; [ pkgs.python3 babeltrace2 nanos6
+    extrae impi icc
     mcxx
     clangOmpss2Fixed pkgs.cmake
-    rWrapper (tampi.override {mpi=openmpi;}) ];
+    rWrapper (tampi.override {mpi=impi;}) ];
     shellHook = ''
       export LANG=C
     '';

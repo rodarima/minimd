@@ -29,7 +29,6 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "force.h"
 #include "types.h"
 #include "neigh.h"
 #include "hist.h"

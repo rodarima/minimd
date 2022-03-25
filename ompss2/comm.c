@@ -6,10 +6,13 @@
 
 #include <mpi.h>
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <math.h>
+
+#define OFFSETOF(TYPE, ELEMENT) ((size_t)&(((TYPE *)0)->ELEMENT))
 
 #ifdef USE_TAMPI
 #include <TAMPI.h>
@@ -67,15 +70,20 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
         if (pb->waitreqn) {
             dbg("rank%d:box%d waiting for natoms in neigh %d\n",
                     sim->rank, box->i, i);
-            MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
-            //memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
+            //MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
+            memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
             pb->waitreqn = 0;
         }
 
-        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
     }
 
-    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+    MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
+        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
+    }
 }
 
 /* FIXME: We should use in() for send buffers */
@@ -98,14 +106,17 @@ box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
             dbg("rank%d:box%d waiting for buf in neigh %d\n",
                     sim->rank, box->i, i);
             MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
-            //memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
+            memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
             pb->waitreq = 0;
         }
-
-        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
     }
 
-    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+    MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
+        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
+    }
 }
 
 
@@ -387,9 +398,9 @@ comm_tidy(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_tidy -- waitmpi send_rvt buffer\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, send_rvt),
+            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, send_rvt),
 				"comm_tidy -- waitmpi send_rvt natoms");
-            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_rvt),
+            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_rvt),
 				"comm_tidy -- waitmpi send_rvt buf");
         }
     }
@@ -422,7 +433,7 @@ comm_tidy(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_tidy -- waitmpi recv_rvt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, recv_rvt),
+            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, recv_rvt),
 				"comm_tidy -- waitmpi recv_rvt natoms");
 		}
     }
@@ -439,7 +450,7 @@ comm_tidy(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_tidy -- waitmpi recv_rvt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_rvt),
+            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_rvt),
 				"comm_tidy -- waitmpi recv_rvt buf");
 		}
     }
@@ -675,9 +686,9 @@ comm_borders(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_borders -- waitmpi send_rt buf+natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, send_rt),
+            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, send_rt),
 					"comm_borders -- waitmpi send_rt natoms");
-			box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_rt),
+			box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_rt),
 					"comm_borders -- waitmpi send_rt buf");
         }
     }
@@ -710,7 +721,7 @@ comm_borders(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_borders -- waitmpi recv_rt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], offsetof(Neigh, recv_rt),
+            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, recv_rt),
 					"comm_borders -- waitmpi recv_rt natoms");
 		}
     }
@@ -728,7 +739,7 @@ comm_borders(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_borders -- waitmpi recv_rt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_rt),
+            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_rt),
 					"comm_borders -- waitmpi recv_rt buf");
 		}
     }
@@ -955,7 +966,7 @@ comm_ghost_position(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_ghost -- waitmpi send_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, send_r),
+            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_r),
 					"comm_ghost -- waitmpi send_r buf");
 		}
     }
@@ -990,7 +1001,7 @@ comm_ghost_position(Sim *sim)
     if (ENABLE_NONBLOCKING_MPI) {
         dbg("rank%d -- comm_ghost -- waitmpi recv_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], offsetof(Neigh, recv_r),
+            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_r),
 					"comm_ghost -- waitmpi recv_r buf");
 		}
     }

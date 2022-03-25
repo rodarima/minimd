@@ -40,6 +40,7 @@
 #include <fenv.h>
 #include <math.h>
 #include <float.h>
+#include <string.h>
 
 #ifdef USE_TAMPI
 # include <TAMPI.h>

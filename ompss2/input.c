@@ -29,18 +29,13 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-#include "mpi.h"
+#include "types.h"
+
+#include <mpi.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
-
-#include "atom.h"
-#include "force.h"
-#include "ljs.h"
-#include "neighbor.h"
-#include "thermo.h"
-#include "types.h"
 
 #define MAXLINE 4096
 

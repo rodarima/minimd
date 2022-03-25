@@ -2,6 +2,7 @@
 #define HIST_H
 
 #include <stdlib.h>
+#include <stdio.h>
 
 static void
 hist_clear(Hist *h)
