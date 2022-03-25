@@ -136,6 +136,13 @@ typedef int    Range[NDIM][NLIM];
 /* Use MPI_Isend and MPI_Irecv */
 #define ENABLE_NONBLOCKING_MPI 0
 
+/* Wait a large delay before aborting when a problem occurs, so a
+ * debugger can be attached. Also allows other aborts to trip. */
+#define ENABLE_SLOW_DEATH 1
+
+/* Sleep for a day before aborting (if enabled) */
+#define DEATH_SLEEP (3600*24)
+
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
 /* These options cause the energy values reported by the simulation to

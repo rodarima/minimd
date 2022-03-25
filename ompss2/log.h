@@ -3,15 +3,24 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
- /* Debug macros */
-#ifdef ENABLE_DEBUG
-# define dbg(...) fprintf(stderr, __VA_ARGS__);
-#else
-# define dbg(...)
+#ifndef ENABLE_DEBUG
+#error ENABLE_DEBUG must be defined
 #endif
 
-#define err(...) fprintf(stderr, __VA_ARGS__);
-#define die(...) do { err("fatal: " __VA_ARGS__); abort(); } while (0) 
+ /* Debug macros */
+# define dbg(...) do { \
+	if(ENABLE_DEBUG) fprintf(stderr, __VA_ARGS__); \
+} while (0)
+
+#define err(...) \
+	fprintf(stderr, __VA_ARGS__);
+
+#define die(...) do { \
+	err("fatal: " __VA_ARGS__); \
+	if (ENABLE_SLOW_DEATH) sleep(DEATH_SLEEP); \
+	abort(); \
+} while (0) 
 
 #endif /* LOG_H */

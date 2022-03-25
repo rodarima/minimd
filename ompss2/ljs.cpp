@@ -29,9 +29,9 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
-//#define ENABLE_DEBUG
-#include "log.h"
+#define ENABLE_DEBUG 0
 #include "types.h"
+#include "log.h"
 #include "neigh.h"
 
 #include <mpi.h>
@@ -445,9 +445,6 @@ setup_atoms_box(Sim *sim, Box *box)
 static void
 check_natoms(Sim *sim)
 {
-    if (!ENABLE_ATOM_COUNT_CHECK)
-        return;
-
     #pragma oss taskwait
     /* Ensure the total number of atoms is correct */
     int global_natoms = 0;
@@ -462,11 +459,19 @@ check_natoms(Sim *sim)
 
     if (sim->rank == 0) {
         if (global_natoms != sim->ntotatoms) {
-            fprintf(stderr, "error: total atoms %d mismatch, expected %d\n",
+            die("error: total atoms %d mismatch, expected %d\n",
                     global_natoms, sim->ntotatoms);
-            abort();
         }
     }
+}
+
+static void
+check_natoms_debug(Sim *sim)
+{
+    if (!ENABLE_ATOM_COUNT_CHECK)
+        return;
+
+    check_natoms(sim);
 }
 
 static void
@@ -669,6 +674,67 @@ setup_params(Sim *sim)
 }
 
 static void
+check_neighbors_coords(Sim *sim)
+{
+    int (*recvcoord)[NDIM] = (int (*) [NDIM]) calloc(sim->nboxes * NNEIGH,
+            sizeof(int) * NDIM);
+
+    /* Use send_r/recv_r for the test */
+    for (int ibox = 0; ibox < sim->nboxes; ibox++) {
+        Box *box = &sim->box[ibox];
+        MPI_Request sendreq[NNEIGH];
+
+        for (int i = 0; i < NNEIGH; i++) {
+            Neigh *neigh = &box->neigh[i];
+            PackBuf *pb = &neigh->send_r;
+
+            MPI_Isend((void *) box->idim, NDIM, MPI_INT, pb->remoterank,
+                    pb->tag, *pb->comm, &pb->req);
+        }
+
+        for (int i = 0; i < NNEIGH; i++) {
+            Neigh *tmp = &box->neigh[i];
+            Neigh *neigh = tmp->opposite;
+
+            PackBuf *pb = &neigh->recv_r;
+
+            void *buf = (void *) &recvcoord[ibox * NNEIGH + neigh->i];
+
+            MPI_Irecv(buf, NDIM, MPI_INT, pb->remoterank,
+                    pb->tag, *pb->comm, &pb->req);
+        }
+    }
+
+    /* Wait for all transactions */
+    for (int ibox = 0; ibox < sim->nboxes; ibox++) {
+        Box *box = &sim->box[ibox];
+        for (int i = 0; i < NNEIGH; i++) {
+            Neigh *neigh = &box->neigh[i];
+            MPI_Wait(&neigh->send_r.req, MPI_STATUS_IGNORE);
+            MPI_Wait(&neigh->recv_r.req, MPI_STATUS_IGNORE);
+        }
+    }
+
+    for (int ibox = 0; ibox < sim->nboxes; ibox++) {
+        Box *box = &sim->box[ibox];
+        for (int i = 0; i < NNEIGH; i++) {
+            Neigh *neigh = &box->neigh[i];
+            for (int d = X; d <= Z; d++) {
+                int (*coord)[NDIM] = &recvcoord[ibox * NNEIGH + i];
+                if ((*coord)[d] != neigh->boxcoordw[d]) {
+                    die("rank%d:box%d:neigh%d: bad neigh coord, received (%d %d %d) expected (%d %d %d)\n",
+                            sim->rank, box->i, neigh->i,
+                            (*coord)[X], (*coord)[Y], (*coord)[Z],
+                            neigh->boxcoordw[X],
+                            neigh->boxcoordw[Y],
+                            neigh->boxcoordw[Z]);
+                }
+            }
+        }
+    }
+}
+
+static void
 setup_neighbors_box(Sim *sim, Box *box)
 {
     int nn = NNEIGHSIDE;
@@ -765,6 +831,7 @@ setup_neighbors_box(Sim *sim, Box *box)
             neigh->box = NULL;
         }
     }
+
 }
 
 static void
@@ -1052,6 +1119,9 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* Init pack buffers */
     setup_packbuf(sim);
 
+    /* Ensure neighbor coordinates are ok */
+    check_neighbors_coords(sim);
+
     thermo_init(sim);
 
     print_params(sim);
@@ -1086,29 +1156,29 @@ sim_run(Sim *sim)
 
     /* Main simulation loop */
     for (sim->iter = 0; sim->iter < sim->timesteps; sim->iter++) {
-		if (sim->rank == 0)
-			err("===== RUNNING ITERATION %d =====\n", sim->iter);
+		//if (sim->rank == 0)
+		//	err("===== RUNNING ITERATION %d =====\n", sim->iter);
 
         int recompute_neigh = ((sim->iter + 1) % sim->neighbor_period == 0);
         int print_thermo_stats = ((sim->iter + 1) % sim->thermo_period == 0);
 
         /* Update atoms positions and half velocities */
         integrate_position(sim);
-        check_natoms(sim);
+        check_natoms_debug(sim);
 
         if (!recompute_neigh) {
             comm_ghost_position(sim);
         } else {
             comm_tidy(sim);
-            check_natoms(sim);
+            check_natoms_debug(sim);
             //sort_atoms(sim);
             comm_borders(sim);
-            check_natoms(sim);
+            check_natoms_debug(sim);
             build_nearby_atoms(sim);
         }
 
 //    #pragma oss taskwait /* Fixes the problem */
-        check_natoms(sim);
+        check_natoms_debug(sim);
         force_update(sim);
         integrate_velocity(sim);
 
