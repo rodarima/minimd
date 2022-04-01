@@ -4,6 +4,7 @@ CC=clang
 MPICC=I_MPI_CC=$(CC) OMPI_CC=$(CC) mpicc
 MPILINK=$(MPICC)
 
+
 #CFLAGS+=-mavx
 #CFLAGS+=--ompss-2
 #LDFLAGS+=--ompss-2
@@ -11,11 +12,11 @@ MPILINK=$(MPICC)
 CFLAGS+=-fompss-2
 LDFLAGS+=-fompss-2
 
-LDFLAGS+=-lm
+LIBS+=-lm
 
 # Use tampi?
 CFLAGS+=-DUSE_TAMPI
-LDFLAGS+=-ltampi-c
+LIBS+=-lstdc++ -l:libtampi-c.a
 
 #CFLAGS+=-O0
 CFLAGS+=-O3
@@ -46,7 +47,7 @@ all: $(EXE)
 #$(EXE): $(OBJ)
 #	$(MPILINK) $(LDFLAGS) -o $@ $^
 $(EXE): ljs.o box.o input.o force.o safe.o packbuf.o comm.o neigh.o thermo.o integrate.o
-	$(MPILINK) $(LDFLAGS) -o $@ $^
+	$(MPILINK) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 clean:
 	rm -f *.o mcxx_* $(EXE)
