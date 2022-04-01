@@ -53,8 +53,8 @@ copy_atom_rvt(Box *box, int src, int dst)
 }
 
 #pragma oss task label("box_waitmpi_natoms") \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms , i=0;NNEIGH}) \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf , i=0;NNEIGH})
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
 static void
 box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 {
@@ -88,8 +88,8 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 
 /* FIXME: We should use in() for send buffers */
 #pragma oss task label("box_waitmpi_buf") \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms , i=0;NNEIGH}) \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf , i=0;NNEIGH})
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
+    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
 static void
 box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
 {
@@ -929,15 +929,14 @@ box_ghost_unpack_r_neigh(Sim *sim, Box *box, Neigh *neigh)
 
 #pragma oss task label("box_ghost_unpack_r_neigh") \
     in({*(char **)&box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
-    in({*(char **)&box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
-    in({*(char **)&box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_rt.buf,       i=0;NNEIGH}) \
+    in({*(char **)&box->neigh[i].recv_r.natoms,     i=0;NNEIGH}) \
     in({*(char **)&box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
     inout(*(char **)&box->r)
 static void
 box_ghost_unpack_r(Sim *sim, Box *box)
 {
     int old_nghost = box->nghost;
-    /* FIXME: cannot change the nghosts from main! */
     box->nghost = 0;
 
     for (int j = 0; j < NNEIGH; j++) {
@@ -951,10 +950,8 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 //        #pragma oss task label("box_ghost_unpack_r:atomcheck") \
 //            in(*(char **)&box->r)
         if (box->nghost != old_nghost) {
-            err("nghost atoms don't match %d != %d\n",
+            die("nghost atoms don't match %d != %d\n",
                     box->nghost, old_nghost);
-            sleep(1);
-            abort();
         }
     }
 }
