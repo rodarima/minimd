@@ -276,7 +276,7 @@ setup_bins(Sim *sim)
 
 /* Park/Miller RNG w/out MASKING, so as to be like f90s version */
 double
-random(int *idum)
+park_miller_rng(int *idum)
 {
     int k;
     double ans;
@@ -426,9 +426,9 @@ setup_atoms_box(Sim *sim, Box *box)
         Vec v;
         for (int d = X; d <= Z; d++) {
             for (int m = 0; m < 5; m++)
-                random(&seed);
+                park_miller_rng(&seed);
 
-            v[d] = random(&seed);
+            v[d] = park_miller_rng(&seed);
         }
 
         int type = rand() % sim->ntypes;
