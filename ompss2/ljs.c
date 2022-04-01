@@ -922,7 +922,7 @@ setup_subdomains(Sim *sim)
 static int
 build_tag(int boxid, int neighid)
 {
-    int tag = boxid * 1000 + neighid;
+    int tag = neighid;
 
     /* Ensure the tag is within the MPI standard limit */
     if (tag >= 32767) {
@@ -939,9 +939,9 @@ setup_packbuf(Sim *sim)
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
 
-        MPI_Comm_dup(MPI_COMM_WORLD, &sim->comm_r);
-        MPI_Comm_dup(MPI_COMM_WORLD, &sim->comm_rt);
-        MPI_Comm_dup(MPI_COMM_WORLD, &sim->comm_rvt);
+        MPI_Comm_dup(MPI_COMM_WORLD, &box->comm_r);
+        MPI_Comm_dup(MPI_COMM_WORLD, &box->comm_rt);
+        MPI_Comm_dup(MPI_COMM_WORLD, &box->comm_rvt);
 
         for (int j = 0; j < NNEIGH; j++) {
             Neigh *neigh = &box->neigh[j];
@@ -953,9 +953,9 @@ setup_packbuf(Sim *sim)
             int sendrank = neigh->rank;
             int sendtag = build_tag(box->i, neigh->i);
 
-            packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, &sim->comm_r);
-            packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, &sim->comm_rt);
-            packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, &sim->comm_rvt);
+            packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, &box->comm_r);
+            packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, &box->comm_rt);
+            packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, &box->comm_rvt);
 
             /*
              * The recv is tricky, here is a diagram:
@@ -985,10 +985,11 @@ setup_packbuf(Sim *sim)
             int recvrank = neigh->rank;
             /* Same tag used for send in the opposite send direction */
             int recvtag = build_tag(neigh->boxid, neigh->opposite->i);
+            Box *recvbox = &sim->box[neigh->boxid];
 
-            packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, &sim->comm_r);
-            packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, &sim->comm_rt);
-            packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, &sim->comm_rvt);
+            packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, &recvbox->comm_r);
+            packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, &recvbox->comm_rt);
+            packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, &recvbox->comm_rvt);
 
             packbuf_debug_switch(&neigh->send_r, PB_GARBAGE, PB_READY);
             packbuf_debug_switch(&neigh->recv_r, PB_GARBAGE, PB_READY);

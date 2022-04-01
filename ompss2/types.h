@@ -358,6 +358,11 @@ typedef struct box {
 
     Neigh neigh[NNEIGH]; /* Neighboring boxes info */
 
+    /* Communicators for each type of buffer */
+    MPI_Comm comm_r;
+    MPI_Comm comm_rt;
+    MPI_Comm comm_rvt;
+
 } Box;
 
 typedef struct force {
@@ -460,11 +465,6 @@ typedef struct sim {
     int ntypes; /* Number of atom types (species) */
     int ntotatoms;
     int iter;	/* Current iteration from the main task */
-
-    /* Communicators for each type of buffer */
-    MPI_Comm comm_r;
-    MPI_Comm comm_rt;
-    MPI_Comm comm_rvt;
 
     Force force;
     Box *box;
