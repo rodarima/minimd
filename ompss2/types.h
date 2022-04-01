@@ -151,6 +151,12 @@ typedef int    Range[NDIM][NLIM];
 /* Sleep for a day before aborting (if enabled) */
 #define DEATH_SLEEP (3600*24)
 
+/* Track the state of the PackBuf to detect concurrent access */
+#define ENABLE_PACKBUF_STATE 0
+
+/* Same but for external usage */
+#define ENABLE_PACKBUF_DEBUG_STATE 0
+
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
 /* These options cause the energy values reported by the simulation to

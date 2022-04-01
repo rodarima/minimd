@@ -5,29 +5,33 @@
 #include <string.h>
 #include <stdlib.h>
 #include <mpi.h>
+#include <TAMPI.h>
 
 #define PACKBUF_INCR 2000
 
 static void
 packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
 {
-    if (pb->state != prev) {
-        die("packbuf in state %d, expected %d (switching to %d)\n",
-                pb->state, prev, next);
+    if (ENABLE_PACKBUF_STATE) {
+        if (pb->state != prev) {
+            die("packbuf in state %d, expected %d (switching to %d)\n",
+                    pb->state, prev, next);
+        }
+        pb->state = next;
     }
-
-    pb->state = next;
 }
 
 void
 packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next)
 {
-    if (pb->debug_state != prev) {
-        die("packbuf in debug_state %d, expected %d (switching to %d)\n",
-                pb->debug_state, prev, next);
-    }
+    if (ENABLE_PACKBUF_DEBUG_STATE) {
+        if (pb->debug_state != prev) {
+            die("packbuf in debug_state %d, expected %d (switching to %d)\n",
+                    pb->debug_state, prev, next);
+        }
 
-    pb->debug_state = next;
+        pb->debug_state = next;
+    }
 }
 
 /* Grows the buffer so that the allocated capacity can hold at least n
@@ -65,6 +69,29 @@ packbuf_grow_extra(PackBuf *pb, int nextra)
     packbuf_grow(pb, pb->natoms + nextra);
 }
 
+static int
+isend(const void *buf, int count, MPI_Datatype datatype, int dest,
+        int tag, MPI_Comm comm, MPI_Request *request)
+{
+    if (ENABLE_NONBLOCKING_TAMPI) {
+        return TAMPI_Isend(buf, count, datatype, dest, tag, comm, request);
+    }
+
+    return MPI_Isend(buf, count, datatype, dest, tag, comm, request);
+}
+
+static int
+irecv(void *buf, int count, MPI_Datatype datatype, int source,
+        int tag, MPI_Comm comm, MPI_Request *request)
+{
+    if (ENABLE_NONBLOCKING_TAMPI) {
+        return TAMPI_Irecv(buf, count, datatype, source, tag, comm, request,
+                MPI_STATUS_IGNORE);
+    }
+
+    return MPI_Irecv(buf, count, datatype, source, tag, comm, request);
+}
+
 void
 packbuf_mpisend_buf(PackBuf *pb)
 {
@@ -78,9 +105,12 @@ packbuf_mpisend_buf(PackBuf *pb)
 			die("packbuf_mpisend_buf: buffer in use\n");
 
 		if (pb->natoms != 0) {
-			MPI_Isend((void *) pb->buf, pb->natoms * pb->atomsize,
-					MPI_DOUBLE, pb->remoterank, pb->tag, *pb->comm, &pb->req);
-			pb->waitreq = 1;
+
+            isend((void *) pb->buf, pb->natoms * pb->atomsize, MPI_DOUBLE,
+                    pb->remoterank, pb->tag, *pb->comm, &pb->req);
+
+            if (NEED_EXPLICIT_WAIT)
+                pb->waitreq = 1;
 		}
 	} else {
 		if (pb->natoms != 0) {
@@ -104,10 +134,11 @@ packbuf_mpisend(PackBuf *pb)
 	void *buf = (void *) &pb->natoms;
 
 	if (ENABLE_NONBLOCKING_MPI) {
-		MPI_Isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
+		isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
 				&pb->reqn);
 
-		pb->waitreqn = 1;
+        if (NEED_EXPLICIT_WAIT)
+            pb->waitreqn = 1;
 	} else {
 		MPI_Send(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm);
 	}
@@ -134,9 +165,10 @@ packbuf_mpirecv_buf(PackBuf *pb, int natoms)
 		int size = natoms * pb->atomsize;
 
 		if (ENABLE_NONBLOCKING_MPI) {
-			MPI_Irecv((void *) pb->buf, size, MPI_DOUBLE,
+			irecv((void *) pb->buf, size, MPI_DOUBLE,
 					pb->remoterank, pb->tag, *pb->comm, &pb->req);
-			pb->waitreq = 1;
+            if (NEED_EXPLICIT_WAIT)
+                pb->waitreq = 1;
 		} else {
 			MPI_Recv((void *) pb->buf, size, MPI_DOUBLE,
 					pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
@@ -160,10 +192,11 @@ packbuf_mpirecv_natoms(PackBuf *pb)
 		if (pb->waitreqn)
 			die("packbuf_mpirecv_natoms: buffer in use\n");
 
-		MPI_Irecv((void *) &pb->recvnatoms, 1, MPI_INT,
+		irecv((void *) &pb->recvnatoms, 1, MPI_INT,
 				pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
 
-		pb->waitreqn = 1;
+        if (NEED_EXPLICIT_WAIT)
+            pb->waitreqn = 1;
 	} else {
 		MPI_Recv((void *) &pb->recvnatoms, 1, MPI_INT,
 				pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
