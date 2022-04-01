@@ -92,7 +92,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
-#define ENABLE_REALTIME_ENERGY 1
+#define ENABLE_REALTIME_ENERGY 0
 
 /* Halts the simulation if the force is too large */
 #define ENABLE_MAX_FORCE_CHECK 0
@@ -132,7 +132,7 @@ typedef int    Range[NDIM][NLIM];
 //#define ENABLE_GHOST_ATOM_CHECK
 
 /* Update the force following bin order instead of atom sequence */
-#define ENABLE_FORCE_BY_BINS 1
+#define ENABLE_FORCE_BY_BINS 0
 
 /* Use MPI_Isend and MPI_Irecv */
 #define ENABLE_NONBLOCKING_MPI 0
