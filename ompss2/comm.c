@@ -396,7 +396,7 @@ comm_tidy(Sim *sim)
 {
     dbg("rank%d -- comm_tidy -- begins\n", sim->rank);
 
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_tidy -- waitmpi send_rvt buffer\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, send_rvt),
@@ -431,7 +431,7 @@ comm_tidy(Sim *sim)
     }
 
     /* Wait for all natom messages to get buffer sizes */
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_tidy -- waitmpi recv_rvt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, recv_rvt),
@@ -448,7 +448,7 @@ comm_tidy(Sim *sim)
         }
     }
 
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_tidy -- waitmpi recv_rvt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_rvt),
@@ -684,7 +684,7 @@ box_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 void
 comm_borders(Sim *sim)
 {
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_borders -- waitmpi send_rt buf+natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, send_rt),
@@ -719,7 +719,7 @@ comm_borders(Sim *sim)
         }
     }
 
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_borders -- waitmpi recv_rt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, recv_rt),
@@ -737,7 +737,7 @@ comm_borders(Sim *sim)
         }
     }
 
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_borders -- waitmpi recv_rt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_rt),
@@ -961,7 +961,7 @@ void
 comm_ghost_position(Sim *sim)
 {
     /* No need to wait for natoms as its not sent */
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_ghost -- waitmpi send_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_r),
@@ -996,7 +996,7 @@ comm_ghost_position(Sim *sim)
     }
 
     /* Wait for all buffer messages to complete before unpack */
-    if (ENABLE_NONBLOCKING_MPI) {
+    if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_ghost -- waitmpi recv_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
             box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_r),
