@@ -358,8 +358,8 @@ check_atom(Sim *sim, Box *box, Vec r)
     inout(*(char **)&box->r) \
     inout(*(char **)&box->v) \
     inout(*(char **)&box->f) /* May realloc f too */\
-    in(*(char **)&neigh->recv_rvt.buf) \
-    in(*(char **)&neigh->recv_rvt.natoms)
+    inout(*(char **)&neigh->recv_rvt.buf) \
+    inout(*(char **)&neigh->recv_rvt.natoms)
 static void
 box_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
