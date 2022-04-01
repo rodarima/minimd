@@ -6,6 +6,9 @@ let
     packages = with pkgs.rPackages; [ tidyverse rjson jsonlite egg viridis ];
   };
 
+  mpi = pkgs.bsc.impi;
+  #mpi = pkgs.bsc.openmpi;
+
   clangOmpss2UnwrappedFixed = pkgs.bsc.clangOmpss2UnwrappedGit.overrideAttrs (old: rec {
     src = builtins.fetchGit {
       url = "ssh://git@bscpm03.bsc.es/llvm-ompss/llvm-mono.git";
@@ -24,10 +27,10 @@ in
     name = "minimd";
     NIX_HARDENING_ENABLE = "";
     buildInputs = with pkgs.bsc; [ pkgs.python3 babeltrace2 nanos6
-    extrae impi icc
+    extrae mpi icc
     mcxx
     clangOmpss2Fixed pkgs.cmake
-    rWrapper (tampi.override {mpi=impi;}) ];
+    rWrapper (tampi.override {mpi=mpi;}) ];
     shellHook = ''
       export LANG=C
     '';
