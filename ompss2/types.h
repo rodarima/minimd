@@ -436,8 +436,9 @@ typedef struct sim {
     double p_scale;
     double e_scale;
 
-    int nbinsbox[NDIM];  /* # of bins in the box domain */
-    Vec binlen; /* Length of each bin per dimension */
+    int nbinsbox[NDIM]; /* # of bins in the box domain */
+    Vec binlen;         /* Length of each bin per dimension */
+    Vec invbinlen;      /* Inverse of binlen (to avoid division) */
 
     int nboxesdim[NDIM];	/* Total number of boxes per dimension */
     int ranknboxesdim[NDIM];	/* # of boxes per dimension of this rank */
