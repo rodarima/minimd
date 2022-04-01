@@ -1004,6 +1004,27 @@ setup_packbuf(Sim *sim)
 static void
 print_params(Sim *sim)
 {
+    /* Collect global information from all ranks first */
+
+    int lmin, lmax, gmin, gmax;
+    lmin = lmax = sim->box[0].nlocal;
+    gmin = gmax = sim->box[0].nghost;
+
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+        lmin = MIN(lmin, box->nlocal);
+        lmax = MAX(lmax, box->nlocal);
+        gmin = MIN(gmin, box->nghost);
+        gmax = MAX(gmax, box->nghost);
+    }
+
+    int nlocalmin, nlocalmax, nghostmin, nghostmax;
+    MPI_Reduce(&lmin, &nlocalmin, 1, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&lmax, &nlocalmax, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&gmin, &nghostmin, 1, MPI_INT, MPI_MIN, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&gmax, &nghostmax, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+
+    /* Only print in root */
     if (sim->rank != 0)
         return;
 
@@ -1054,6 +1075,8 @@ print_params(Sim *sim)
             sim->worldlen[X], sim->worldlen[Y], sim->worldlen[Z]);
     printf("#   Unit cells: (x=%i y=%i z=%i)\n",
             sim->npoints[X], sim->npoints[Y], sim->npoints[Z]);
+    printf("#   Box size: (x=%2.2lf, y=%2.2lf, z=%2.2lf)\n",
+            sim->boxlen[X], sim->boxlen[Y], sim->boxlen[Z]);
     printf("#   Density: %lf\n", sim->rho);
     printf("#   Force cutoff radius: %lf\n", sim->R_force);
     printf("#   Timestep size: %lf\n", sim->dt);
@@ -1064,11 +1087,10 @@ print_params(Sim *sim)
     printf("#   Re-neighbor period: %i\n", sim->neighbor_period);
     printf("#   Sorting period: %i\n", sim->sort_period);
     printf("#   Thermo period: %i\n", sim->thermo_period);
+    printf("# Debug info: \n");
+    printf("#   Box nlocal atoms: min %d, max %d\n", nlocalmin, nlocalmax);
+    printf("#   Box nghost atoms: min %d, max %d\n", nghostmin, nghostmax);
 
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-        dbg("box %d has %d local atoms\n", box->i, box->nlocal);
-    }
 }
 
 void
@@ -1113,25 +1135,41 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     thermo_init(sim);
 
-    print_params(sim);
-
     /* Move atoms to their correct box.
      * FIXME: this should be unneeded, as the atoms must be already
      * initialized in their correct box. */
     comm_tidy(sim);
     #pragma oss taskwait
+    if (sim->rank == 0) err("tidy ok\n");
 
     /* Copy the ghost atoms into the neighbor processes */
     comm_borders(sim);
     #pragma oss taskwait
 
+    if (sim->rank == 0) err("borders ok\n");
+
     build_nearby_atoms(sim);
     #pragma oss taskwait
+
+    if (sim->rank == 0) err("nearby init ok\n");
 
     force_update(sim);
     #pragma oss taskwait
 
+    if (sim->rank == 0) err("force init ok\n");
+
     thermo_update(sim);
+    #pragma oss taskwait
+
+    if (sim->rank == 0) err("thermo update ok\n");
+
+    print_params(sim);
+
+    if (sim->rank == 0) err("simulation begins in 1 second...\n");
+
+    sleep(1);
+
+    MPI_Barrier(MPI_COMM_WORLD);
     #pragma oss taskwait
 }
 
@@ -1145,9 +1183,6 @@ sim_run(Sim *sim)
 
     /* Main simulation loop */
     for (sim->iter = 0; sim->iter < sim->timesteps; sim->iter++) {
-		//if (sim->rank == 0)
-		//	err("===== RUNNING ITERATION %d =====\n", sim->iter);
-
         int recompute_neigh = ((sim->iter + 1) % sim->neighbor_period == 0);
         int print_thermo_stats = ((sim->iter + 1) % sim->thermo_period == 0);
 
