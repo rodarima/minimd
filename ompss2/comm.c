@@ -105,13 +105,14 @@ box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
         if (pb->waitreq) {
             dbg("rank%d:box%d waiting for buf in neigh %d\n",
                     sim->rank, box->i, i);
-            MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
+            //MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
             memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
             pb->waitreq = 0;
         }
     }
 
     MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
         PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
