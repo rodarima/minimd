@@ -1,7 +1,9 @@
 #ifndef NEIGH_H
 #define NEIGH_H
 
+#define ENABLE_DEBUG 0
 #include "types.h"
+#include "log.h"
 #include "dom.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,11 +79,9 @@ get_atom_bin(Sim *sim, Box *box, Vec r)
     int i[NDIM];
 
     /* The atom position must be inside the halo domain */
-    if (!in_domain(r, box->domhalo)) {
-        fprintf(stderr, "atom outside halo domain: %e %e %e\n",
+    if (ENABLE_DOMAIN_CHECK && !in_domain(r, box->domhalo)) {
+        die("atom outside halo domain: %e %e %e\n",
                 r[X], r[Y], r[Z]);
-	sleep(1000000);
-        abort();
     }
 
     for (int d = X; d <= Z; d++) {
@@ -89,9 +89,7 @@ get_atom_bin(Sim *sim, Box *box, Vec r)
          * domain, and then just obtain the bin index, dividing by the
          * bin length */
         double delta = r[d] - box->domhalo[d][LO];
-
-        /* FIXME: multiply by the inverse to avoid expensive division */
-        i[d] = delta / sim->binlen[d];
+        i[d] = delta * sim->invbinlen[d];
     }
 
     return get_bin_index(box, i);

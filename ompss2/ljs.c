@@ -28,7 +28,7 @@
 
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
-
+#define _GNU_SOURCE
 #define ENABLE_DEBUG 0
 #include "types.h"
 #include "log.h"
@@ -264,6 +264,7 @@ setup_bins(Sim *sim)
 
         /* Setup bin length */
         sim->binlen[d] = sim->boxlen[d] / (double) sim->nbinsbox[d];
+        sim->invbinlen[d] = 1.0 / sim->binlen[d];
     }
 
     /* Setup box specific information for the bins */
