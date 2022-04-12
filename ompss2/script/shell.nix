@@ -1,6 +1,6 @@
 let
   pkgs = import (builtins.fetchTarball
-    "https://pm.bsc.es/gitlab/rarias/bscpkgs/-/archive/update-ompss2/bscpkgs-master.tar.gz");
+    "https://pm.bsc.es/gitlab/rarias/bscpkgs/-/archive/master/bscpkgs-master.tar.gz");
 
   rWrapper = pkgs.rWrapper.override {
     packages = with pkgs.rPackages; [ tidyverse rjson jsonlite egg viridis ];
@@ -19,6 +19,16 @@ let
     version = src.shortRev;
   });
 
+  extrae4 = pkgs.bsc.extrae.overrideAttrs (old: rec {
+    version = "3.7.1";
+    src = pkgs.fetchFromGitHub {
+      owner = "bsc-performance-tools";
+      repo = "extrae";
+      rev = "${version}";
+      sha256 = "sha256-aoGM8yRE3KBDHEZOzPmIQzIzCWcencWTYWV00jRPKsw=";
+    };
+  });
+
   clangOmpss2Fixed = pkgs.bsc.clangOmpss2Git.override {
     clangOmpss2Unwrapped = clangOmpss2UnwrappedFixed;
   };
@@ -27,9 +37,11 @@ in
     name = "minimd";
     NIX_HARDENING_ENABLE = "";
     buildInputs = with pkgs.bsc; [ pkgs.python3 babeltrace2 nanos6
-    extrae mpi icc
+    extrae4 mpi icc
     mcxx
     clangOmpss2Fixed pkgs.cmake
+    tagaspi
+    gaspi gpi-2
     rWrapper (tampi.override {mpi=mpi;}) ];
     shellHook = ''
       export LANG=C
