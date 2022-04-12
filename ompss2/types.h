@@ -135,7 +135,7 @@ typedef int    Range[NDIM][NLIM];
 #define ENABLE_FORCE_BY_BINS 0
 
 /* Use MPI_Isend and MPI_Irecv */
-#define ENABLE_NONBLOCKING_MPI 0
+#define ENABLE_NONBLOCKING_MPI 1
 
 /* Use the non-blocking mode of TAMPI, which blocks the release of the task
  * until the MPI requests have been completed */
