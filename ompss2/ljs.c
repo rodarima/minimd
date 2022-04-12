@@ -41,6 +41,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef USE_TAMPI
 # include <TAMPI.h>
@@ -1173,9 +1174,26 @@ sim_init(Sim *sim, int argc, char *argv[])
     #pragma oss taskwait
 }
 
+/* Returns the current time in seconds since some point in the past */
+static double
+get_time()
+{
+	struct timespec tv;
+	if(clock_gettime(CLOCK_MONOTONIC, &tv) != 0)
+	{
+		perror("clock_gettime failed");
+		exit(EXIT_FAILURE);
+	}
+
+	return (double)(tv.tv_sec) +
+		(double)tv.tv_nsec * 1.0e-9;
+}
+
 void
 sim_run(Sim *sim)
 {
+    double t0 = get_time();
+
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         box->iter = 0;
@@ -1223,11 +1241,19 @@ sim_run(Sim *sim)
 
     #pragma oss taskwait
 
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    double t1 = get_time();
+
     /* Always run the thermo update at the end to check the energy error
      * */
     thermo_update(sim);
 
     #pragma oss taskwait
+
+    if (sim->rank == 0) {
+        printf("time %e\n", t1 - t0);
+    }
 }
 
 void
