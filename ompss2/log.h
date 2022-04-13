@@ -11,16 +11,16 @@
 
  /* Debug macros */
 # define dbg(...) do { \
-	if(ENABLE_DEBUG) fprintf(stderr, __VA_ARGS__); \
+    if(ENABLE_DEBUG) fprintf(stderr, __VA_ARGS__); \
 } while (0)
 
 #define err(...) \
-	fprintf(stderr, __VA_ARGS__);
+    fprintf(stderr, __VA_ARGS__);
 
 #define die(...) do { \
-	err("fatal: " __VA_ARGS__); \
-	if (ENABLE_SLOW_DEATH) sleep(DEATH_SLEEP); \
-	abort(); \
+    err("fatal: " __VA_ARGS__); \
+    if (ENABLE_SLOW_DEATH) sleep(DEATH_SLEEP); \
+    abort(); \
 } while (0) 
 
 #endif /* LOG_H */

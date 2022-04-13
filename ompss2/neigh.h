@@ -1,7 +1,10 @@
 #ifndef NEIGH_H
 #define NEIGH_H
 
+#ifndef ENABLE_DEBUG
 #define ENABLE_DEBUG 0
+#endif
+
 #include "types.h"
 #include "log.h"
 #include "dom.h"
@@ -12,7 +15,7 @@
 static inline int
 opposite_neigh(int i)
 {
-	return (NNEIGH - 1) - i;
+    return (NNEIGH - 1) - i;
 }
 
 static inline int
@@ -38,7 +41,7 @@ delta2neigh(int delta[NDIM])
         index--;
 
     //fprintf(stderr, "delta2neighneigh: delta(%2d %2d %2d) -> %d\n", 
-    //	    delta[X], delta[Y], delta[Z], index);
+    //      delta[X], delta[Y], delta[Z], index);
 
     return index;
 }

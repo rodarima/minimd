@@ -42,6 +42,7 @@ in
     clangOmpss2Fixed pkgs.cmake
     tagaspi
     gaspi gpi-2
+    pkgs.gdb
     rWrapper (tampi.override {mpi=mpi;}) ];
     shellHook = ''
       export LANG=C

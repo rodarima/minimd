@@ -33,13 +33,16 @@
 #include "types.h"
 #include "log.h"
 #include "neigh.h"
+#include "gaspi_check.h"
 
+#include <GASPI.h>
+#include <TAGASPI.h>
+#include <fenv.h>
+#include <float.h>
+#include <math.h>
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <fenv.h>
-#include <math.h>
-#include <float.h>
 #include <string.h>
 #include <time.h>
 
@@ -411,10 +414,10 @@ setup_atoms_box(Sim *sim, Box *box)
         }
 
         if (skip) {
-            dbg("rank%d:box%d: ignoring point (%d %d %d) with position (%e %e %e)\n",
-                    sim->rank, box->i,
-                    ind[X], ind[Y], ind[Z],
-                    r[X], r[Y], r[Z]);
+            //dbg("rank%d:box%d: ignoring point (%d %d %d) with position (%e %e %e)\n",
+            //        sim->rank, box->i,
+            //        ind[X], ind[Y], ind[Z],
+            //        r[X], r[Y], r[Z]);
             continue;
         }
 
@@ -934,6 +937,110 @@ build_tag(int boxid, int neighid)
 }
 
 static void
+setup_gaspi_segments(Sim *sim)
+{
+    /* Setup GASPI config */
+    gaspi_config_t conf;
+    CHECK(gaspi_config_get(&conf));
+    conf.build_infrastructure = GASPI_TOPOLOGY_DYNAMIC;
+    conf.queue_size_max = 4*1024;
+    CHECK(gaspi_config_set(conf));
+
+    CHECK(tagaspi_proc_init(GASPI_BLOCK));
+
+    unsigned short g_rank, g_nranks;
+    CHECK(gaspi_proc_rank(&g_rank));
+    CHECK(gaspi_proc_num(&g_nranks));
+
+    /* Should be the same as MPI */
+    if (g_rank != sim->rank)
+        die("wrong gaspi rank\n");
+
+    if (g_nranks != sim->nranks)
+        die("wrong gaspi nranks\n");
+
+    /* Create two large segments where we are going to place the send and
+     * receive buffers for each PackBuf. They are all consecutive */
+
+    /* For now, we only use the send_r and recv_r PackBuf, of which we know the
+     * size in each iteration */
+    size_t npackbuf = sim->nboxes * NNEIGH;
+
+    /* Set the size of the segment to the maximum */
+    size_t packbuf_nalloc = 16 * 1024;
+    size_t packbuf_ndoubles = packbuf_nalloc * NDIM;
+    size_t packbuf_nbytes = packbuf_ndoubles * sizeof(double);
+    size_t seg_nbytes = npackbuf * packbuf_nbytes;
+
+    /* Send segment */
+    if ((sim->sendseg = malloc(seg_nbytes)) == NULL)
+        die("malloc of %zu bytes failed\n", seg_nbytes);
+
+    CHECK(gaspi_segment_use(SENDSEG,
+                sim->sendseg, seg_nbytes,
+                GASPI_GROUP_ALL,
+                GASPI_BLOCK, 0));
+
+    CHECK(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
+
+    /* Receive segment */
+    if ((sim->recvseg = malloc(seg_nbytes)) == NULL)
+        die("malloc of %zu bytes failed\n", seg_nbytes);
+
+    CHECK(gaspi_segment_use(RECVSEG,
+                sim->recvseg, seg_nbytes,
+                GASPI_GROUP_ALL,
+                GASPI_BLOCK, 0));
+
+    CHECK(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
+
+    /* Setup queues */
+    gaspi_number_t nqueues;
+    CHECK(gaspi_queue_num(&nqueues));
+    CHECK(tagaspi_queue_group_create(0, 0, nqueues,
+                GASPI_QUEUE_GROUP_POLICY_CPU_RR));
+
+    sim->nqueues = nqueues;
+
+    /* Now we need to properly adjust the buf pointers in each PackBuf to the
+     * right position in the segments */
+
+    for (int ibox = 0; ibox < sim->nboxes; ibox++) {
+        Box *box = &sim->box[ibox];
+        for (int ineigh = 0; ineigh < NNEIGH; ineigh++) {
+            Neigh *neigh = &box->neigh[ineigh];
+
+            size_t send_pbindex = ibox * NNEIGH + ineigh;
+            size_t send_offset = send_pbindex * packbuf_ndoubles;
+            int sendqueue = ibox % nqueues;
+            double *send_buf = &sim->sendseg[send_offset];
+
+            /* See the diagram in setup_packbuf() */
+            size_t jbox = neigh->boxid;
+            size_t jneigh = neigh->opposite->i;
+            size_t recv_pbindex = jbox * NNEIGH + jneigh;
+            size_t recv_offset = recv_pbindex * packbuf_ndoubles;
+            double *recv_buf = &sim->recvseg[recv_offset];
+            int recvqueue = jbox % nqueues;
+
+            packbuf_gaspi_init(&neigh->send_r,
+                    send_buf, 
+                    SENDSEG, send_offset,
+                    RECVSEG, recv_offset,
+                    packbuf_nalloc,
+                    sendqueue);
+
+            packbuf_gaspi_init(&neigh->recv_r,
+                    recv_buf,
+                    -1, 0, /* send not used */
+                    RECVSEG, recv_offset,
+                    packbuf_nalloc,
+                    recvqueue);
+        }
+    }
+}
+
+static void
 setup_packbuf(Sim *sim)
 {
     /* Init all pack buffers */
@@ -1000,6 +1107,9 @@ setup_packbuf(Sim *sim)
             packbuf_debug_switch(&neigh->recv_rvt, PB_GARBAGE, PB_READY);
         }
     }
+
+    if (ENABLE_GASPI)
+        setup_gaspi_segments(sim);
 }
 
 static void
@@ -1106,6 +1216,14 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* MPI process related parameters */
     setup_ranks(sim);
 
+    if (sim->rank == 0) {
+        err("starting miniMD simulation\n");
+        err("ENABLE_NONBLOCKING_MPI: %d\n", ENABLE_NONBLOCKING_MPI);
+        err("ENABLE_NONBLOCKING_TAMPI: %d\n", ENABLE_NONBLOCKING_TAMPI);
+        err("ENABLE_GASPI: %d\n", ENABLE_GASPI);
+    }
+
+
     /* Create boxes */
     setup_boxes(sim);
 
@@ -1133,6 +1251,7 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     /* Ensure neighbor coordinates are ok */
     check_neighbors_coords(sim);
+    err("neigh coords ok\n");
 
     thermo_init(sim);
 
@@ -1178,15 +1297,15 @@ sim_init(Sim *sim, int argc, char *argv[])
 static double
 get_time()
 {
-	struct timespec tv;
-	if(clock_gettime(CLOCK_MONOTONIC, &tv) != 0)
-	{
-		perror("clock_gettime failed");
-		exit(EXIT_FAILURE);
-	}
+    struct timespec tv;
+    if(clock_gettime(CLOCK_MONOTONIC, &tv) != 0)
+    {
+        perror("clock_gettime failed");
+        exit(EXIT_FAILURE);
+    }
 
-	return (double)(tv.tv_sec) +
-		(double)tv.tv_nsec * 1.0e-9;
+    return (double)(tv.tv_sec) +
+        (double)tv.tv_nsec * 1.0e-9;
 }
 
 void

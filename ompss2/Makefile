@@ -15,11 +15,11 @@ LDFLAGS+=-fompss-2
 LIBS+=-lm
 
 # Use tampi?
-CFLAGS+=-DUSE_TAMPI
 LIBS+=-lstdc++ -l:libtampi-c.a
+LIBS+=-lGPI2 -ltagaspi
 
-#CFLAGS+=-O0
-CFLAGS+=-O3
+CFLAGS+=-O0
+#CFLAGS+=-O3
 
 CFLAGS+=-g
 LDFLAGS+=-g
@@ -28,26 +28,41 @@ LDFLAGS+=-g
 
 CFLAGS+=-std=c11
 
-#CFLAGS+=-fsanitize=address
-#LDFLAGS+=-fsanitize=address
+CFLAGS+=-fsanitize=address
+LDFLAGS+=-fsanitize=address
 
 #CFLAGS+=-Wno-attributes
 
-SRC=$(wildcard *.cpp)
-OBJ=$(SRC:.cpp=.o)
+SRC=box.c \
+  comm.c \
+  force.c \
+  input.c \
+  integrate.c \
+  ljs.c \
+  neigh.c \
+  packbuf.c \
+  packbuf_gaspi.c \
+  packbuf_mpi.c \
+  safe.c \
+  thermo.c
+
+OBJ=$(SRC:.c=.o)
 EXE=miniMD
 
 all: $(EXE)
+
+#.depend: $(SRC)
+#	rm -f "$@"
+#	$(MPICC) $(CFLAGS) -MM $^ -MF "$@"
+#
+#include .depend
 
 # Compile
 %.o: %.c
 	$(MPICC) $(CFLAGS) -c -o $@ $^
 
-# Link
-#$(EXE): $(OBJ)
-#	$(MPILINK) $(LDFLAGS) -o $@ $^
-$(EXE): ljs.o box.o input.o force.o safe.o packbuf.o comm.o neigh.o thermo.o integrate.o
+$(EXE): $(OBJ)
 	$(MPILINK) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 clean:
-	rm -f *.o mcxx_* $(EXE)
+	rm -f $(OBJ) $(EXE)

@@ -92,7 +92,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
-#define ENABLE_REALTIME_ENERGY 0
+#define ENABLE_REALTIME_ENERGY 1
 
 /* Halts the simulation if the force is too large */
 #define ENABLE_MAX_FORCE_CHECK 0
@@ -112,11 +112,11 @@ typedef int    Range[NDIM][NLIM];
 #define ENABLE_MIN_INTERACTIONS_CHECK 1
 
 /* Counts the number of total force interactions */
-#define ENABLE_COUNT_INTERACTIONS 0
+#define ENABLE_COUNT_INTERACTIONS 1
 
 /* Enable domain checks: ensures the atoms are inside the box or other
  * space domains */
-#define ENABLE_DOMAIN_CHECK 0
+#define ENABLE_DOMAIN_CHECK 1
 
 /* Checks the number of atoms is expected before and after an operation.
  * Needs task wait so it can cause other bugs to disappear. */
@@ -135,14 +135,17 @@ typedef int    Range[NDIM][NLIM];
 #define ENABLE_FORCE_BY_BINS 0
 
 /* Use MPI_Isend and MPI_Irecv */
-#define ENABLE_NONBLOCKING_MPI 1
+#define ENABLE_NONBLOCKING_MPI 0
 
 /* Use the non-blocking mode of TAMPI, which blocks the release of the task
  * until the MPI requests have been completed */
-#define ENABLE_NONBLOCKING_TAMPI 1
+#define ENABLE_NONBLOCKING_TAMPI 0
 
 /* Use MPI_Waitall if needed */
 #define NEED_EXPLICIT_WAIT (ENABLE_NONBLOCKING_MPI && !ENABLE_NONBLOCKING_TAMPI)
+
+/* If enabled, tagaspi will be used to exchange ghost positions */
+#define ENABLE_GASPI 0
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */
@@ -152,10 +155,10 @@ typedef int    Range[NDIM][NLIM];
 #define DEATH_SLEEP (3600*24)
 
 /* Track the state of the PackBuf to detect concurrent access */
-#define ENABLE_PACKBUF_STATE 0
+#define ENABLE_PACKBUF_STATE 1
 
 /* Same but for external usage */
-#define ENABLE_PACKBUF_DEBUG_STATE 0
+#define ENABLE_PACKBUF_DEBUG_STATE 1
 
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
@@ -193,7 +196,7 @@ typedef struct sim Sim;
 
 typedef struct bin {
     int natoms; /* Number of atoms present in this bin */
-    int nalloc;	/* Number of atoms allocated in the bin */
+    int nalloc; /* Number of atoms allocated in the bin */
     int *atom; /* Indexes of the atoms */
 
     /* Thermal information keep per time step in reduced units */
@@ -225,6 +228,11 @@ enum packbuf_state {
     PB_WAITING = 10,
 };
 
+enum gaspi_segment_dir {
+    SENDSEG = 0,
+    RECVSEG = 1
+};
+
 typedef struct {
     int natoms;     /* Number of atoms currently in the buffer */
     int recvnatoms; /* Number of atoms to be received */
@@ -242,6 +250,14 @@ typedef struct {
     int waitreqn;   /* Wait for the request before writing natoms */
     int remoterank;
     int tag;
+
+    /* GASPI related */
+    int gaspi;
+    int sendseg;
+    int recvseg;
+    size_t sendoffset; /* in bytes */
+    size_t recvoffset;
+    int queue;
 } PackBuf;
 
 //typedef struct {
@@ -299,10 +315,10 @@ typedef struct Nearby {
 
 /* Histogram structure */
 typedef struct Hist {
-	int nbins;
-	int count[HIST_MAX_NBINS];
-	double delta;
-	const char *filepath;
+    int nbins;
+    int count[HIST_MAX_NBINS];
+    double delta;
+    const char *filepath;
 } Hist;
 
 /* All information needed for a box of the simulation */
@@ -445,8 +461,8 @@ typedef struct sim {
     Vec binlen;         /* Length of each bin per dimension */
     Vec invbinlen;      /* Inverse of binlen (to avoid division) */
 
-    int nboxesdim[NDIM];	/* Total number of boxes per dimension */
-    int ranknboxesdim[NDIM];	/* # of boxes per dimension of this rank */
+    int nboxesdim[NDIM];    /* Total number of boxes per dimension */
+    int ranknboxesdim[NDIM];    /* # of boxes per dimension of this rank */
     Vec boxlen;
     Vec worldlen;
 
@@ -464,7 +480,13 @@ typedef struct sim {
 
     int ntypes; /* Number of atom types (species) */
     int ntotatoms;
-    int iter;	/* Current iteration from the main task */
+    int iter;   /* Current iteration from the main task */
+
+    /* GASPI info */
+    size_t segsize;
+    double *sendseg;
+    double *recvseg;
+    int nqueues;
 
     Force force;
     Box *box;
@@ -485,11 +507,16 @@ void comm_ghost_position(Sim *sim);
 
 void *safe_realloc(void *ptr, size_t size);
 
+void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
 void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
-void packbuf_mpisend(PackBuf *pb);
-void packbuf_mpisend_buf(PackBuf *pb);
-void packbuf_mpirecv_natoms(PackBuf *pb);
-void packbuf_mpirecv_buf(PackBuf *pb, int natoms);
+void packbuf_mpi_send(PackBuf *pb);
+void packbuf_mpi_send_buf(PackBuf *pb);
+void packbuf_mpi_recv_natoms(PackBuf *pb);
+void packbuf_mpi_recv_buf(PackBuf *pb, int natoms);
+
+void packbuf_gaspi_send_buf(PackBuf *pb);
+void packbuf_gaspi_recv_buf(PackBuf *pb, int natoms);
+
 void packbuf_shmcopy(PackBuf *src, PackBuf *dst);
 void packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type);
 void packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom);
@@ -497,6 +524,12 @@ void packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types);
 void packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel);
 void packbuf_clear(PackBuf *pb);
 void packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank, int tag, MPI_Comm *comm);
+void packbuf_grow(PackBuf *pb, int n);
+
+void packbuf_gaspi_init(PackBuf *pb, double *newbuf,
+        int sendseg, size_t send_offset_bytes,
+        int recvseg, size_t recv_offset_bytes,
+        size_t nalloc, int queue);
 
 void build_nearby_atoms(Sim *sim);
 
