@@ -1200,6 +1200,11 @@ setup_packbuf(Sim *sim)
             packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, sendicomm, &box->comm_rt);
             packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, sendicomm, &box->comm_rvt);
 
+            /* Set the PB pointers in the box table */
+            box->pb[PB_SEND_R][neigh->i] = &neigh->send_r;
+            box->pb[PB_SEND_RT][neigh->i] = &neigh->send_rt;
+            box->pb[PB_SEND_RVT][neigh->i] = &neigh->send_rvt;
+
             /*
              * The recv is tricky, here is a diagram:
              *
@@ -1235,6 +1240,11 @@ setup_packbuf(Sim *sim)
             packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, recvicomm, &recvbox->comm_r);
             packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, recvicomm, &recvbox->comm_rt);
             packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, recvicomm, &recvbox->comm_rvt);
+
+            /* Set the PB pointers in the box table */
+            box->pb[PB_RECV_R][neigh->i] = &neigh->recv_r;
+            box->pb[PB_RECV_RT][neigh->i] = &neigh->recv_rt;
+            box->pb[PB_RECV_RVT][neigh->i] = &neigh->recv_rvt;
 
             packbuf_debug_switch(&neigh->send_r, PB_GARBAGE, PB_READY);
             packbuf_debug_switch(&neigh->recv_r, PB_GARBAGE, PB_READY);

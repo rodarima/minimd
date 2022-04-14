@@ -54,40 +54,29 @@ copy_atom_rvt(Box *box, int src, int dst)
 }
 
 static void
-box_waitmpi_internal(Sim *sim, Box *box, size_t off, const char *name,
-        enum pb_reqtype reqtype)
+box_waitmpi(Sim *sim, Box *box, enum pb_type type, enum pb_reqtype reqtype)
 {
+    /* FIXME ! */
     #pragma oss taskwait
-    PackBuf *pbs[NNEIGH];
 
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
-        pbs[i] = pb;
+    if (type == PB_SEND_R || type == PB_SEND_RT || type == PB_SEND_RVT) {
+        #pragma oss task label("box_waitmpi_send") \
+            in({box->pb[type][i]->natoms, i=0;NNEIGH}) \
+            in({box->pb[type][i]->buf,    i=0;NNEIGH})
+        {
+            packbuf_mpi_waitn(box->pb[type], NNEIGH, reqtype);
+        }
+    } else {
+        #pragma oss task label("box_waitmpi_recv") \
+            inout({box->pb[type][i]->natoms, i=0;NNEIGH}) \
+            inout({box->pb[type][i]->buf,    i=0;NNEIGH})
+        {
+            packbuf_mpi_waitn(box->pb[type], NNEIGH, reqtype);
+        }
     }
 
-    packbuf_mpi_waitn(pbs, NNEIGH, reqtype);
-}
-
-//#pragma oss task label("box_waitmpi_natoms") \
-//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
-//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
-static void
-box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
-{
+    /* FIXME ! */
     #pragma oss taskwait
-    box_waitmpi_internal(sim, box, off, name, PB_NATOMS);
-}
-
-/* FIXME: We should use in() for send buffers */
-//#pragma oss task label("box_waitmpi_buf") \
-//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
-//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
-static void
-box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
-{
-    #pragma oss taskwait
-    box_waitmpi_internal(sim, box, off, name, PB_BUF);
 }
 
 /* Removes the atoms that lay outside the box domain and packs them in
@@ -368,10 +357,8 @@ comm_tidy(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_tidy -- waitmpi send_rvt buffer\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, send_rvt),
-                "comm_tidy -- waitmpi send_rvt natoms");
-            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_rvt),
-                "comm_tidy -- waitmpi send_rvt buf");
+            box_waitmpi(sim, &sim->box[i], PB_SEND_RVT, PB_NATOMS);
+            box_waitmpi(sim, &sim->box[i], PB_SEND_RVT, PB_BUF);
         }
     }
 
@@ -403,8 +390,7 @@ comm_tidy(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_tidy -- waitmpi recv_rvt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, recv_rvt),
-                "comm_tidy -- waitmpi recv_rvt natoms");
+            box_waitmpi(sim, &sim->box[i], PB_RECV_RVT, PB_NATOMS);
         }
     }
 
@@ -420,8 +406,7 @@ comm_tidy(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_tidy -- waitmpi recv_rvt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_rvt),
-                "comm_tidy -- waitmpi recv_rvt buf");
+            box_waitmpi(sim, &sim->box[i], PB_RECV_RVT, PB_BUF);
         }
     }
 
@@ -664,10 +649,8 @@ comm_borders(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_borders -- waitmpi send_rt buf+natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, send_rt),
-                    "comm_borders -- waitmpi send_rt natoms");
-            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_rt),
-                    "comm_borders -- waitmpi send_rt buf");
+            box_waitmpi(sim, &sim->box[i], PB_SEND_RT, PB_NATOMS);
+            box_waitmpi(sim, &sim->box[i], PB_SEND_RT, PB_BUF);
         }
     }
 
@@ -701,8 +684,7 @@ comm_borders(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_borders -- waitmpi recv_rt natoms\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_natoms(sim, &sim->box[i], OFFSETOF(Neigh, recv_rt),
-                    "comm_borders -- waitmpi recv_rt natoms");
+            box_waitmpi(sim, &sim->box[i], PB_RECV_RT, PB_NATOMS);
         }
     }
 
@@ -719,8 +701,7 @@ comm_borders(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_borders -- waitmpi recv_rt buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_rt),
-                    "comm_borders -- waitmpi recv_rt buf");
+            box_waitmpi(sim, &sim->box[i], PB_RECV_RT, PB_BUF);
         }
     }
 
@@ -949,8 +930,7 @@ comm_ghost_position(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_ghost -- waitmpi send_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, send_r),
-                    "comm_ghost -- waitmpi send_r buf");
+            box_waitmpi(sim, &sim->box[i], PB_SEND_R, PB_BUF);
         }
     }
 
@@ -984,8 +964,7 @@ comm_ghost_position(Sim *sim)
     if (NEED_EXPLICIT_WAIT) {
         dbg("rank%d -- comm_ghost -- waitmpi recv_r buf\n", sim->rank);
         for (int i = 0; i < sim->nboxes; i++) {
-            box_waitmpi_buf(sim, &sim->box[i], OFFSETOF(Neigh, recv_r),
-                    "comm_ghost -- waitmpi recv_r buf");
+            box_waitmpi(sim, &sim->box[i], PB_RECV_R, PB_BUF);
         }
     }
 

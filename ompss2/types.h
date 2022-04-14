@@ -324,6 +324,16 @@ typedef struct Hist {
     const char *filepath;
 } Hist;
 
+enum pb_type {
+    PB_SEND_R = 0,
+    PB_RECV_R,
+    PB_SEND_RT,
+    PB_RECV_RT,
+    PB_SEND_RVT,
+    PB_RECV_RVT,
+    PB_NTYPES
+};
+
 /* All information needed for a box of the simulation */
 typedef struct box {
     int i;          /* Box index for this process */
@@ -381,6 +391,9 @@ typedef struct box {
     MPI_Comm comm_r;
     MPI_Comm comm_rt;
     MPI_Comm comm_rvt;
+
+    /* Contiguous pointers to the send and recv PackBuf */
+    PackBuf *pb[PB_NTYPES][NNEIGH];
 
 } Box;
 
