@@ -15,8 +15,8 @@ LDFLAGS+=-fompss-2
 LIBS+=-lm
 
 # Use tampi?
-LIBS+=-lstdc++ -l:libtampi-c.a
-LIBS+=-lGPI2 -ltagaspi
+#LIBS+=-lstdc++ -l:libtampi-c.a
+#LIBS+=-lGPI2 -ltagaspi
 
 CFLAGS+=-O0
 #CFLAGS+=-O3
@@ -41,11 +41,11 @@ SRC=box.c \
   ljs.c \
   neigh.c \
   packbuf.c \
-  packbuf_gaspi.c \
   packbuf_mpi.c \
   safe.c \
   thermo.c
 
+#  packbuf_gaspi.c
 OBJ=$(SRC:.c=.o)
 EXE=miniMD
 

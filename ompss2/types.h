@@ -135,7 +135,7 @@ typedef int    Range[NDIM][NLIM];
 #define ENABLE_FORCE_BY_BINS 0
 
 /* Use MPI_Isend and MPI_Irecv */
-#define ENABLE_NONBLOCKING_MPI 0
+#define ENABLE_NONBLOCKING_MPI 1
 
 /* Use the non-blocking mode of TAMPI, which blocks the release of the task
  * until the MPI requests have been completed */
@@ -149,7 +149,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */
-#define ENABLE_SLOW_DEATH 1
+#define ENABLE_SLOW_DEATH 0
 
 /* Sleep for a day before aborting (if enabled) */
 #define DEATH_SLEEP (3600*24)
@@ -246,6 +246,7 @@ typedef struct {
     MPI_Request req;
     MPI_Request reqn;
     MPI_Comm *comm;
+    int icomm;      /* And index to identify the MPI_Comm */
     int waitreq;    /* Wait for the request before writing the buffer */
     int waitreqn;   /* Wait for the request before writing natoms */
     int remoterank;
@@ -523,7 +524,7 @@ void packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom);
 void packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types);
 void packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel);
 void packbuf_clear(PackBuf *pb);
-void packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank, int tag, MPI_Comm *comm);
+void packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank, int tag, int icomm, MPI_Comm *comm);
 void packbuf_grow(PackBuf *pb, int n);
 
 void packbuf_gaspi_init(PackBuf *pb, double *newbuf,

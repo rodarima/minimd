@@ -52,12 +52,13 @@ copy_atom_rvt(Box *box, int src, int dst)
     box->atomtype[dst] = box->atomtype[src];
 }
 
-#pragma oss task label("box_waitmpi_natoms") \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
+//#pragma oss task label("box_waitmpi_natoms") \
+//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
+//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
 static void
 box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 {
+    #pragma oss taskwait
     MPI_Request req[NNEIGH];
     int nreq = 0;
 
@@ -68,16 +69,17 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
         packbuf_debug_switch(pb, PB_READY, PB_WAITING);
 
         if (pb->waitreqn) {
-            dbg("rank%d:box%d waiting for natoms in neigh %d\n",
-                    sim->rank, box->i, i);
-            //MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
-            memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
+            dbg("rank%d:box%d waiting for natoms in neigh %d tag=%d\n",
+                    sim->rank, box->i, i, pb->tag);
+            MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
+            //memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
             pb->waitreqn = 0;
+            dbg("rank%d:box%d wait ends for natoms in neigh %d tag=%d\n",
+                    sim->rank, box->i, i, pb->tag);
         }
-
     }
 
-    MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
 
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
@@ -87,12 +89,13 @@ box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 }
 
 /* FIXME: We should use in() for send buffers */
-#pragma oss task label("box_waitmpi_buf") \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
-    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
+//#pragma oss task label("box_waitmpi_buf") \
+//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
+//    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
 static void
 box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
 {
+    #pragma oss taskwait
     MPI_Request req[NNEIGH];
     int nreq = 0;
 
@@ -103,15 +106,17 @@ box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
         packbuf_debug_switch(pb, PB_READY, PB_WAITING);
 
         if (pb->waitreq) {
-            dbg("rank%d:box%d waiting for buf in neigh %d\n",
-                    sim->rank, box->i, i);
-            //MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
-            memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
+            dbg("rank%d:box%d waiting for buf in neigh %d tag=%d\n",
+                    sim->rank, box->i, i, pb->tag);
+            MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
+            //memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
+            dbg("rank%d:box%d wait ends for buf in neigh %d tag=%d\n",
+                    sim->rank, box->i, i, pb->tag);
             pb->waitreq = 0;
         }
     }
 
-    MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
 
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
@@ -551,17 +556,23 @@ box_border_pack_rt(Sim *sim, Box *box)
 //                neigh->delta[X], neigh->delta[Y], neigh->delta[Z],
 //                neigh->send_rt.natoms);
 //    }
+
+    dbg("rank%d: packed borders for box %2d\n", sim->rank, box->i);
 }
 
 static void
 box_border_send_rt(Sim *sim, Box *box, Neigh *neigh)
 {
     if (neigh->rank != sim->rank) {
-        #pragma oss task label("box_border_send_rt:mpi_send") \
-            in(*(char **)&neigh->send_rt.buf) \
-            in(neigh->send_rt.natoms)
+ //       #pragma oss task label("box_border_send_rt:mpi_send") \
+ //           in(*(char **)&neigh->send_rt.buf) \
+ //           in(neigh->send_rt.natoms) \
+ //           priority(-neigh->i)
         {
             packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_SENDING);
+            dbg("box_border_send_rt: rank%d:box%d:neigh%d uses mpi_send tag=%d\n",
+                    sim->rank, box->i, neigh->i,
+                    neigh->send_rt.tag);
             packbuf_mpi_send(&neigh->send_rt);
             packbuf_debug_switch(&neigh->send_rt, PB_SENDING, PB_READY);
         }
@@ -575,16 +586,18 @@ box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh, int only_natoms)
 {
     if (dstneigh->rank != sim->rank) {
         if (only_natoms) {
-//          #pragma oss task label("box_border_recv_rt:mpi_recv:natoms") \
-//              out(dstneigh->recv_rt.recvnatoms) \
-//              out(*(char **)&dstneigh->recv_rt.buf) \
-//              out(*(char **)&dstneigh->recv_rt.natoms)
+//            #pragma oss task label("box_border_recv_rt:mpi_recv:natoms") \
+//                out(dstneigh->recv_rt.recvnatoms) \
+//                out(*(char **)&dstneigh->recv_rt.buf) \
+//                out(*(char **)&dstneigh->recv_rt.natoms) \
+//                priority(dstneigh->i)
             packbuf_mpi_recv_natoms(&dstneigh->recv_rt);
         } else {
-            #pragma oss task label("box_border_recv_rt:mpi_recv:buf") \
-                in(dstneigh->recv_rt.recvnatoms) \
-                out(*(char **)&dstneigh->recv_rt.buf) \
-                out(*(char **)&dstneigh->recv_rt.natoms)
+//            #pragma oss task label("box_border_recv_rt:mpi_recv:buf") \
+//                in(dstneigh->recv_rt.recvnatoms) \
+//                out(*(char **)&dstneigh->recv_rt.buf) \
+//                out(*(char **)&dstneigh->recv_rt.natoms) \
+//                priority(dstneigh->i)
             packbuf_mpi_recv_buf(&dstneigh->recv_rt, dstneigh->recv_rt.recvnatoms);
         }
     } else if (!only_natoms) {
@@ -610,11 +623,11 @@ box_border_recv_rt(Sim *sim, Box *box, Neigh *dstneigh, int only_natoms)
          */
         Box *srcbox = dstneigh->box;
         Neigh *srcneigh = &srcbox->neigh[opposite_neigh(dstneigh->i)];
-        #pragma oss task label("box_border_recv_rt:shmcopy") \
-            in(*(char **)&srcneigh->send_rt.buf) \
-            in(srcneigh->send_rt.natoms) \
-            out(*(char **)&dstneigh->recv_rt.buf) \
-            out(dstneigh->recv_rt.natoms)
+//        #pragma oss task label("box_border_recv_rt:shmcopy") \
+//            in(*(char **)&srcneigh->send_rt.buf) \
+//            in(srcneigh->send_rt.natoms) \
+//            out(*(char **)&dstneigh->recv_rt.buf) \
+//            out(dstneigh->recv_rt.natoms)
         {
             packbuf_debug_switch(&srcneigh->send_rt, PB_READY, PB_COPYING);
             packbuf_debug_switch(&dstneigh->recv_rt, PB_READY, PB_COPYING);
@@ -699,6 +712,8 @@ comm_borders(Sim *sim)
         Box *box = &sim->box[i];
         box_border_pack_rt(sim, box);
     }
+
+    #pragma oss taskwait
 
     dbg("rank%d -- comm_borders -- send send_rt buf+natoms\n", sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {

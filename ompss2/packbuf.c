@@ -201,12 +201,13 @@ packbuf_clear(PackBuf *pb)
 
 void
 packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
-        int remoterank, int tag, MPI_Comm *comm)
+        int remoterank, int tag, int icomm, MPI_Comm *comm)
 {
     memset(pb, 0, sizeof(*pb));
 
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
+    pb->icomm = icomm;
     pb->comm = comm;
 
     if (remoterank < 0)

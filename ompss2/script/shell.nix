@@ -6,8 +6,8 @@ let
     packages = with pkgs.rPackages; [ tidyverse rjson jsonlite egg viridis ];
   };
 
-  mpi = pkgs.bsc.impi;
-  #mpi = pkgs.bsc.openmpi;
+  #mpi = pkgs.bsc.impi;
+  mpi = pkgs.bsc.openmpi;
 
   clangOmpss2UnwrappedFixed = pkgs.bsc.clangOmpss2UnwrappedGit.overrideAttrs (old: rec {
     src = builtins.fetchGit {
@@ -46,5 +46,6 @@ in
     rWrapper (tampi.override {mpi=mpi;}) ];
     shellHook = ''
       export LANG=C
+      echo "NOTE: using mpi=${mpi}"
     '';
   }

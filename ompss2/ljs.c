@@ -29,7 +29,7 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 #define _GNU_SOURCE
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 #include "types.h"
 #include "log.h"
 #include "neigh.h"
@@ -675,34 +675,122 @@ setup_params(Sim *sim)
 }
 
 static void
-check_neighbors_coords(Sim *sim)
+check_neighbor_coords(Sim *sim)
 {
-    int (*recvcoord)[NDIM] = (int (*) [NDIM]) calloc(sim->nboxes * NNEIGH,
-            sizeof(int) * NDIM);
+    struct msg {
+        int srcrank;
+        int srcbox;
+        int srcbox_coord[NDIM];
+        int tag;
+        int icomm;
 
-    /* Use send_r/recv_r for the test */
-    for (int ibox = 0; ibox < sim->nboxes; ibox++) {
-        Box *box = &sim->box[ibox];
-        MPI_Request sendreq[NNEIGH];
+        int send_dir;
 
-        for (int i = 0; i < NNEIGH; i++) {
-            Neigh *neigh = &box->neigh[i];
-            PackBuf *pb = &neigh->send_r;
+        int dstrank;
+        int dstbox;
+        int dstbox_coord[NDIM];
 
-            MPI_Isend((void *) box->idim, NDIM, MPI_INT, pb->remoterank,
-                    pb->tag, *pb->comm, &pb->req);
+        int recv_dir;
+    };
+
+    int nruns = 100;
+
+    struct msg *msendarr = calloc(nruns * sim->nboxes * NNEIGH,
+            sizeof(struct msg));
+
+    /* Exercise the tag matching by sending multiple messages at the same time,
+     * with the hope to find potential tag duplicates sent to the same
+     * communicator */
+    for (int run = 0; run < nruns; run++) {
+        for (int ibox = 0; ibox < sim->nboxes; ibox++) {
+            Box *box = &sim->box[ibox];
+
+            for (int i = 0; i < NNEIGH; i++) {
+                Neigh *neigh = &box->neigh[i];
+                PackBuf *pb = &neigh->send_rvt;
+
+                pb->req = NULL;
+
+                /* Only need to send with distinct ranks */
+                if (neigh->rank == sim->rank)
+                    continue;
+
+                /* Send ALL the information so I can see what is happening from the
+                 * debugger */
+                struct msg m = {
+                    .srcrank = sim->rank,
+                    .srcbox = ibox,
+                    .srcbox_coord = {
+                        box->idim[X],
+                        box->idim[Y],
+                        box->idim[Z]
+                    },
+                    .send_dir = neigh->i,
+                    .tag = pb->tag,
+                    .icomm = pb->icomm,
+                    .dstrank = pb->remoterank,
+                    .dstbox = neigh->boxid,
+                    .dstbox_coord = {
+                        neigh->boxcoordw[X],
+                        neigh->boxcoordw[Y],
+                        neigh->boxcoordw[Z]
+                    },
+                    .recv_dir = neigh->opposite->i
+                };
+
+                struct msg *msend = &msendarr[run * sim->nboxes * NNEIGH
+                        + box->i * NNEIGH + neigh->i];
+
+                memcpy(msend, &m, sizeof(m));
+
+                MPI_Isend(msend, sizeof(m), MPI_BYTE, pb->remoterank,
+                        pb->tag, *pb->comm, &pb->req);
+            }
         }
+    }
 
-        for (int i = 0; i < NNEIGH; i++) {
-            Neigh *tmp = &box->neigh[i];
-            Neigh *neigh = tmp->opposite;
+    for (int run = 0; run < nruns; run++) {
+        for (int ibox = 0; ibox < sim->nboxes; ibox++) {
+            Box *box = &sim->box[ibox];
+            for (int i = 0; i < NNEIGH; i++) {
+                Neigh *neigh = &box->neigh[i];
 
-            PackBuf *pb = &neigh->recv_r;
+                PackBuf *pb = &neigh->recv_rvt;
 
-            void *buf = (void *) &recvcoord[ibox * NNEIGH + neigh->i];
+                pb->req = NULL;
 
-            MPI_Irecv(buf, NDIM, MPI_INT, pb->remoterank,
-                    pb->tag, *pb->comm, &pb->req);
+                if (neigh->rank == sim->rank)
+                    continue;
+
+                struct msg mrecv;
+
+                MPI_Recv(&mrecv, sizeof(mrecv), MPI_BYTE, pb->remoterank,
+                        pb->tag, *pb->comm, MPI_STATUS_IGNORE);
+
+                struct msg mexp = {
+                    .srcrank = pb->remoterank,
+                    .srcbox = neigh->opposite->boxid,
+                    .srcbox_coord = {
+                        neigh->opposite->boxcoordw[X],
+                        neigh->opposite->boxcoordw[Y],
+                        neigh->opposite->boxcoordw[Z]
+                    },
+                    .send_dir = neigh->opposite->i,
+                    .tag = pb->tag,
+                    .icomm = pb->icomm,
+                    .dstrank = sim->rank,
+                    .dstbox = ibox,
+                    .dstbox_coord = {
+                        box->idim[X],
+                        box->idim[Y],
+                        box->idim[Z]
+                    },
+                    .recv_dir = neigh->i
+                };
+
+                if (memcmp(&mrecv, &mexp, sizeof(mexp)) != 0)
+                    die("incosistent message received\n");
+            }
         }
     }
 
@@ -711,26 +799,70 @@ check_neighbors_coords(Sim *sim)
         Box *box = &sim->box[ibox];
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
-            MPI_Wait(&neigh->send_r.req, MPI_STATUS_IGNORE);
-            MPI_Wait(&neigh->recv_r.req, MPI_STATUS_IGNORE);
+            if (neigh->rank != sim->rank) {
+                MPI_Wait(&neigh->send_rvt.req, MPI_STATUS_IGNORE);
+            }
         }
     }
 
+    /* Compare all boxes that are in the same rank */
     for (int ibox = 0; ibox < sim->nboxes; ibox++) {
         Box *box = &sim->box[ibox];
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
-            for (int d = X; d <= Z; d++) {
-                int (*coord)[NDIM] = &recvcoord[ibox * NNEIGH + i];
-                if ((*coord)[d] != neigh->boxcoordw[d]) {
-                    die("rank%d:box%d:neigh%d: bad neigh coord, received (%d %d %d) expected (%d %d %d)\n",
-                            sim->rank, box->i, neigh->i,
-                            (*coord)[X], (*coord)[Y], (*coord)[Z],
-                            neigh->boxcoordw[X],
-                            neigh->boxcoordw[Y],
-                            neigh->boxcoordw[Z]);
-                }
-            }
+            if (neigh->rank != sim->rank)
+                continue;
+
+            struct msg msend = {
+                .srcrank = sim->rank,
+                .srcbox = box->i,
+                .srcbox_coord = {
+                    box->idim[X],
+                    box->idim[Y],
+                    box->idim[Z]
+                },
+                .send_dir = neigh->i,
+                .tag = 666,
+                .icomm = 666,
+                .dstrank = sim->rank,
+                .dstbox = neigh->boxid,
+                .dstbox_coord = {
+                    neigh->boxcoordw[X],
+                    neigh->boxcoordw[Y],
+                    neigh->boxcoordw[Z]
+                },
+                .recv_dir = neigh->opposite->i
+            };
+
+            /* FIXME: This is too complex, we need to find a better structure to
+             * obtain the opposite (box,neigh) pairs */
+            Box *otherbox = &sim->box[neigh->opposite->boxid];
+            Neigh *otherneigh = &otherbox->neigh[neigh->opposite->i];
+
+            struct msg mrecv = {
+                .srcrank = sim->rank,
+                .srcbox = otherneigh->opposite->boxid,
+                .srcbox_coord = {
+                    otherneigh->boxcoordw[X],
+                    otherneigh->boxcoordw[Y],
+                    otherneigh->boxcoordw[Z]
+                },
+                .send_dir = otherneigh->opposite->i,
+                .tag = 666,
+                .icomm = 666,
+                .dstrank = sim->rank,
+                .dstbox = otherbox->i,
+                .dstbox_coord = {
+                    otherbox->idim[X],
+                    otherbox->idim[Y],
+                    otherbox->idim[Z]
+                },
+                .recv_dir = otherneigh->i
+            };
+
+            if (memcmp(&msend, &mrecv, sizeof(mrecv)) != 0)
+                die("incosistent shm message\n");
+
         }
     }
 }
@@ -927,6 +1059,7 @@ static int
 build_tag(int boxid, int neighid)
 {
     int tag = neighid;
+    //int tag = boxid * NNEIGH + neighid;
 
     /* Ensure the tag is within the MPI standard limit */
     if (tag >= 32767) {
@@ -1060,10 +1193,11 @@ setup_packbuf(Sim *sim)
             /* Send to same direction as neigh */
             int sendrank = neigh->rank;
             int sendtag = build_tag(box->i, neigh->i);
+            int sendicomm = box->i;
 
-            packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, &box->comm_r);
-            packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, &box->comm_rt);
-            packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, &box->comm_rvt);
+            packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, sendicomm, &box->comm_r);
+            packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, sendicomm, &box->comm_rt);
+            packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, sendicomm, &box->comm_rvt);
 
             /*
              * The recv is tricky, here is a diagram:
@@ -1092,12 +1226,14 @@ setup_packbuf(Sim *sim)
 
             int recvrank = neigh->rank;
             /* Same tag used for send in the opposite send direction */
+            Neigh *opp = neigh->opposite;
             int recvtag = build_tag(neigh->boxid, neigh->opposite->i);
             Box *recvbox = &sim->box[neigh->boxid];
+            int recvicomm = neigh->boxid;
 
-            packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, &recvbox->comm_r);
-            packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, &recvbox->comm_rt);
-            packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, &recvbox->comm_rvt);
+            packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, recvicomm, &recvbox->comm_r);
+            packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, recvicomm, &recvbox->comm_rt);
+            packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, recvicomm, &recvbox->comm_rvt);
 
             packbuf_debug_switch(&neigh->send_r, PB_GARBAGE, PB_READY);
             packbuf_debug_switch(&neigh->recv_r, PB_GARBAGE, PB_READY);
@@ -1106,6 +1242,44 @@ setup_packbuf(Sim *sim)
             packbuf_debug_switch(&neigh->send_rvt, PB_GARBAGE, PB_READY);
             packbuf_debug_switch(&neigh->recv_rvt, PB_GARBAGE, PB_READY);
         }
+    }
+
+    /* XXX: Sync ranks */
+    sleep(sim->rank * 3);
+
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *neigh = &box->neigh[j];
+
+            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  sendtag=%d  remoterank=%d\n",
+                    sim->rank, box->i,
+                    box->idim[X], box->idim[Y], box->idim[Z],
+                    neigh->i,
+                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
+                    neigh->boxcoordw[X], neigh->boxcoordw[Y], neigh->boxcoordw[Z], 
+                    neigh->send_r.tag,
+                    neigh->send_r.remoterank);
+        }
+
+        dbg(" ------------- \n");
+
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *neigh = &box->neigh[j];
+
+            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  recvtag=%d  remoterank=%d\n",
+                    sim->rank, box->i,
+                    box->idim[X], box->idim[Y], box->idim[Z],
+                    neigh->i,
+                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
+                    neigh->boxcoordw[X], neigh->boxcoordw[Y], neigh->boxcoordw[Z], 
+                    neigh->recv_r.tag,
+                    neigh->recv_r.remoterank);
+        }
+
+        dbg(" ------------- \n");
+
     }
 
     if (ENABLE_GASPI)
@@ -1250,8 +1424,8 @@ sim_init(Sim *sim, int argc, char *argv[])
     setup_packbuf(sim);
 
     /* Ensure neighbor coordinates are ok */
-    check_neighbors_coords(sim);
-    err("neigh coords ok\n");
+    check_neighbor_coords(sim);
+    if (sim->rank == 0) err("neigh coords ok\n");
 
     thermo_init(sim);
 

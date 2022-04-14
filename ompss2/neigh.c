@@ -43,6 +43,7 @@ add_nearby_atom(Nearby *nearby, int iatom)
 static void
 build_nearby_atoms_box(Sim *sim, Box *box)
 {
+    dbg("building nearby atoms for box %d\n", box->i);
     /* Build nearby lists only for local atoms */
     for (int iatom = 0; iatom < box->nlocal; iatom++) {
         Vec ri = { box->r[iatom][X], box->r[iatom][Y], box->r[iatom][Z] };

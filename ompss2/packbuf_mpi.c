@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 #include "types.h"
 #include "log.h"
 
@@ -9,7 +9,6 @@ static int
 isend(const void *buf, int count, MPI_Datatype datatype, int dest,
         int tag, MPI_Comm comm, MPI_Request *request)
 {
-    die("isend is disabled!\n");
     if (ENABLE_NONBLOCKING_TAMPI) {
         return TAMPI_Isend(buf, count, datatype, dest, tag, comm, request);
     }
@@ -21,7 +20,6 @@ static int
 irecv(void *buf, int count, MPI_Datatype datatype, int source,
         int tag, MPI_Comm comm, MPI_Request *request)
 {
-    die("irecv is disabled!\n");
     if (ENABLE_NONBLOCKING_TAMPI) {
         return TAMPI_Irecv(buf, count, datatype, source, tag, comm, request,
                 MPI_STATUS_IGNORE);
@@ -35,8 +33,8 @@ packbuf_mpi_send_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-    dbg("packbuf_mpi_send_buf: natoms=%d remoterank=%d tag=%d\n",
-            pb->natoms, pb->remoterank, pb->tag);
+    dbg("packbuf_mpi_send_buf: natoms=%d remoterank=%d tag=%d icomm=%d\n",
+            pb->natoms, pb->remoterank, pb->tag, pb->icomm);
 
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
@@ -66,8 +64,8 @@ packbuf_mpi_send_buf(PackBuf *pb)
 void
 packbuf_mpi_send(PackBuf *pb)
 {
-    dbg("packbuf_mpi_send: natoms=%d remoterank=%d tag=%d\n",
-            pb->natoms, pb->remoterank, pb->tag);
+    dbg("packbuf_mpi_send: natoms=%d remoterank=%d tag=%d icomm=%d\n",
+            pb->natoms, pb->remoterank, pb->tag, pb->icomm);
 
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
@@ -95,8 +93,8 @@ packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
-    dbg("packbuf_mpi_recv_buf: natoms=%d remoterank=%d tag=%d\n",
-            natoms, pb->remoterank, pb->tag);
+    dbg("packbuf_mpi_recv_buf: natoms=%d remoterank=%d tag=%d icomm=%d\n",
+            natoms, pb->remoterank, pb->tag, pb->icomm);
 
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
@@ -128,33 +126,32 @@ packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
 
-static void
-packbuf_mpi_recv_natoms_(PackBuf *pb)
+void
+packbuf_mpi_recv_natoms(PackBuf *pb)
 {
+    packbuf_switch(pb, PB_READY, PB_RECVING);
     /* Find out how many atoms I need to make room for */
-    dbg("packbuf_mpi_recv_natoms: natoms=? remoterank=%d tag=%d\n",
-            pb->remoterank, pb->tag);
+    dbg("packbuf_mpi_recv_natoms: natoms=? remoterank=%d tag=%d icomm=%d\n",
+            pb->remoterank, pb->tag, pb->icomm);
 
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
 
     if (ENABLE_NONBLOCKING_MPI) {
+
         if (pb->waitreqn)
             die("packbuf_mpi_recv_natoms: buffer in use\n");
 
         irecv((void *) &pb->recvnatoms, 1, MPI_INT,
                 pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
 
-        if (NEED_EXPLICIT_WAIT)
+        if (NEED_EXPLICIT_WAIT) {
             pb->waitreqn = 1;
+        }
+
     } else {
         MPI_Recv((void *) &pb->recvnatoms, 1, MPI_INT,
                 pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
     }
-}
-
-void
-packbuf_mpi_recv_natoms(PackBuf *pb)
-{
-    packbuf_mpi_recv_natoms_(pb);
+    packbuf_switch(pb, PB_RECVING, PB_READY);
 }

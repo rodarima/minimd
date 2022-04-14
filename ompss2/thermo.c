@@ -29,6 +29,8 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 
+#define ENABLE_DEBUG 0
+#include "log.h"
 #include "types.h"
 
 #include <mpi.h>
@@ -95,12 +97,11 @@ check_final_energy(Sim *sim, double pot, double kin, double tot)
         double relerr = fabs((sim->E0_tot - tot) / sim->E0_tot);
 
         if (relerr >= MAX_ENERGY_REL_ERROR) {
-            fprintf(stderr, "fatal: the final total energy diverges too much %e (max %e)\n",
+            die("the final total energy diverges too much %e (max %e)\n",
                     relerr, MAX_ENERGY_REL_ERROR);
-            abort();
         }
 
-        fprintf(stderr, "total energy relative error %e (max %e)\n",
+        err("total energy relative error %e (max %e)\n",
                 relerr, MAX_ENERGY_REL_ERROR);
     }
 }
@@ -156,7 +157,7 @@ thermo_update_internal(Sim *sim, int iter)
         sim->E0_pot = pot_energy;
         sim->E0_kin = kin_energy;
         sim->E0_tot = tot_energy;
-    } else if (iter == sim->timesteps - 1) {
+    } else if (iter == sim->timesteps) {
         check_final_energy(sim, pot_energy, kin_energy, tot_energy);
     }
 

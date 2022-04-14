@@ -9,9 +9,11 @@
 #error ENABLE_DEBUG must be defined
 #endif
 
+#define ENABLE_GLOBAL_DEBUG 1
+
  /* Debug macros */
 # define dbg(...) do { \
-    if(ENABLE_DEBUG) fprintf(stderr, __VA_ARGS__); \
+    if(ENABLE_DEBUG && ENABLE_GLOBAL_DEBUG) fprintf(stderr, __VA_ARGS__); \
 } while (0)
 
 #define err(...) \

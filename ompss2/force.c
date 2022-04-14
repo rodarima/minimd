@@ -200,7 +200,7 @@ update_force_box_loop(Sim *sim, Box *box)
         /* The bin is only needed if we want to accumulate energy */
         if (ENABLE_REALTIME_ENERGY) {
             int ibin = get_atom_bin(sim, box, box->r[i]);
-            Bin *bin = &box->bin[ibin];
+            bin = &box->bin[ibin];
         }
 
         update_force_atom(sim, box, bin, i);
