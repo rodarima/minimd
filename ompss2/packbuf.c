@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"
@@ -72,15 +72,22 @@ packbuf_grow_extra(PackBuf *pb, int nextra)
 }
 
 void
-packbuf_shmcopy(PackBuf *src, PackBuf *dst)
+packbuf_shmcopy(PackBuf *src, PackBuf *dst, enum pb_reqtype reqtype)
 {
+    dbg("packbuf_shmcopy: natoms=%d reqtype=%d\n",
+            src->natoms, reqtype);
+
     packbuf_switch(src, PB_READY, PB_COPYING);
     packbuf_switch(dst, PB_READY, PB_COPYING);
+
+    if (reqtype == PB_NATOMS)
+        die("non-sense\n");
 
     if (src->natoms != 0) {
         packbuf_grow(dst, src->natoms);
         memcpy(dst->buf, src->buf, src->natoms * src->atomsize * sizeof(double));
     }
+
     dst->natoms = src->natoms;
 
     packbuf_switch(dst, PB_COPYING, PB_READY);
@@ -201,6 +208,16 @@ packbuf_clear(PackBuf *pb)
 }
 
 void
+packbuf_recv(PackBuf *pb, enum pb_reqtype reqtype)
+{
+    if (ENABLE_GASPI && pb->gaspi) {
+        packbuf_gaspi_recv(pb, reqtype);
+    } else {
+        packbuf_mpi_recv(pb, reqtype);
+    }
+}
+
+void
 packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
         int remoterank, int tag, int icomm, MPI_Comm *comm)
 {
@@ -219,3 +236,19 @@ packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
     packbuf_switch(pb, PB_GARBAGE, PB_READY);
 }
 
+enum pb_type
+packbuf_opposite_dir(enum pb_type type)
+{
+    switch (type) {
+        case PB_SEND_R: return PB_RECV_R;
+        case PB_SEND_RT: return PB_RECV_RT;
+        case PB_SEND_RVT: return PB_RECV_RVT;
+        case PB_RECV_R: return PB_SEND_R;
+        case PB_RECV_RT: return PB_SEND_RT;
+        case PB_RECV_RVT: return PB_SEND_RVT;
+        default: die("unknown pb_type\n");
+    }
+
+    /* Not reached */
+    return 0;
+}

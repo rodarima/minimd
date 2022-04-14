@@ -59,21 +59,24 @@ packbuf_gaspi_send_buf(PackBuf *pb)
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
 
-void
-packbuf_gaspi_recv_buf(PackBuf *pb, int natoms)
+static void
+recv_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
-    dbg("packbuf_gaspi_recv_buf: natoms=%d remoterank=%d tag=%d\n",
-            natoms, pb->remoterank, pb->tag);
+    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d tag=%d\n",
+            pb->recvnatoms, pb->remoterank, pb->tag);
 
     if (pb->waitreq)
         die("packbuf_gaspi_recv_buf: buffer in use\n");
 
-    if (natoms > 0) {
-        if (natoms < pb->nalloc)
+    if (pb->recvnatoms < 0)
+        die("bad recvnatoms\n");
+
+    if (pb->recvnatoms > 0) {
+        if (pb->recvnatoms < pb->nalloc)
             die("packbuf_gaspi_recv_buf: buffer too small for %d atoms\n",
-                    natoms);
+                    pb->recvnatoms);
 
         while (1) {
             gaspi_return_t ret = tagaspi_notify_async_wait(
@@ -93,6 +96,16 @@ packbuf_gaspi_recv_buf(PackBuf *pb, int natoms)
         pb->waitreq = 1;
     }
 
-    pb->natoms = natoms;
+    pb->natoms = pb->recvnatoms;
     packbuf_switch(pb, PB_RECVING, PB_READY);
+}
+
+void
+packbuf_gaspi_recv(PackBuf *pb, enum pb_reqtype reqtype)
+{
+    if (reqtype == PB_NATOMS) {
+        die("not implemented\n");
+    } else {
+        recv_buf(pb)
+    }
 }

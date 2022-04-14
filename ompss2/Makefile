@@ -35,6 +35,11 @@ LDFLAGS+=-fsanitize=address
 
 SRC=box.c \
   comm.c \
+  comm_send.c \
+  comm_recv.c \
+  comm_pack.c \
+  comm_unpack.c \
+  comm_wait.c \
   force.c \
   input.c \
   integrate.c \

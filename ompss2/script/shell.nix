@@ -13,8 +13,15 @@ let
     src = builtins.fetchGit {
       url = "ssh://git@bscpm03.bsc.es/llvm-ompss/llvm-mono.git";
       ref = "master";
+
+      # Broken
       #rev = "dc297872575e16afcd526120118a365bab150efc";
-      rev = "ecc7282a0f7f8494366e42dbc710ffda388ccec9";
+
+      # Was working okeish
+      #rev = "ecc7282a0f7f8494366e42dbc710ffda388ccec9";
+
+      # 2022-04-14: Testing HEAD to see if I can avoid a crash
+      rev = "d4a6748b53036787166cd6957b5f1dd16f8379a5";
     };
     version = src.shortRev;
   });
@@ -45,7 +52,6 @@ in
     pkgs.gdb
     rWrapper (tampi.override {mpi=mpi;}) ];
     shellHook = ''
-      export LANG=C
       echo "NOTE: using mpi=${mpi}"
     '';
   }

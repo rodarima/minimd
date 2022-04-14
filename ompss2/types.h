@@ -82,13 +82,13 @@ typedef int    Range[NDIM][NLIM];
 
 /* Print a histogram of the force magnitudes per box. It should be
  * smooth. */
-#define ENABLE_FHIST 0
+#define ENABLE_FHIST 1
 
 /* Print a histogram of the velocity magnitudes per box. */
-#define ENABLE_VHIST 0
+#define ENABLE_VHIST 1
 
 /* Print a histogram of the distance between nearby atoms. */
-#define ENABLE_DHIST 0
+#define ENABLE_DHIST 1
 
 /* Compute the energy during the simulation. Needed to validate the
  * results. */
@@ -104,7 +104,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Writes the position of the atoms per iteration. Introduces a lot of
  * overhead */
-#define ENABLE_ATOM_TRACKING 0
+#define ENABLE_ATOM_TRACKING 1
 
 /* Halts the simulation if an atom doesn't interact with at least half
  * the neighbors (they are too far away to interact). This may happen
@@ -120,7 +120,7 @@ typedef int    Range[NDIM][NLIM];
 
 /* Checks the number of atoms is expected before and after an operation.
  * Needs task wait so it can cause other bugs to disappear. */
-#define ENABLE_ATOM_COUNT_CHECK 0
+#define ENABLE_ATOM_COUNT_CHECK 1
 
 /* Uses only these many atoms. Use 0 to run normally */
 #define ENABLE_ONLY_NTOTATOMS 0
@@ -240,7 +240,7 @@ enum gaspi_segment_dir {
 enum pb_reqtype {
     PB_BUF = 0,
     PB_NATOMS = 1,
-    PB_NREQTYPES
+    PB_NREQTYPES = 2
 };
 
 typedef struct {
@@ -333,6 +333,19 @@ enum pb_type {
     PB_RECV_RVT,
     PB_NTYPES
 };
+
+#define PB_TYPENAME(x) ( \
+((char *[]){ \
+"PB_SEND_R", "PB_RECV_R", \
+"PB_SEND_RT", "PB_RECV_RT", \
+"PB_SEND_RVT", "PB_RECV_RVT" \
+})[x])
+
+#define PB_REQTYPENAME(x) ( \
+((char *[]){ \
+"PB_BUF", "PB_NATOMS" \
+})[x])
+
 
 /* All information needed for a box of the simulation */
 typedef struct box {
@@ -515,11 +528,6 @@ void box_add_atom(Box *box, Vec r, Vec v, int type);
 
 void force_init(Sim *sim);
 void force_update(Sim *sim);
-
-void comm_setup(Sim *sim);
-void comm_tidy(Sim *sim);
-void comm_borders(Sim *sim);
-void comm_ghost_position(Sim *sim);
 
 void *safe_realloc(void *ptr, size_t size);
 

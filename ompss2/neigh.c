@@ -37,9 +37,9 @@ add_nearby_atom(Nearby *nearby, int iatom)
 }
 
 #pragma oss task label("build_nearby_atoms_box") \
-    in(*(char **)&box->r) \
-    in(*(char **)&box->bin) \
-    out(*(char **)&box->nearby)
+    in(box->r) \
+    in(box->bin) \
+    out(box->nearby)
 static void
 build_nearby_atoms_box(Sim *sim, Box *box)
 {
@@ -105,8 +105,8 @@ build_nearby_atoms_box(Sim *sim, Box *box)
 }
 
 #pragma oss task label("bin_atoms") \
-    in(*(char **)&box->r) \
-    out(*(char **)&box->bin)
+    in(box->r) \
+    out(box->bin)
 static void
 bin_atoms(Sim *sim, Box *box)
 {
@@ -129,4 +129,6 @@ build_nearby_atoms(Sim *sim)
         bin_atoms(sim, box);
         build_nearby_atoms_box(sim, box);
     }
+
+    #pragma oss taskwait
 }

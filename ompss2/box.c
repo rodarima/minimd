@@ -3,10 +3,12 @@
 
 #define BOX_ALLOC_INCR 20000
 
+/* Ensures that at least n atoms fit in the box (both local and ghosts) */
 void
-box_grow_array(Box *box)
+box_realloc(Box *box, int n)
 {
-    int n = box->nalloc + BOX_ALLOC_INCR;
+    if (box->nalloc >= n)
+        return;
 
     box->r = (Vec *) safe_realloc(box->r, n * sizeof(box->r[0]));
     box->v = (Vec *) safe_realloc(box->v, n * sizeof(box->v[0]));
@@ -25,6 +27,14 @@ box_grow_array(Box *box)
 }
 
 void
+box_grow_array(Box *box)
+{
+    int n = box->nalloc + BOX_ALLOC_INCR;
+
+    box_realloc(box, n);
+}
+
+void
 box_add_atom(Box *box, Vec r, Vec v, int type)
 {
     int i = box->nlocal;
@@ -40,4 +50,3 @@ box_add_atom(Box *box, Vec r, Vec v, int type)
     box->atomtype[i] = type;
     box->nlocal++;
 }
-

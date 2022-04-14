@@ -90,13 +90,13 @@ packbuf_mpi_send(PackBuf *pb)
     packbuf_mpi_send_buf(pb);
 }
 
-void
-packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
+static void
+recv_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
-    dbg("packbuf_mpi_recv_buf: natoms=%d remoterank=%d tag=%d icomm=%d\n",
-            natoms, pb->remoterank, pb->tag, pb->icomm);
+    dbg("packbuf_mpi_recv_buf: recvnatoms=%d remoterank=%d tag=%d icomm=%d\n",
+            pb->recvnatoms, pb->remoterank, pb->tag, pb->icomm);
 
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
@@ -104,12 +104,12 @@ packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
     if (ENABLE_NONBLOCKING_MPI && pb->waitreq[PB_BUF])
         die("packbuf_mpi_recv_buf: buffer in use\n");
 
-    if (natoms > 0) {
+    if (pb->recvnatoms > 0) {
         /* Grow the buffer if needed */
-        packbuf_grow(pb, natoms);
+        packbuf_grow(pb, pb->recvnatoms);
 
         /* And receive that many atoms */
-        int size = natoms * pb->atomsize;
+        int size = pb->recvnatoms * pb->atomsize;
 
         if (ENABLE_NONBLOCKING_MPI) {
             irecv((void *) pb->buf, size, MPI_DOUBLE,
@@ -123,13 +123,14 @@ packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
     }
 
     /* FIXME: this is dangerous as we are writing the natoms in the buffer
-    while they may be still being written by MPI_Irecv */
-    pb->natoms = natoms;
+    while they may be still being written by MPI_Irecv. We can move this to the
+    wait operation if we have NEED_EXPLICIT_WAIT. */
+    pb->natoms = pb->recvnatoms;
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
 
-void
-packbuf_mpi_recv_natoms(PackBuf *pb)
+static void
+recv_natoms(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
     /* Find out how many atoms I need to make room for */
@@ -155,8 +156,20 @@ packbuf_mpi_recv_natoms(PackBuf *pb)
         MPI_Recv((void *) &pb->recvnatoms, 1, MPI_INT,
                 pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
     }
+
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
+
+void
+packbuf_mpi_recv(PackBuf *pb, enum pb_reqtype reqtype)
+{
+    if (reqtype == PB_NATOMS) {
+        recv_natoms(pb);
+    } else {
+        recv_buf(pb);
+    }
+}
+
 
 #define MAXREQ NNEIGH
 
@@ -183,11 +196,14 @@ packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_reqtype reqtype)
             if (pbs[i]->waitreq[reqtype])
                 MPI_Wait(&pbs[i]->req[reqtype], MPI_STATUSES_IGNORE);
         }
+
     } else {
+
         for (int i = 0; i < n; i++) {
             if (pbs[i]->waitreq[reqtype])
                 memcpy(&req[nreq++], &pbs[i]->req[reqtype], sizeof(MPI_Request));
         }
+
         MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
     }
 

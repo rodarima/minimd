@@ -219,7 +219,8 @@ update_force_box_loop(Sim *sim, Box *box)
 static void
 dump_atoms(Sim *sim, Box *box)
 {
-    if (sim->iter == -1) {
+    #pragma oss taskwait
+    if (box->iter == -1) {
         FILE *f = fopen("atompos.csv", "w");
         fprintf(f, "iter,atom,ghost,x,y,z,neigh\n");
         fclose(f);
@@ -231,12 +232,12 @@ dump_atoms(Sim *sim, Box *box)
         int ghost = j >= box->nlocal;
         int nearby = ghost ? 0 : box->nearby[j].natoms;
         fprintf(f, "%d,%d,%d,%e,%e,%e,%d\n",
-                sim->iter, j, ghost, (*r)[X], (*r)[Y], (*r)[Z],
+                box->iter, j, ghost, (*r)[X], (*r)[Y], (*r)[Z],
                 nearby);
     }
     fclose(f);
 
-    if (sim->iter == -1) {
+    if (box->iter == -1) {
         FILE *f = fopen("atomneigh.csv", "w");
         fprintf(f, "iter,atom,i,neigh,x,y,z\n");
         fclose(f);
@@ -249,7 +250,7 @@ dump_atoms(Sim *sim, Box *box)
                 int neigh = box->nearby[j].atom[i];
                 Vec *r = &box->r[neigh];
                 fprintf(f, "%d,%d,%d,%d,%e,%e,%e\n",
-                        sim->iter, j, i, neigh,
+                        box->iter, j, i, neigh,
                         (*r)[X], (*r)[Y], (*r)[Z]);
             }
         }
@@ -260,12 +261,12 @@ dump_atoms(Sim *sim, Box *box)
 /* Update force for the local atoms in a box */
 #pragma oss task \
     label("update_force_box") \
-    in(*(char **)&box->iter) \
-    in(*(char **)&box->r) \
-    in(*(char **)&box->bin) \
-    in(*(char **)&box->nearby) \
-    inout(*(char **)&box->vdwl_energy, *(char **)&box->virial_pressure) \
-    inout(*(char **)&box->f)
+    in(box->iter) \
+    in(box->r) \
+    in(box->bin) \
+    in(box->nearby) \
+    inout(box->vdwl_energy, box->virial_pressure) \
+    inout(box->f)
 static void
 update_force_box(Sim *sim, Box *box)
 {

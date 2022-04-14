@@ -35,6 +35,7 @@
 #include "log.h"
 #include "neigh.h"
 #include "gaspi_check.h"
+#include "comm.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -117,6 +118,7 @@ setup_boxes(Sim *sim)
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
 
+        box->iter = -1;
         box->i = i;
         box->idim[X] = sim->rankdim[X];
         box->idim[Y] = i;
@@ -814,6 +816,18 @@ check_neighbor_coords(Sim *sim)
             if (neigh->rank != sim->rank)
                 continue;
 
+            /* FIXME: This is too complex, we need to find a better structure to
+             * obtain the opposite (box,neigh) pairs */
+
+            int send_idir = neigh->i;
+            int recv_idir = opposite_neigh(send_idir);
+
+            Box *sendbox = box;
+            Neigh *sendneigh = neigh;
+
+            Box *recvbox = &sim->box[sendneigh->opposite->boxid];
+            Neigh *recvneigh = &recvbox->neigh[recv_idir];
+
             struct msg msend = {
                 .srcrank = sim->rank,
                 .srcbox = box->i,
@@ -835,30 +849,25 @@ check_neighbor_coords(Sim *sim)
                 .recv_dir = neigh->opposite->i
             };
 
-            /* FIXME: This is too complex, we need to find a better structure to
-             * obtain the opposite (box,neigh) pairs */
-            Box *otherbox = &sim->box[neigh->opposite->boxid];
-            Neigh *otherneigh = &otherbox->neigh[neigh->opposite->i];
-
             struct msg mrecv = {
                 .srcrank = sim->rank,
-                .srcbox = otherneigh->opposite->boxid,
+                .srcbox = recvneigh->opposite->boxid,
                 .srcbox_coord = {
-                    otherneigh->boxcoordw[X],
-                    otherneigh->boxcoordw[Y],
-                    otherneigh->boxcoordw[Z]
+                    recvneigh->boxcoordw[X],
+                    recvneigh->boxcoordw[Y],
+                    recvneigh->boxcoordw[Z]
                 },
-                .send_dir = otherneigh->opposite->i,
+                .send_dir = recvneigh->opposite->i,
                 .tag = 666,
                 .icomm = 666,
                 .dstrank = sim->rank,
-                .dstbox = otherbox->i,
+                .dstbox = recvbox->i,
                 .dstbox_coord = {
-                    otherbox->idim[X],
-                    otherbox->idim[Y],
-                    otherbox->idim[Z]
+                    recvbox->idim[X],
+                    recvbox->idim[Y],
+                    recvbox->idim[Z]
                 },
-                .recv_dir = otherneigh->i
+                .recv_dir = recvneigh->i
             };
 
             if (memcmp(&msend, &mrecv, sizeof(mrecv)) != 0)
@@ -1255,8 +1264,27 @@ setup_packbuf(Sim *sim)
         }
     }
 
-    /* XXX: Sync ranks */
-    sleep(sim->rank * 3);
+    for (int i = 0; i < sim->nboxes; i++) {
+        Box *box = &sim->box[i];
+
+        for (int j = 0; j < NNEIGH; j++) {
+            Neigh *neigh = &box->neigh[j];
+
+            if (box->pb[PB_SEND_R][j] != &neigh->send_r)
+                die("bad pb pointer\n");
+            if (box->pb[PB_SEND_RT][j] != &neigh->send_rt)
+                die("bad pb pointer\n");
+            if (box->pb[PB_SEND_RVT][j] != &neigh->send_rvt)
+                die("bad pb pointer\n");
+
+            if (box->pb[PB_RECV_R][j] != &neigh->recv_r)
+                die("bad pb pointer\n");
+            if (box->pb[PB_RECV_RT][j] != &neigh->recv_rt)
+                die("bad pb pointer\n");
+            if (box->pb[PB_RECV_RVT][j] != &neigh->recv_rvt)
+                die("bad pb pointer\n");
+        }
+    }
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
@@ -1517,12 +1545,16 @@ sim_run(Sim *sim)
         } else {
             comm_tidy(sim);
             check_natoms_debug(sim);
+            #pragma oss taskwait
             //sort_atoms(sim);
             comm_borders(sim);
+            #pragma oss taskwait
             check_natoms_debug(sim);
+            #pragma oss taskwait
             build_nearby_atoms(sim);
         }
 
+        #pragma oss taskwait
         check_natoms_debug(sim);
         force_update(sim);
         integrate_velocity(sim);
