@@ -3,6 +3,7 @@
 #include "log.h"
 #include "neigh.h"
 #include "dom.h"
+#include "packbuf.h"
 
 #include <mpi.h>
 #include <stdio.h>
@@ -52,6 +53,22 @@ copy_atom_rvt(Box *box, int src, int dst)
     box->atomtype[dst] = box->atomtype[src];
 }
 
+static void
+box_waitmpi_internal(Sim *sim, Box *box, size_t off, const char *name,
+        enum pb_reqtype reqtype)
+{
+    #pragma oss taskwait
+    PackBuf *pbs[NNEIGH];
+
+    for (int i = 0; i < NNEIGH; i++) {
+        Neigh *neigh = &box->neigh[i];
+        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
+        pbs[i] = pb;
+    }
+
+    packbuf_mpi_waitn(pbs, NNEIGH, reqtype);
+}
+
 //#pragma oss task label("box_waitmpi_natoms") \
 //    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->natoms, i=0;NNEIGH}) \
 //    out({*(char **) &((PackBuf *) (((char *) &box->neigh[i]) + off))->buf,    i=0;NNEIGH})
@@ -59,33 +76,7 @@ static void
 box_waitmpi_natoms(Sim *sim, Box *box, size_t off, const char *name)
 {
     #pragma oss taskwait
-    MPI_Request req[NNEIGH];
-    int nreq = 0;
-
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
-
-        packbuf_debug_switch(pb, PB_READY, PB_WAITING);
-
-        if (pb->waitreqn) {
-            dbg("rank%d:box%d waiting for natoms in neigh %d tag=%d\n",
-                    sim->rank, box->i, i, pb->tag);
-            MPI_Wait(&pb->reqn, MPI_STATUS_IGNORE);
-            //memcpy(&req[nreq++], &pb->reqn, sizeof(MPI_Request));
-            pb->waitreqn = 0;
-            dbg("rank%d:box%d wait ends for natoms in neigh %d tag=%d\n",
-                    sim->rank, box->i, i, pb->tag);
-        }
-    }
-
-    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
-
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
-        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
-    }
+    box_waitmpi_internal(sim, box, off, name, PB_NATOMS);
 }
 
 /* FIXME: We should use in() for send buffers */
@@ -96,35 +87,8 @@ static void
 box_waitmpi_buf(Sim *sim, Box *box, size_t off, const char *name)
 {
     #pragma oss taskwait
-    MPI_Request req[NNEIGH];
-    int nreq = 0;
-
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
-
-        packbuf_debug_switch(pb, PB_READY, PB_WAITING);
-
-        if (pb->waitreq) {
-            dbg("rank%d:box%d waiting for buf in neigh %d tag=%d\n",
-                    sim->rank, box->i, i, pb->tag);
-            MPI_Wait(&pb->req, MPI_STATUS_IGNORE);
-            //memcpy(&req[nreq++], &pb->req, sizeof(MPI_Request));
-            dbg("rank%d:box%d wait ends for buf in neigh %d tag=%d\n",
-                    sim->rank, box->i, i, pb->tag);
-            pb->waitreq = 0;
-        }
-    }
-
-    //MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
-
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        PackBuf *pb = (PackBuf *) (((char *) neigh) + off);
-        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
-    }
+    box_waitmpi_internal(sim, box, off, name, PB_BUF);
 }
-
 
 /* Removes the atoms that lay outside the box domain and packs them in
  * the appropriate neighbor PackBuf. Only position (r), velocity (v) and

@@ -1,6 +1,7 @@
 #define ENABLE_DEBUG 1
 #include "log.h"
 #include "types.h"
+#include "packbuf.h"
 #include "gaspi_check.h"
 
 #include <GASPI.h>

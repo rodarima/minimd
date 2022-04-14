@@ -144,6 +144,10 @@ typedef int    Range[NDIM][NLIM];
 /* Use MPI_Waitall if needed */
 #define NEED_EXPLICIT_WAIT (ENABLE_NONBLOCKING_MPI && !ENABLE_NONBLOCKING_TAMPI)
 
+/* Use MPI_Wait instead of MPI_Waitall to individually wait for each
+ * MPI request (useful for debugging deadlocks). */
+#define ENABLE_SEQUENTIAL_MPIWAIT 1
+
 /* If enabled, tagaspi will be used to exchange ghost positions */
 #define ENABLE_GASPI 0
 
@@ -233,6 +237,12 @@ enum gaspi_segment_dir {
     RECVSEG = 1
 };
 
+enum pb_reqtype {
+    PB_BUF = 0,
+    PB_NATOMS = 1,
+    PB_NREQTYPES
+};
+
 typedef struct {
     int natoms;     /* Number of atoms currently in the buffer */
     int recvnatoms; /* Number of atoms to be received */
@@ -243,12 +253,10 @@ typedef struct {
     int *sel;       /* Selection of atoms */
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
-    MPI_Request req;
-    MPI_Request reqn;
+    MPI_Request req[PB_NREQTYPES];
     MPI_Comm *comm;
     int icomm;      /* And index to identify the MPI_Comm */
-    int waitreq;    /* Wait for the request before writing the buffer */
-    int waitreqn;   /* Wait for the request before writing natoms */
+    int waitreq[PB_NREQTYPES];    /* Wait for the request before writing the buffer */
     int remoterank;
     int tag;
 
@@ -260,12 +268,6 @@ typedef struct {
     size_t recvoffset;
     int queue;
 } PackBuf;
-
-//typedef struct {
-//    PackBuf send;
-//    PackBuf recv;
-//    int tag;
-//} Chan;
 
 typedef struct box Box;
 typedef struct neigh Neigh;
@@ -507,30 +509,6 @@ void comm_borders(Sim *sim);
 void comm_ghost_position(Sim *sim);
 
 void *safe_realloc(void *ptr, size_t size);
-
-void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
-void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
-void packbuf_mpi_send(PackBuf *pb);
-void packbuf_mpi_send_buf(PackBuf *pb);
-void packbuf_mpi_recv_natoms(PackBuf *pb);
-void packbuf_mpi_recv_buf(PackBuf *pb, int natoms);
-
-void packbuf_gaspi_send_buf(PackBuf *pb);
-void packbuf_gaspi_recv_buf(PackBuf *pb, int natoms);
-
-void packbuf_shmcopy(PackBuf *src, PackBuf *dst);
-void packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type);
-void packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom);
-void packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types);
-void packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel);
-void packbuf_clear(PackBuf *pb);
-void packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank, int tag, int icomm, MPI_Comm *comm);
-void packbuf_grow(PackBuf *pb, int n);
-
-void packbuf_gaspi_init(PackBuf *pb, double *newbuf,
-        int sendseg, size_t send_offset_bytes,
-        int recvseg, size_t recv_offset_bytes,
-        size_t nalloc, int queue);
 
 void build_nearby_atoms(Sim *sim);
 

@@ -1,6 +1,7 @@
 #define ENABLE_DEBUG 0
 #include "types.h"
 #include "log.h"
+#include "packbuf.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -95,7 +96,7 @@ packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
     /* Ensure we have room for another atom */
     packbuf_grow_extra(pb, 1);
 
-    if (pb->waitreqn || pb->waitreq)
+    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
         die("packbuf_add: buffer in use\n");
 
     int j = pb->natoms * pb->atomsize;
@@ -139,7 +140,7 @@ packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
 {
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
 
-    if (pb->waitreqn || pb->waitreq)
+    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
         die("packbuf_unpack: buffer in use\n");
 
     for (int i = 0, j = 0; i < pb->natoms; i++) {
@@ -165,7 +166,7 @@ packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
 {
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
 
-    if (pb->waitreqn || pb->waitreq)
+    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
         die("packbuf_unpack_sel: buffer in use\n");
 
     for (int i = 0, j = 0; i < pb->natoms; i++) {
@@ -191,7 +192,7 @@ packbuf_clear(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_CLEANING);
 
-    if (pb->waitreqn || pb->waitreq)
+    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
         die("packbuf_unpack_sel: buffer in use\n");
 
     pb->natoms = 0;

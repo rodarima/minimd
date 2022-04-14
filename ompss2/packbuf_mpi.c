@@ -1,7 +1,9 @@
 #define ENABLE_DEBUG 1
 #include "types.h"
 #include "log.h"
+#include "packbuf.h"
 
+#include <string.h>
 #include <mpi.h>
 #include <TAMPI.h>
 
@@ -40,16 +42,16 @@ packbuf_mpi_send_buf(PackBuf *pb)
         die("cannot use GASPI buffer with MPI\n");
 
     if (ENABLE_NONBLOCKING_MPI) {
-        if (pb->waitreq)
+        if (pb->waitreq[PB_BUF])
             die("packbuf_mpi_send_buf: buffer in use\n");
 
         if (pb->natoms != 0) {
 
             isend((void *) pb->buf, pb->natoms * pb->atomsize, MPI_DOUBLE,
-                    pb->remoterank, pb->tag, *pb->comm, &pb->req);
+                    pb->remoterank, pb->tag, *pb->comm, &pb->req[PB_BUF]);
 
             if (NEED_EXPLICIT_WAIT)
-                pb->waitreq = 1;
+                pb->waitreq[PB_BUF] = 1;
         }
     } else {
         if (pb->natoms != 0) {
@@ -70,17 +72,17 @@ packbuf_mpi_send(PackBuf *pb)
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
 
-    if (ENABLE_NONBLOCKING_MPI && pb->waitreqn)
+    if (ENABLE_NONBLOCKING_MPI && pb->waitreq[PB_NATOMS])
         die("packbuf_mpi_send: buffer in use\n");
 
     void *buf = (void *) &pb->natoms;
 
     if (ENABLE_NONBLOCKING_MPI) {
         isend(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm,
-                &pb->reqn);
+                &pb->req[PB_NATOMS]);
 
         if (NEED_EXPLICIT_WAIT)
-            pb->waitreqn = 1;
+            pb->waitreq[PB_NATOMS] = 1;
     } else {
         MPI_Send(buf, 1, MPI_INT, pb->remoterank, pb->tag, *pb->comm);
     }
@@ -99,7 +101,7 @@ packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
     if (pb->gaspi)
         die("cannot use GASPI buffer with MPI\n");
 
-    if (ENABLE_NONBLOCKING_MPI && pb->waitreq)
+    if (ENABLE_NONBLOCKING_MPI && pb->waitreq[PB_BUF])
         die("packbuf_mpi_recv_buf: buffer in use\n");
 
     if (natoms > 0) {
@@ -111,9 +113,9 @@ packbuf_mpi_recv_buf(PackBuf *pb, int natoms)
 
         if (ENABLE_NONBLOCKING_MPI) {
             irecv((void *) pb->buf, size, MPI_DOUBLE,
-                    pb->remoterank, pb->tag, *pb->comm, &pb->req);
+                    pb->remoterank, pb->tag, *pb->comm, &pb->req[PB_BUF]);
             if (NEED_EXPLICIT_WAIT)
-                pb->waitreq = 1;
+                pb->waitreq[PB_BUF] = 1;
         } else {
             MPI_Recv((void *) pb->buf, size, MPI_DOUBLE,
                     pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
@@ -139,14 +141,14 @@ packbuf_mpi_recv_natoms(PackBuf *pb)
 
     if (ENABLE_NONBLOCKING_MPI) {
 
-        if (pb->waitreqn)
+        if (pb->waitreq[PB_NATOMS])
             die("packbuf_mpi_recv_natoms: buffer in use\n");
 
         irecv((void *) &pb->recvnatoms, 1, MPI_INT,
-                pb->remoterank, pb->tag, *pb->comm, &pb->reqn);
+                pb->remoterank, pb->tag, *pb->comm, &pb->req[PB_NATOMS]);
 
         if (NEED_EXPLICIT_WAIT) {
-            pb->waitreqn = 1;
+            pb->waitreq[PB_NATOMS] = 1;
         }
 
     } else {
@@ -154,4 +156,43 @@ packbuf_mpi_recv_natoms(PackBuf *pb)
                 pb->remoterank, pb->tag, *pb->comm, MPI_STATUS_IGNORE);
     }
     packbuf_switch(pb, PB_RECVING, PB_READY);
+}
+
+#define MAXREQ NNEIGH
+
+/**
+ * Waits for all requests operating on "natoms" to finish by using MPI_Waitall
+ *
+ * @param pbs The PackBuf array of pointers to wait from
+ * @param n   Number of PackBuf elements in the array
+ */
+void
+packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_reqtype reqtype)
+{
+    if (n > MAXREQ)
+        die("too many requests");
+
+    MPI_Request req[MAXREQ];
+    int nreq = 0;
+
+    for (int i = 0; i < n; i++)
+        packbuf_switch(pbs[i], PB_READY, PB_WAITING);
+
+    if (ENABLE_SEQUENTIAL_MPIWAIT) {
+        for (int i = 0; i < n; i++) {
+            if (pbs[i]->waitreq[reqtype])
+                MPI_Wait(&pbs[i]->req[reqtype], MPI_STATUSES_IGNORE);
+        }
+    } else {
+        for (int i = 0; i < n; i++) {
+            if (pbs[i]->waitreq[reqtype])
+                memcpy(&req[nreq++], &pbs[i]->req[reqtype], sizeof(MPI_Request));
+        }
+        MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE);
+    }
+
+    for (int i = 0; i < n; i++) {
+        pbs[i]->waitreq[reqtype] = 0;
+        packbuf_switch(pbs[i], PB_WAITING, PB_READY);
+    }
 }

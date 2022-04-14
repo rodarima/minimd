@@ -31,6 +31,7 @@
 #define _GNU_SOURCE
 #define ENABLE_DEBUG 1
 #include "types.h"
+#include "packbuf.h"
 #include "log.h"
 #include "neigh.h"
 #include "gaspi_check.h"
@@ -709,7 +710,7 @@ check_neighbor_coords(Sim *sim)
                 Neigh *neigh = &box->neigh[i];
                 PackBuf *pb = &neigh->send_rvt;
 
-                pb->req = NULL;
+                pb->req[PB_BUF] = NULL;
 
                 /* Only need to send with distinct ranks */
                 if (neigh->rank == sim->rank)
@@ -744,7 +745,7 @@ check_neighbor_coords(Sim *sim)
                 memcpy(msend, &m, sizeof(m));
 
                 MPI_Isend(msend, sizeof(m), MPI_BYTE, pb->remoterank,
-                        pb->tag, *pb->comm, &pb->req);
+                        pb->tag, *pb->comm, &pb->req[PB_BUF]);
             }
         }
     }
@@ -757,7 +758,7 @@ check_neighbor_coords(Sim *sim)
 
                 PackBuf *pb = &neigh->recv_rvt;
 
-                pb->req = NULL;
+                pb->req[PB_BUF] = NULL;
 
                 if (neigh->rank == sim->rank)
                     continue;
@@ -800,7 +801,7 @@ check_neighbor_coords(Sim *sim)
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
             if (neigh->rank != sim->rank) {
-                MPI_Wait(&neigh->send_rvt.req, MPI_STATUS_IGNORE);
+                MPI_Wait(&neigh->send_rvt.req[PB_BUF], MPI_STATUS_IGNORE);
             }
         }
     }
