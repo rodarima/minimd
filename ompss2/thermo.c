@@ -152,6 +152,10 @@ thermo_update_internal(Sim *sim, int iter)
     if (sim->rank != 0)
         return;
 
+    sim->Epot = pot_energy;
+    sim->Ekin = kin_energy;
+    sim->Etot = tot_energy;
+
     /* Save initial values of energy */
     if (iter == 0) {
         sim->E0_pot = pot_energy;

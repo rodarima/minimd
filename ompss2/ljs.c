@@ -1494,7 +1494,7 @@ sim_init(Sim *sim, int argc, char *argv[])
     if (sim->rank == 0) err("force init ok\n");
 
     if (sim->refdir)
-        ref_compare(sim);
+        ref_check_atoms(sim);
 
     thermo_update(sim);
     #pragma oss taskwait
@@ -1564,11 +1564,12 @@ sim_run(Sim *sim)
         force_update(sim);
         integrate_velocity(sim);
 
-        if (sim->refdir)
-            ref_compare(sim);
+        ref_check_atoms(sim);
 
         if (print_thermo_stats || sim->iter == sim->timesteps)
             thermo_update(sim);
+
+        ref_check_energy(sim);
 
         for (int i = 0; i < sim->nboxes; i++) {
             Box *box = &sim->box[i];

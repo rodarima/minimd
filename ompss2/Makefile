@@ -28,8 +28,8 @@ LDFLAGS+=-g
 
 CFLAGS+=-std=c11
 
-CFLAGS+=-fsanitize=address
-LDFLAGS+=-fsanitize=address
+#CFLAGS+=-fsanitize=address
+#LDFLAGS+=-fsanitize=address
 
 #CFLAGS+=-Wno-attributes
 
