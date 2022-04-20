@@ -51,21 +51,29 @@ safe_fgets(char *s, int size, FILE *stream)
 static void
 usage()
 {
-    printf("-----------------------------------------------------------------------\n");
-    printf("%s\n", VARIANT_STRING);
-    printf("-----------------------------------------------------------------------\n");
-    printf("\n");
-    printf("miniMD is a simple, parallel molecular dynamics (MD) code,\n"
-           "which is part of the Mantevo project at Sandia National\n"
-           "Laboratories ( http://www.mantevo.org ).\n"
-           "The original authors of miniMD are Steve Plimpton (sjplimp@sandia.gov) ,\n"
-           "Paul Crozier (pscrozi@sandia.gov) with current\n"
-           "versions written by Christian Trott (crtrott@sandia.gov).\n");
-    printf("\n");
-    printf("Commandline Options:\n");
-    printf("  -i / --input_file <string>:   set input file to be used (default: in.lj.miniMD)\n");
-    printf("  -h / --help:                  display this help message\n\n");
-    printf("-----------------------------------------------------------------------\n");
+    printf(
+"-----------------------------------------------------------------------\n"
+"%s\n"
+"-----------------------------------------------------------------------\n"
+"\n"
+"miniMD is a simple, parallel molecular dynamics (MD) code,\n"
+"which is part of the Mantevo project at Sandia National\n"
+"Laboratories ( http://www.mantevo.org ).\n"
+"The original authors of miniMD are Steve Plimpton (sjplimp@sandia.gov) ,\n"
+"Paul Crozier (pscrozi@sandia.gov) with current\n"
+"versions written by Christian Trott (crtrott@sandia.gov).\n"
+"\n"
+"Commandline Options:\n"
+"  -i / --input_file <string>:   set input file to be used\n"
+"                                (default: in.lj.miniMD)\n"
+"\n"
+"  -r / --reference <dir>:       directory with reference outputs\n"
+"                                (enable reference comparison)\n"
+"\n"
+"  -h / --help:                  display this help message\n"
+"\n"
+"-----------------------------------------------------------------------\n",
+        VARIANT_STRING);
 
     exit(1);
 }
@@ -172,6 +180,7 @@ void
 parse_input(Sim *sim, int argc, char *argv[])
 {
     sim->inputfile = "in.lj.miniMD";
+    sim->refdir = NULL;
 
     /* Skip program name */
     for (int i = 1; i < argc; i++) {
@@ -182,6 +191,11 @@ parse_input(Sim *sim, int argc, char *argv[])
 
         if ((strcmp(argv[i], "-h") == 0) || (strcmp(argv[i], "--help") == 0)) {
             usage();
+            continue;
+        }
+
+        if ((strcmp(argv[i], "-r") == 0) || (strcmp(argv[i], "--reference") == 0)) {
+            sim->refdir = argv[++i];
             continue;
         }
 

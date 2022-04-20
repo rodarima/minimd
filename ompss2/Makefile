@@ -47,6 +47,7 @@ SRC=box.c \
   neigh.c \
   packbuf.c \
   packbuf_mpi.c \
+  ref.c \
   safe.c \
   thermo.c
 

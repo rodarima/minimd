@@ -111,6 +111,9 @@ typedef int    Range[NDIM][NLIM];
  * with too many time steps without re-neighboring. */
 #define ENABLE_MIN_INTERACTIONS_CHECK 1
 
+/* Checks that nearby atoms don't move more than a set limit. */
+#define ENABLE_MAX_JUMP_CHECK 1
+
 /* Counts the number of total force interactions */
 #define ENABLE_COUNT_INTERACTIONS 1
 
@@ -164,6 +167,9 @@ typedef int    Range[NDIM][NLIM];
 /* Same but for external usage */
 #define ENABLE_PACKBUF_DEBUG_STATE 1
 
+/* Strict comparison with reference values. Warning: it's VERY slow! */
+#define ENABLE_REF_COMPARE 0
+
 /* -------------------- DANGER ZONE BEGINS -------------------------- */
 
 /* These options cause the energy values reported by the simulation to
@@ -178,13 +184,13 @@ typedef int    Range[NDIM][NLIM];
 
 /* Correct the potential energy at R_force for atoms that leave the
  * interaction zone (also referred to e_cut) */
-#define ENABLE_ECUT_CORRECTION 1
+#define ENABLE_ECUT_CORRECTION 0
 
 /* Correct the kinetic energy scale by using ntotatoms instead of
  * ntotatoms - 1, as was being done in the reference. Leads to much
  * smaller errors in total energy when active, but breaks compatibility
  * with reference version values. */
-#define ENABLE_NTOTATOMS_CORRECTION 1
+#define ENABLE_NTOTATOMS_CORRECTION 0
 
 /* When the two corrections are enabled, we can measure the total energy
  * at the end of the simulation and check if it diverges. Without the
@@ -192,6 +198,21 @@ typedef int    Range[NDIM][NLIM];
 #define MAX_ENERGY_REL_ERROR 0.0005
 
 /* -------------------- END OF DANGER ZONE -------------------------- */
+
+/* Check common mistakes */
+
+
+#if ENABLE_REF_COMPARE
+# if !ENABLE_ATOM_TRACKING
+#  error "enable ENABLE_ATOM_TRACKING"
+# endif
+# if ENABLE_ECUT_CORRECTION
+#  error "disable ENABLE_ECUT_CORRECTION"
+# endif
+# if ENABLE_NTOTATOMS_CORRECTION
+#  error "disable ENABLE_NTOTATOMS_CORRECTION"
+# endif
+#endif
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -373,6 +394,8 @@ typedef struct box {
 
     Subdomain sub[NSUB]; /* Array of subdomains */
 
+    int fresh_ghost;  /* 1 it the ghosts have just been recomputed */
+
     /* These vectors hold the `nlocal` local atoms and, immediately
      * after, the `nghost` ghost atoms. They may not use all the fields
      * (ghost don't have velocity). The allocated size is `nalloc` */
@@ -502,6 +525,8 @@ typedef struct sim {
     int nranksdim[NDIM]; /* Number of ranks (MPI processes) per dimension */
     MPI_Comm cartesian; /* Cartesian communicator */
     int rankcoord[NDIM]; /* Coordinates of the process */
+    
+    char *refdir; /* Directory with reference output (NULL disables) */
 
     double E0_pot; /* Potential energy at start */
     double E0_kin; /* Kinetic energy at start */

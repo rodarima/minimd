@@ -102,6 +102,8 @@ build_nearby_atoms_box(Sim *sim, Box *box)
             }
         }
     }
+
+    box->fresh_ghost = 1;
 }
 
 #pragma oss task label("bin_atoms") \

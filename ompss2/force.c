@@ -50,7 +50,7 @@ check_max_force(Vec f)
 static void
 check_min_interactions(int ninteractions, int n)
 {
-    if (ninteractions < n / 2) {
+    if (ninteractions < n * 0.5) {
         fprintf(stderr, "too few interactions: %d/%d\n",
                 ninteractions, n);
         abort();
@@ -102,8 +102,8 @@ check_atom_force(Box *box, Vec f, int ninteractions, int nn)
 
         /* Not sure if we can always guarantee this property, but is
          * useful for debugging */
-//        if (box->iter == -1 && ninteractions != 54)
-//            abort();
+        if (box->iter == 1 && ninteractions != 54)
+            die("expected 54 interactions\n");
     }
 }
 
@@ -125,7 +125,7 @@ update_force_atom(Sim *sim, Box *box, Bin *bin, int i)
         int j = nearby->atom[k];
         int type_ij = type_offset + box->atomtype[j];
 
-        /* Compute distance vector to the nearby atom  */
+        /* Compute distance vector to the nearby atom */
         Vec delta;
         vec_diff(delta, ri, box->r[j]);
         double sqdist = dotprod(delta);
@@ -220,7 +220,7 @@ static void
 dump_atoms(Sim *sim, Box *box)
 {
     #pragma oss taskwait
-    if (box->iter == -1) {
+    if (box->iter == 0) {
         FILE *f = fopen("atompos.csv", "w");
         fprintf(f, "iter,atom,ghost,x,y,z,neigh\n");
         fclose(f);
@@ -237,7 +237,7 @@ dump_atoms(Sim *sim, Box *box)
     }
     fclose(f);
 
-    if (box->iter == -1) {
+    if (box->iter == 0) {
         FILE *f = fopen("atomneigh.csv", "w");
         fprintf(f, "iter,atom,i,neigh,x,y,z\n");
         fclose(f);

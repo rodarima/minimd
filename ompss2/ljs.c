@@ -36,6 +36,7 @@
 #include "neigh.h"
 #include "gaspi_check.h"
 #include "comm.h"
+#include "ref.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -118,8 +119,9 @@ setup_boxes(Sim *sim)
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
 
-        box->iter = -1;
+        box->iter = 0;
         box->i = i;
+        box->fresh_ghost = 0;
         box->idim[X] = sim->rankdim[X];
         box->idim[Y] = i;
         box->idim[Z] = sim->rankdim[Z];
@@ -622,8 +624,8 @@ setup_params(Sim *sim)
     /* Set a fixed known seed */
     srand(5413);
 
-    /* Set the current iteration to -1, before sim_run() */
-    sim->iter = -1;
+    /* Set the current iteration to 0, before sim_run() */
+    sim->iter = 0;
 
     /* Derived constants */
     sim->mass = 1.0; /* Default mass. TODO check optimized value */
@@ -1491,6 +1493,9 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     if (sim->rank == 0) err("force init ok\n");
 
+    if (sim->refdir)
+        ref_compare(sim);
+
     thermo_update(sim);
     #pragma oss taskwait
 
@@ -1528,13 +1533,13 @@ sim_run(Sim *sim)
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        box->iter = 0;
+        box->iter = 1;
     }
 
     /* Main simulation loop */
-    for (sim->iter = 0; sim->iter < sim->timesteps; sim->iter++) {
-        int recompute_neigh = ((sim->iter + 1) % sim->neighbor_period == 0);
-        int print_thermo_stats = ((sim->iter + 1) % sim->thermo_period == 0);
+    for (sim->iter = 1; sim->iter <= sim->timesteps; sim->iter++) {
+        int recompute_neigh = (sim->iter % sim->neighbor_period == 0);
+        int print_thermo_stats = (sim->iter % sim->thermo_period == 0);
 
         /* Update atoms positions and half velocities */
         integrate_position(sim);
@@ -1559,7 +1564,10 @@ sim_run(Sim *sim)
         force_update(sim);
         integrate_velocity(sim);
 
-        if (print_thermo_stats)
+        if (sim->refdir)
+            ref_compare(sim);
+
+        if (print_thermo_stats || sim->iter == sim->timesteps)
             thermo_update(sim);
 
         for (int i = 0; i < sim->nboxes; i++) {
@@ -1580,10 +1588,6 @@ sim_run(Sim *sim)
     MPI_Barrier(MPI_COMM_WORLD);
 
     double t1 = get_time();
-
-    /* Always run the thermo update at the end to check the energy error
-     * */
-    thermo_update(sim);
 
     #pragma oss taskwait
 

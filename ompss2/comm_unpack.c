@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"
@@ -12,7 +12,7 @@ static void
 neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
 {
     packbuf_debug_switch(&neigh->recv_r, PB_READY, PB_RECVING);
-    //packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_READING);
+    packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_READING);
 
     if (neigh->recv_rt.natoms != neigh->recv_r.natoms)
         abort();
@@ -27,6 +27,31 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
 
         int i = box->nlocal + box->nghost;
 
+        if (ENABLE_MAX_JUMP_CHECK) {
+
+            for (int j = 0; j < nnew; j++) {
+                int ii = i + j;
+                Vec oldr = {
+                    box->r[ii][X],
+                    box->r[ii][Y],
+                    box->r[ii][Z]
+                };
+
+                Vec newr = {
+                    neigh->recv_r.buf[j * 3 + X],
+                    neigh->recv_r.buf[j * 3 + Y],
+                    neigh->recv_r.buf[j * 3 + Z]
+                };
+
+                /* We should not expect jumps caused by wraps here */
+
+                double dist = sqrt(get_distsq(oldr, newr));
+                if (dist > 0.1)
+                    die("jump too large\n");
+
+            }
+        }
+
         /* The unpack order must be kept the same to match the ghost atom
          * order given by borders */
         packbuf_unpack(&neigh->recv_r, &box->r[i], NULL, NULL);
@@ -39,7 +64,7 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
     }
 
     packbuf_debug_switch(&neigh->recv_r, PB_RECVING, PB_READY);
-    //packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
+    packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
 }
 
 #pragma oss task label("box_ghost_unpack_r_neigh") \
@@ -57,20 +82,21 @@ box_ghost_unpack_r(Sim *sim, Box *box)
     box->nghost = 0;
 
     for (int j = 0; j < NNEIGH; j++) {
-        /* Use the inverse order for unpack */
-        Neigh *opp = box->neigh[j].opposite;
-        neigh_ghost_unpack_r(sim, box, opp);
+        /* NOTE: The unpack order must match the neighbor order of the unpack of
+         * the recv_rt buffer */
+        Neigh *neigh = &box->neigh[j];
+        neigh_ghost_unpack_r(sim, box, neigh);
     }
 
     if (ENABLE_ATOM_COUNT_CHECK) {
         /* Wait until all unpack have finished */
-//        #pragma oss task label("box_ghost_unpack_r:atomcheck") \
-//            in(*(char **)&box->r)
         if (box->nghost != old_nghost) {
             die("nghost atoms don't match %d != %d\n",
                     box->nghost, old_nghost);
         }
     }
+
+    box->fresh_ghost = 0;
 }
 
 /* FIXME: We shouldn't need to use inout */
@@ -134,6 +160,8 @@ box_border_unpack_rt(Sim *sim, Box *box)
         Neigh *neigh = &box->neigh[j];
         neigh_border_unpack_rt(sim, box, neigh);
     }
+
+    box->fresh_ghost = 0;
 }
 
 static void
@@ -249,6 +277,8 @@ box_tidy_unpack_rvt(Sim *sim, Box *box)
         Neigh *neigh = &box->neigh[j];
         neigh_tidy_unpack_rvt(sim, box, neigh);
     }
+
+    box->fresh_ghost = 0;
 }
 
 void

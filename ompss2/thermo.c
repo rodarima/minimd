@@ -139,7 +139,7 @@ thermo_update_internal(Sim *sim, int iter)
     temperature *= sim->t_scale;
 
     /* Not initialized yet at -1 */
-    if (iter == -1) {
+    if (iter == 0) {
         temperature = get_temperature(sim);
     }
 
@@ -153,7 +153,7 @@ thermo_update_internal(Sim *sim, int iter)
         return;
 
     /* Save initial values of energy */
-    if (iter == -1) {
+    if (iter == 0) {
         sim->E0_pot = pot_energy;
         sim->E0_kin = kin_energy;
         sim->E0_tot = tot_energy;
