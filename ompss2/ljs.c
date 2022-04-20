@@ -1536,10 +1536,13 @@ sim_run(Sim *sim)
         box->iter = 1;
     }
 
+    sim->iter = 1;
+
     /* Main simulation loop */
-    for (sim->iter = 1; sim->iter <= sim->timesteps; sim->iter++) {
-        int recompute_neigh = (sim->iter % sim->neighbor_period == 0);
-        int print_thermo_stats = (sim->iter % sim->thermo_period == 0);
+    for (int iter = 1; iter <= sim->timesteps; iter++) {
+
+        int recompute_neigh = (iter % sim->neighbor_period == 0);
+        int print_thermo_stats = (iter % sim->thermo_period == 0);
 
         /* Update atoms positions and half velocities */
         integrate_position(sim);
@@ -1566,7 +1569,7 @@ sim_run(Sim *sim)
 
         ref_check_atoms(sim);
 
-        if (print_thermo_stats || sim->iter == sim->timesteps)
+        if (print_thermo_stats || iter == sim->timesteps)
             thermo_update(sim);
 
         ref_check_energy(sim);
@@ -1581,6 +1584,12 @@ sim_run(Sim *sim)
 
                 box->iter++;
             }
+        }
+
+        #pragma oss task label("sim->iter++") \
+            inout(sim->iter) firstprivate(iter)
+        {
+            sim->iter++;
         }
     }
 

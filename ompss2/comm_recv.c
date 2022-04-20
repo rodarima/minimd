@@ -121,7 +121,6 @@ neigh_recv(Sim *sim, Box *box, Neigh *neigh,
     } else {
         neigh_recv_intranode(sim, box, neigh, type, reqtype);
     }
-    #pragma oss taskwait
 }
 
 void
@@ -135,6 +134,4 @@ comm_recv(Sim *sim, enum pb_type type, enum pb_reqtype reqtype)
         for (int j = 0; j < NNEIGH; j++)
             neigh_recv(sim, box, &box->neigh[j], type, reqtype);
     }
-
-    #pragma oss taskwait
 }

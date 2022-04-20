@@ -219,7 +219,7 @@ update_force_box_loop(Sim *sim, Box *box)
 static void
 dump_atoms(Sim *sim, Box *box)
 {
-    #pragma oss taskwait
+    #pragma oss taskwait /* for debug */
     if (box->iter == 0) {
         FILE *f = fopen("atompos.csv", "w");
         fprintf(f, "iter,atom,ghost,x,y,z,neigh\n");
@@ -298,10 +298,10 @@ update_force_box(Sim *sim, Box *box)
         fprintf(stderr, "iter %d box %d total interactions %d\n",
                 sim->iter, box->i, box->ninteractions);
 
-    if(ENABLE_FHIST && box->i == 0 && sim->rank == 0)
+    if (ENABLE_FHIST && box->i == 0 && sim->rank == 0)
         hist_print(&box->fhist, box->iter);
 
-    if(ENABLE_DHIST && box->i == 0 && sim->rank == 0)
+    if (ENABLE_DHIST && box->i == 0 && sim->rank == 0)
         hist_print(&box->dhist, box->iter);
 
     /* Increase the iteration for this box */
@@ -328,8 +328,14 @@ force_init(Sim *sim)
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
-        hist_init(&box->fhist, 100, "fhist.csv", 10.0/100);
-        hist_init(&box->dhist, 400, "dhist.csv", 4.0/400.0);
+        if (i != 0)
+            continue;
+
+        if (ENABLE_FHIST)
+            hist_init(&box->fhist, 100, "fhist.csv", 10.0/100);
+
+        if (ENABLE_DHIST)
+            hist_init(&box->dhist, 400, "dhist.csv", 4.0/400.0);
     }
 
     fprintf(stderr, "force initialized\n");

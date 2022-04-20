@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 
 #include "types.h"
 #include "log.h"
@@ -229,6 +229,8 @@ too_far(double val, double ref, double maxrel)
     return 0;
 }
 
+#pragma oss task label("check_energy") \
+    in(sim->Ekin, sim->Epot, sim->Etot)
 static void
 check_energy(Sim *sim)
 {

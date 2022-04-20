@@ -107,10 +107,12 @@ check_final_energy(Sim *sim, double pot, double kin, double tot)
 }
 
 #pragma oss task label("thermo_update") \
-    in({*(char **)&sim->box[i].iter, i=0;sim->nboxes}) \
-    in({*(char **)&sim->box[i].vdwl_energy, i=0;sim->nboxes}) \
-    in({*(char **)&sim->box[i].virial_pressure, i=0;sim->nboxes}) \
-    in({*(char **)&sim->box[i].temperature, i=0;sim->nboxes})
+    in({sim->box[i].iter,               i=0;sim->nboxes}) \
+    in({sim->box[i].vdwl_energy,        i=0;sim->nboxes}) \
+    in({sim->box[i].virial_pressure,    i=0;sim->nboxes}) \
+    in({sim->box[i].temperature,        i=0;sim->nboxes}) \
+    in(sim->iter) \
+    out(sim->Ekin, sim->Epot, sim->Etot)
 static void
 thermo_update_internal(Sim *sim, int iter)
 {
