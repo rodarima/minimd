@@ -7,8 +7,8 @@
 
 #pragma oss task label("box_ghost_pack_r") \
     in(box->r) \
-    in({box->neigh[i].send_rt.buf, i=0;NNEIGH}) \
-    inout({box->neigh[i].send_r.buf, i=0;NNEIGH})
+    inout({box->neigh[i].send_rt.buf, i=0;NNEIGH}) \
+    inout({box->neigh[i].send_r.buf,  i=0;NNEIGH})
 static void
 box_ghost_pack_r(Sim *sim, Box *box)
 {
@@ -183,9 +183,9 @@ copy_atom_rvt(Box *box, int src, int dst)
  * filled with local atoms from the end. Notice that the ghosts are
  * invalidated.*/
 #pragma oss task label("box_tidy_pack_rvt") \
-    inout(*(char **)&box->r) \
-    out({*(char **)&box->neigh[i].send_rvt.buf, i=0;NNEIGH}) \
-    out({*(char **)&box->neigh[i].send_rvt.natoms, i=0;NNEIGH})
+    inout(box->r) \
+    out({box->neigh[i].send_rvt.buf, i=0;NNEIGH}) \
+    out({box->neigh[i].send_rvt.natoms, i=0;NNEIGH})
 static void
 box_tidy_pack_rvt(Sim *sim, Box *box)
 {
@@ -269,6 +269,4 @@ comm_pack(Sim *sim, enum pb_type type)
         default: die("not implemented\n");
         }
     }
-
-    #pragma oss taskwait
 }

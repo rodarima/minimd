@@ -29,7 +29,7 @@
    Please read the accompanying README and LICENSE files.
 ---------------------------------------------------------------------- */
 #define _GNU_SOURCE
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "types.h"
 #include "packbuf.h"
 #include "log.h"
@@ -40,6 +40,7 @@
 
 #include <GASPI.h>
 #include <TAGASPI.h>
+#include <TAMPI.h>
 #include <fenv.h>
 #include <float.h>
 #include <math.h>
@@ -48,12 +49,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-#ifdef USE_TAMPI
-# include <TAMPI.h>
-#else
-# define MPI_TASK_MULTIPLE MPI_THREAD_MULTIPLE
-#endif
 
 static void
 setup_ranks(Sim *sim)
@@ -453,7 +448,7 @@ setup_atoms_box(Sim *sim, Box *box)
 static void
 check_natoms(Sim *sim)
 {
-    #pragma oss taskwait
+    #pragma oss taskwait /* for debug */
     /* Ensure the total number of atoms is correct */
     int global_natoms = 0;
     int rank_natoms = 0;
@@ -531,7 +526,7 @@ get_temperature(Sim *sim)
     }
 
     /* Wait until the reduction has finished */
-    #pragma oss taskwait in(t_local_sum)
+    #pragma oss taskwait in(t_local_sum) /* required */
 
     /* Reduce temperature from all ranks */
     double temp = 0.0;
@@ -731,7 +726,7 @@ check_neighbor_coords(Sim *sim)
                         box->idim[Z]
                     },
                     .send_dir = neigh->i,
-                    .tag = pb->tag,
+                    .tag = pb->tag[PB_BUF],
                     .icomm = pb->icomm,
                     .dstrank = pb->remoterank,
                     .dstbox = neigh->boxid,
@@ -749,7 +744,7 @@ check_neighbor_coords(Sim *sim)
                 memcpy(msend, &m, sizeof(m));
 
                 MPI_Isend(msend, sizeof(m), MPI_BYTE, pb->remoterank,
-                        pb->tag, *pb->comm, &pb->req[PB_BUF]);
+                        pb->tag[PB_BUF], *pb->comm, &pb->req[PB_BUF]);
             }
         }
     }
@@ -770,7 +765,7 @@ check_neighbor_coords(Sim *sim)
                 struct msg mrecv;
 
                 MPI_Recv(&mrecv, sizeof(mrecv), MPI_BYTE, pb->remoterank,
-                        pb->tag, *pb->comm, MPI_STATUS_IGNORE);
+                        pb->tag[PB_BUF], *pb->comm, MPI_STATUS_IGNORE);
 
                 struct msg mexp = {
                     .srcrank = pb->remoterank,
@@ -781,7 +776,7 @@ check_neighbor_coords(Sim *sim)
                         neigh->opposite->boxcoordw[Z]
                     },
                     .send_dir = neigh->opposite->i,
-                    .tag = pb->tag,
+                    .tag = pb->tag[PB_BUF],
                     .icomm = pb->icomm,
                     .dstrank = sim->rank,
                     .dstbox = ibox,
@@ -1068,9 +1063,9 @@ setup_subdomains(Sim *sim)
 }
 
 static int
-build_tag(int boxid, int neighid)
+build_tag(int boxid, int neighid, enum pb_reqtype reqtype)
 {
-    int tag = neighid;
+    int tag = neighid * PB_NREQTYPES + reqtype;
     //int tag = boxid * NNEIGH + neighid;
 
     /* Ensure the tag is within the MPI standard limit */
@@ -1204,12 +1199,22 @@ setup_packbuf(Sim *sim)
 
             /* Send to same direction as neigh */
             int sendrank = neigh->rank;
-            int sendtag = build_tag(box->i, neigh->i);
+            int sendtag[2] = {
+                build_tag(box->i, neigh->i, PB_BUF),
+                build_tag(box->i, neigh->i, PB_NATOMS)
+            };
             int sendicomm = box->i;
 
             packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, sendicomm, &box->comm_r);
             packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, sendicomm, &box->comm_rt);
             packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, sendicomm, &box->comm_rvt);
+
+            sprintf(neigh->send_r.name, "send_r rank=%d, box=%d, neigh=%d",
+                    sim->rank, box->i, j);
+            sprintf(neigh->send_rt.name, "send_rt rank=%d, box=%d, neigh=%d",
+                    sim->rank, box->i, j);
+            sprintf(neigh->send_rvt.name, "send_rvt rank=%d, box=%d, neigh=%d",
+                    sim->rank, box->i, j);
 
             /* Set the PB pointers in the box table */
             box->pb[PB_SEND_R][neigh->i] = &neigh->send_r;
@@ -1244,13 +1249,24 @@ setup_packbuf(Sim *sim)
             int recvrank = neigh->rank;
             /* Same tag used for send in the opposite send direction */
             Neigh *opp = neigh->opposite;
-            int recvtag = build_tag(neigh->boxid, neigh->opposite->i);
+            int recvtag[2] = {
+                build_tag(neigh->boxid, neigh->opposite->i, PB_BUF),
+                build_tag(neigh->boxid, neigh->opposite->i, PB_NATOMS)
+            };
+
             Box *recvbox = &sim->box[neigh->boxid];
             int recvicomm = neigh->boxid;
 
             packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, recvicomm, &recvbox->comm_r);
             packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, recvicomm, &recvbox->comm_rt);
             packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, recvicomm, &recvbox->comm_rvt);
+
+            sprintf(neigh->recv_r.name, "recv_r rank=%d, box=%d, neigh=%d",
+                    sim->rank, box->i, j);
+            sprintf(neigh->recv_rt.name, "recv_rt rank=%d, box=%d, neigh=%d",
+                    sim->rank, box->i, j);
+            sprintf(neigh->recv_rvt.name, "recv_rvt rank=%d, box=%d, neigh=%d",
+                    sim->rank, box->i, j);
 
             /* Set the PB pointers in the box table */
             box->pb[PB_RECV_R][neigh->i] = &neigh->recv_r;
@@ -1294,13 +1310,14 @@ setup_packbuf(Sim *sim)
         for (int j = 0; j < NNEIGH; j++) {
             Neigh *neigh = &box->neigh[j];
 
-            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  sendtag=%d  remoterank=%d\n",
+            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  sendtag=(%d %d)  remoterank=%d\n",
                     sim->rank, box->i,
                     box->idim[X], box->idim[Y], box->idim[Z],
                     neigh->i,
                     neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
                     neigh->boxcoordw[X], neigh->boxcoordw[Y], neigh->boxcoordw[Z], 
-                    neigh->send_r.tag,
+                    neigh->send_r.tag[0],
+                    neigh->send_r.tag[1],
                     neigh->send_r.remoterank);
         }
 
@@ -1309,13 +1326,14 @@ setup_packbuf(Sim *sim)
         for (int j = 0; j < NNEIGH; j++) {
             Neigh *neigh = &box->neigh[j];
 
-            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  recvtag=%d  remoterank=%d\n",
+            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  recvtag=(%d %d)  remoterank=%d\n",
                     sim->rank, box->i,
                     box->idim[X], box->idim[Y], box->idim[Z],
                     neigh->i,
                     neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
                     neigh->boxcoordw[X], neigh->boxcoordw[Y], neigh->boxcoordw[Z], 
-                    neigh->recv_r.tag,
+                    neigh->recv_r.tag[0],
+                    neigh->recv_r.tag[1],
                     neigh->recv_r.remoterank);
         }
 
@@ -1474,22 +1492,23 @@ sim_init(Sim *sim, int argc, char *argv[])
      * FIXME: this should be unneeded, as the atoms must be already
      * initialized in their correct box. */
     comm_tidy(sim);
-    #pragma oss taskwait
+    comm_waitall(sim);
+
     if (sim->rank == 0) err("tidy ok\n");
 
     /* Copy the ghost atoms into the neighbor processes */
     comm_borders(sim);
-    #pragma oss taskwait
+    comm_waitall(sim);
 
     if (sim->rank == 0) err("borders ok\n");
 
     build_nearby_atoms(sim);
-    #pragma oss taskwait
+    #pragma oss taskwait /* required */
 
     if (sim->rank == 0) err("nearby init ok\n");
 
     force_update(sim);
-    #pragma oss taskwait
+    #pragma oss taskwait /* required */
 
     if (sim->rank == 0) err("force init ok\n");
 
@@ -1497,18 +1516,16 @@ sim_init(Sim *sim, int argc, char *argv[])
         ref_check_atoms(sim);
 
     thermo_update(sim);
-    #pragma oss taskwait
+    #pragma oss taskwait /* required */
 
     if (sim->rank == 0) err("thermo update ok\n");
 
     print_params(sim);
 
-    if (sim->rank == 0) err("simulation begins in 1 second...\n");
-
-    sleep(1);
+    if (sim->rank == 0) err("simulation begins now...\n");
 
     MPI_Barrier(MPI_COMM_WORLD);
-    #pragma oss taskwait
+    #pragma oss taskwait /* required */
 }
 
 /* Returns the current time in seconds since some point in the past */
@@ -1553,16 +1570,12 @@ sim_run(Sim *sim)
         } else {
             comm_tidy(sim);
             check_natoms_debug(sim);
-            #pragma oss taskwait
             //sort_atoms(sim);
             comm_borders(sim);
-            #pragma oss taskwait
             check_natoms_debug(sim);
-            #pragma oss taskwait
             build_nearby_atoms(sim);
         }
 
-        #pragma oss taskwait
         check_natoms_debug(sim);
         force_update(sim);
         integrate_velocity(sim);
@@ -1593,13 +1606,13 @@ sim_run(Sim *sim)
         }
     }
 
-    #pragma oss taskwait
+    #pragma oss taskwait /* required */
 
     MPI_Barrier(MPI_COMM_WORLD);
 
     double t1 = get_time();
 
-    #pragma oss taskwait
+    #pragma oss taskwait /* required */
 
     if (sim->rank == 0) {
         printf("time %e\n", t1 - t0);

@@ -139,7 +139,7 @@ typedef struct {
     int icomm;      /* And index to identify the MPI_Comm */
     int waitreq[PB_NREQTYPES];    /* Wait for the request before writing the buffer */
     int remoterank;
-    int tag;
+    int tag[PB_NREQTYPES];
 
     /* GASPI related */
     int gaspi;
@@ -148,6 +148,7 @@ typedef struct {
     size_t sendoffset; /* in bytes */
     size_t recvoffset;
     int queue;
+    char name[256];
 } PackBuf;
 
 typedef struct box Box;

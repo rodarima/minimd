@@ -131,6 +131,4 @@ build_nearby_atoms(Sim *sim)
         bin_atoms(sim, box);
         build_nearby_atoms_box(sim, box);
     }
-
-    #pragma oss taskwait
 }

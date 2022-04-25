@@ -24,12 +24,12 @@ packbuf_gaspi_init(PackBuf *pb,
     pb->nalloc = nalloc;
 }
 
-void
-packbuf_gaspi_send_buf(PackBuf *pb)
+static void
+send_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-    dbg("packbuf_gaspi_send_buf: natoms=%d remoterank=%d tag=%d\n",
+    dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d tag=%d\n",
             pb->natoms, pb->remoterank, pb->tag);
 
     if (pb->waitreq)
@@ -57,6 +57,16 @@ packbuf_gaspi_send_buf(PackBuf *pb)
     /* Always set the waitreq flag with tagaspi */
     pb->waitreq = 1;
     packbuf_switch(pb, PB_SENDING, PB_READY);
+}
+
+void
+packbuf_gaspi_send(PackBuf *pb, enum pb_reqtype reqtype)
+{
+    if (reqtype == PB_NATOMS) {
+        die("not implemented\n");
+    } else {
+        send_buf(pb)
+    }
 }
 
 static void

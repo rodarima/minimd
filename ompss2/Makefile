@@ -15,11 +15,11 @@ LDFLAGS+=-fompss-2
 LIBS+=-lm
 
 # Use tampi?
-#LIBS+=-lstdc++ -l:libtampi-c.a
+LIBS+=-lstdc++ -l:libtampi-c.a
 #LIBS+=-lGPI2 -ltagaspi
 
-CFLAGS+=-O0
-#CFLAGS+=-O3
+#CFLAGS+=-O0
+CFLAGS+=-O3
 
 CFLAGS+=-g
 LDFLAGS+=-g

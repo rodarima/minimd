@@ -6,7 +6,7 @@
 
 void packbuf_init(PackBuf *pb,
         int enable_sel, int atomsize, int remoterank,
-        int tag, int icomm, MPI_Comm *comm);
+        int tag[PB_NREQTYPES], int icomm, MPI_Comm *comm);
 
 void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
 void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
@@ -18,14 +18,14 @@ void packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel);
 void packbuf_clear(PackBuf *pb);
 void packbuf_grow(PackBuf *pb, int n);
 
+void packbuf_send(PackBuf *pb, enum pb_reqtype reqtype);
 void packbuf_recv(PackBuf *pb, enum pb_reqtype reqtype);
 
 enum pb_type packbuf_opposite_dir(enum pb_type type);
 
 /* MPI */
 
-void packbuf_mpi_send(PackBuf *pb);
-void packbuf_mpi_send_buf(PackBuf *pb);
+void packbuf_mpi_send(PackBuf *pb, enum pb_reqtype reqtype);
 void packbuf_mpi_recv(PackBuf *pb, enum pb_reqtype reqtype);
 void packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_reqtype reqtype);
 
@@ -36,7 +36,7 @@ void packbuf_gaspi_init(PackBuf *pb, double *newbuf,
         int recvseg, size_t recv_offset_bytes,
         size_t nalloc, int queue);
 
-void packbuf_gaspi_send_buf(PackBuf *pb);
+void packbuf_gaspi_send(PackBuf *pb, enum pb_reqtype reqtype);
 void packbuf_gaspi_recv(PackBuf *pb, enum pb_reqtype reqtype);
 
 #endif /* PACKBUF_H */

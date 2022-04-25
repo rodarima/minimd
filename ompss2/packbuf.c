@@ -208,6 +208,16 @@ packbuf_clear(PackBuf *pb)
 }
 
 void
+packbuf_send(PackBuf *pb, enum pb_reqtype reqtype)
+{
+    if (ENABLE_GASPI && pb->gaspi) {
+        packbuf_gaspi_send(pb, reqtype);
+    } else {
+        packbuf_mpi_send(pb, reqtype);
+    }
+}
+
+void
 packbuf_recv(PackBuf *pb, enum pb_reqtype reqtype)
 {
     if (ENABLE_GASPI && pb->gaspi) {
@@ -219,7 +229,7 @@ packbuf_recv(PackBuf *pb, enum pb_reqtype reqtype)
 
 void
 packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
-        int remoterank, int tag, int icomm, MPI_Comm *comm)
+        int remoterank, int tag[PB_NREQTYPES], int icomm, MPI_Comm *comm)
 {
     memset(pb, 0, sizeof(*pb));
 
@@ -232,7 +242,10 @@ packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
         abort();
 
     pb->remoterank = remoterank;
-    pb->tag = tag;
+
+    for (int i = 0; i < PB_NREQTYPES; i++)
+        pb->tag[i] = tag[i];
+
     packbuf_switch(pb, PB_GARBAGE, PB_READY);
 }
 

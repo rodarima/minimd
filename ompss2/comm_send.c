@@ -4,50 +4,59 @@
 #include "packbuf.h"
 
 #pragma oss task label("box_send_neigh_task") \
-    in(pb->buf) in(pb->natoms)
+    inout(box->pb[type][neigh->i]->natoms) \
+    inout(box->pb[type][neigh->i]->buf)
+    //inout(pb->buf) inout(pb->natoms)
 static void
 box_send_neigh_task(Sim *sim, Box *box, Neigh *neigh, PackBuf *pb,
-        enum pb_type type)
+        enum pb_type type, enum pb_reqtype reqtype)
 {
+    dbg("%-6s comm_send rank %d, box %d, neigh %d, %s.%s\n",
+            "RUN", sim->rank, box->i, neigh->i,
+            PB_TYPENAME(type), PB_REQTYPENAME(reqtype));
+
     packbuf_debug_switch(pb, PB_READY, PB_SENDING);
 
-    if (type == PB_SEND_R) {
-        if (ENABLE_GASPI) {
-            packbuf_gaspi_send_buf(pb);
-        } else {
-            packbuf_mpi_send_buf(pb);
-        }
+    packbuf_send(pb, reqtype);
 
-    } else {
-        packbuf_mpi_send(pb);
-    }
+    dbg("%-6s comm_send rank %d, box %d, neigh %d, %s.%s\n",
+            "DONE", sim->rank, box->i, neigh->i,
+            PB_TYPENAME(type), PB_REQTYPENAME(reqtype));
 
     packbuf_debug_switch(pb, PB_SENDING, PB_READY);
 }
 
 static void
-box_send_neigh(Sim *sim, Box *box, Neigh *neigh, enum pb_type type)
+box_send_neigh(Sim *sim, Box *box, Neigh *neigh, enum pb_type type,
+        enum pb_reqtype reqtype)
 {
     if (neigh->rank == sim->rank) {
         /* No-op: will be copied at recv */
+        //dbg("refusing send for rank %d box %d neigh %d\n",
+        //        sim->rank, box->i, neigh->i);
         return;
     }
 
     PackBuf *pb = box->pb[type][neigh->i];
 
-    box_send_neigh_task(sim, box, neigh, pb, type);
+    dbg("%-6s comm_send rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+            "CREATE", sim->rank, box->i, neigh->i,
+            PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
+            &pb->buf, &box->pb[type][neigh->i]->buf);
+
+    box_send_neigh_task(sim, box, neigh, pb, type, reqtype);
 }
 
 void
-comm_send(Sim *sim, enum pb_type type)
+comm_send(Sim *sim, enum pb_type type, enum pb_reqtype reqtype)
 {
-    dbg("comm_send %s\n", PB_TYPENAME(type));
+    //dbg("comm_send %s rank %d\n", PB_TYPENAME(type), sim->rank);
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++) {
-            box_send_neigh(sim, box, &box->neigh[j], type);
+            box_send_neigh(sim, box, &box->neigh[j], type, reqtype);
         }
     }
 
-    #pragma oss taskwait
+    //#pragma oss taskwait
 }

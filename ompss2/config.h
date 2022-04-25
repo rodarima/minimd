@@ -71,7 +71,7 @@
 
 /* Use the non-blocking mode of TAMPI, which blocks the release of the task
  * until the MPI requests have been completed */
-#define ENABLE_NONBLOCKING_TAMPI 0
+#define ENABLE_NONBLOCKING_TAMPI 1
 
 /* Use MPI_Waitall if needed */
 #define NEED_EXPLICIT_WAIT (ENABLE_NONBLOCKING_MPI && !ENABLE_NONBLOCKING_TAMPI)

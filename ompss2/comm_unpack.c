@@ -67,11 +67,12 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
     packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
 }
 
+/* FIXME: We shouldn't need to use inout */
 #pragma oss task label("box_ghost_unpack_r_neigh") \
-    in({box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
-    in({box->neigh[i].recv_rt.buf,       i=0;NNEIGH}) \
-    in({box->neigh[i].recv_r.natoms,     i=0;NNEIGH}) \
-    in({box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
+    inout({box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
+    inout({box->neigh[i].recv_rt.buf,       i=0;NNEIGH}) \
+    inout({box->neigh[i].recv_r.natoms,     i=0;NNEIGH}) \
+    inout({box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
     inout(box->r)
 static void
 box_ghost_unpack_r(Sim *sim, Box *box)
@@ -232,11 +233,11 @@ check_atom(Sim *sim, Box *box, Vec r)
 
 
 #pragma oss task label("neigh_tidy_unpack_rvt") \
-    inout(*(char **)&box->r) \
-    inout(*(char **)&box->v) \
-    inout(*(char **)&box->f) /* May realloc f too */\
-    inout(*(char **)&neigh->recv_rvt.buf) \
-    inout(*(char **)&neigh->recv_rvt.natoms)
+    inout(box->r) \
+    inout(box->v) \
+    inout(box->f) /* May realloc f too */\
+    inout(neigh->recv_rvt.buf) \
+    inout(neigh->recv_rvt.natoms)
 static void
 neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
@@ -296,6 +297,4 @@ comm_unpack(Sim *sim, enum pb_type type)
         default: die("not implemented\n");
         }
     }
-
-    #pragma oss taskwait
 }

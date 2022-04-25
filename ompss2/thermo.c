@@ -75,7 +75,7 @@ get_temperature(Sim *sim)
     }
 
     /* Wait until the reduction has finished */
-    #pragma oss taskwait in(t_local_sum)
+    #pragma oss taskwait in(t_local_sum) /* required */
 
     /* Reduce temperature from all ranks */
     double temp = 0.0;

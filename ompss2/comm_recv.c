@@ -10,38 +10,33 @@ neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
 {
     PackBuf *pb = box->pb[type][neigh->i];
 
+    dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+            "CREATE", sim->rank, box->i, neigh->i,
+            PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
+            &pb->buf, &box->pb[type][neigh->i]->buf);
+
     /* TODO: We should move the task dependencies to the functions that modify
      * the actual data, rather than here */
 
-    if (reqtype == PB_NATOMS) {
-        #pragma oss task label("neigh_recv_internode:natoms") \
-            out(pb->recvnatoms)
-        {
-            packbuf_debug_switch(pb, PB_READY, PB_RECVING);
-            packbuf_recv(pb, PB_NATOMS);
-            packbuf_debug_switch(pb, PB_RECVING, PB_READY);
-        }
-    } else {
-        if (ENABLE_NONBLOCKING_MPI) {
-            #pragma oss task label("neigh_recv_internode:nb:buf") \
-                in(pb->recvnatoms) \
-                out(pb->buf) /* pb->natoms will be updated in the MPI_Wait */
-            {
-                packbuf_debug_switch(pb, PB_READY, PB_RECVING);
-                packbuf_recv(pb, PB_BUF);
-                packbuf_debug_switch(pb, PB_RECVING, PB_READY);
-            }
-        } else {
-            #pragma oss task label("neigh_recv_internode:b:buf") \
-                in(pb->recvnatoms) \
-                out(pb->natoms) \
-                out(pb->buf)
-            {
-                packbuf_debug_switch(pb, PB_READY, PB_RECVING);
-                packbuf_recv(pb, PB_BUF);
-                packbuf_debug_switch(pb, PB_RECVING, PB_READY);
-            }
-        }
+    #pragma oss task label("neigh_recv_internode") \
+        inout(pb->buf) \
+        inout(pb->natoms) \
+        inout(pb->recvnatoms) firstprivate(pb)
+    {
+        dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+                "RUN", sim->rank, box->i, neigh->i,
+                PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
+                &pb->buf, &box->pb[type][neigh->i]->buf);
+
+        packbuf_debug_switch(pb, PB_READY, PB_RECVING);
+        packbuf_recv(pb, reqtype);
+
+        dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+                "DONE", sim->rank, box->i, neigh->i,
+                PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
+                &pb->buf, &box->pb[type][neigh->i]->buf);
+
+        packbuf_debug_switch(pb, PB_RECVING, PB_READY);
     }
 
 }
@@ -90,8 +85,10 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
     PackBuf *recv_pb = recv_box->pb[type][recv_idir];
 
     #pragma oss task label("neigh_recv_intranode:shmcopy") \
-        in(send_pb->buf) in(send_pb->natoms) \
-        out(recv_pb->buf) out(recv_pb->natoms)
+        inout(send_pb->buf) \
+        inout(send_pb->natoms) \
+        inout(recv_pb->buf) \
+        inout(recv_pb->natoms)
     {
         //dbg("shmcopy box%d:neigh%d:pb.%p --(%d)--> box%d:neigh%d:pb.%p\n",
         //        send_box->i, send_idir,

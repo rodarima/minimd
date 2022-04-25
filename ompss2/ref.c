@@ -302,7 +302,7 @@ ref_check_atoms(Sim *sim)
     if (!ENABLE_REF_ATOMS || sim->refdir == NULL)
         return;
 
-    #pragma oss taskwait
+    #pragma oss taskwait /* for debug */
 
     if (ENABLE_REF_ATOMS) {
         compare_atompos(sim);
