@@ -38,13 +38,12 @@ packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state ne
 void
 packbuf_grow(PackBuf *pb, int n)
 {
-    if (pb->gaspi)
-        die("packbuf_grow cannot operate on GASPI buffer\n");
-
     if (n < pb->natoms)
         n = pb->natoms;
 
     if (pb->nalloc < n) {
+        if (pb->gaspi)
+            die("packbuf_grow cannot operate on GASPI buffer\n");
         //if (pb->nalloc + PACKBUF_INCR < n)
         //    n = pb->nalloc + PACKBUF_INCR;
 
@@ -148,7 +147,8 @@ packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
 
     if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
-        die("packbuf_unpack: buffer in use\n");
+        die("packbuf_unpack: buffer in use wait buf %d, wait natoms %d\n",
+                pb->waitreq[PB_BUF], pb->waitreq[PB_NATOMS]);
 
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
