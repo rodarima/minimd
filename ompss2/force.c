@@ -50,11 +50,8 @@ check_max_force(Vec f)
 static void
 check_min_interactions(int ninteractions, int n)
 {
-    if (ninteractions < n * 0.5) {
-        fprintf(stderr, "too few interactions: %d/%d\n",
-                ninteractions, n);
-        abort();
-    }
+    if (ninteractions < n * 0.5)
+        die("too few interactions: %d/%d\n", ninteractions, n);
 }
 
 static void
