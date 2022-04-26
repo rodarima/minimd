@@ -21,6 +21,7 @@
 
 #define die(...) do { \
     err("fatal: " __VA_ARGS__); \
+    fflush(stderr); \
     if (ENABLE_SLOW_DEATH) sleep(DEATH_SLEEP); \
     abort(); \
 } while (0) 
