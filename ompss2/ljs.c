@@ -709,7 +709,7 @@ check_neighbor_coords(Sim *sim)
                 Neigh *neigh = &box->neigh[i];
                 PackBuf *pb = &neigh->send_rvt;
 
-                pb->req[PB_BUF] = NULL;
+                pb->req[PB_BUF] = MPI_REQUEST_NULL;
 
                 /* Only need to send with distinct ranks */
                 if (neigh->rank == sim->rank)
@@ -757,7 +757,7 @@ check_neighbor_coords(Sim *sim)
 
                 PackBuf *pb = &neigh->recv_rvt;
 
-                pb->req[PB_BUF] = NULL;
+                pb->req[PB_BUF] = MPI_REQUEST_NULL;
 
                 if (neigh->rank == sim->rank)
                     continue;
@@ -1491,22 +1491,26 @@ sim_init(Sim *sim, int argc, char *argv[])
     /* Move atoms to their correct box.
      * FIXME: this should be unneeded, as the atoms must be already
      * initialized in their correct box. */
+    if (sim->rank == 0) err("running tidy init\n");
     comm_tidy(sim);
     comm_waitall(sim);
 
     if (sim->rank == 0) err("tidy ok\n");
 
     /* Copy the ghost atoms into the neighbor processes */
+    if (sim->rank == 0) err("running borders init\n");
     comm_borders(sim);
     comm_waitall(sim);
 
     if (sim->rank == 0) err("borders ok\n");
 
+    if (sim->rank == 0) err("running nearby init\n");
     build_nearby_atoms(sim);
     #pragma oss taskwait /* required */
 
     if (sim->rank == 0) err("nearby init ok\n");
 
+    if (sim->rank == 0) err("running force init\n");
     force_update(sim);
     #pragma oss taskwait /* required */
 
