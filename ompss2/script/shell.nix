@@ -6,10 +6,13 @@ let
     packages = with pkgs.rPackages; [ tidyverse rjson jsonlite egg viridis ];
   };
 
-  #mpi = pkgs.bsc.impi;
-  mpi = pkgs.bsc.openmpi;
+  # Recursively set MPI
+  bsc' = pkgs.bsc.extend (self: super: {
+    mpi = self.impi;
+    #mpi = self.openmpi;
+  });
 
-  clangOmpss2UnwrappedFixed = pkgs.bsc.clangOmpss2UnwrappedGit.overrideAttrs (old: rec {
+  clangOmpss2UnwrappedFixed = bsc'.clangOmpss2UnwrappedGit.overrideAttrs (old: rec {
     src = builtins.fetchGit {
       url = "ssh://git@bscpm03.bsc.es/llvm-ompss/llvm-mono.git";
       ref = "master";
@@ -26,7 +29,7 @@ let
     version = src.shortRev;
   });
 
-  extrae4 = pkgs.bsc.extrae.overrideAttrs (old: rec {
+  extrae4 = bsc'.extrae.overrideAttrs (old: rec {
     version = "3.7.1";
     src = pkgs.fetchFromGitHub {
       owner = "bsc-performance-tools";
@@ -36,22 +39,24 @@ let
     };
   });
 
-  clangOmpss2Fixed = pkgs.bsc.clangOmpss2Git.override {
+  clangOmpss2Fixed = bsc'.clangOmpss2Git.override {
     clangOmpss2Unwrapped = clangOmpss2UnwrappedFixed;
   };
 in
   pkgs.mkShell {
     name = "minimd";
     NIX_HARDENING_ENABLE = "";
-    buildInputs = with pkgs.bsc; [ pkgs.python3 babeltrace2 nanos6
+    buildInputs = with bsc'; [ pkgs.python3 babeltrace2 nanos6
     extrae4 mpi icc
     mcxx
     clangOmpss2Fixed pkgs.cmake
-    tagaspi
-    gaspi gpi-2
     pkgs.gdb
-    rWrapper (tampi.override {mpi=mpi;}) ];
+    rWrapper
+    tampi
+    gaspi
+    tagaspi
+  ];
     shellHook = ''
-      echo "NOTE: using mpi=${mpi}"
+      echo "NOTE: using mpi=${bsc'.mpi}"
     '';
   }
