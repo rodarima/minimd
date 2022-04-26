@@ -41,7 +41,7 @@
 #define ENABLE_MIN_INTERACTIONS_CHECK 1
 
 /* Checks that nearby atoms don't move more than a set limit. */
-#define ENABLE_MAX_JUMP_CHECK 0
+#define ENABLE_MAX_JUMP_CHECK 1
 
 /* Counts the number of total force interactions */
 #define ENABLE_COUNT_INTERACTIONS 0
@@ -81,11 +81,11 @@
 #define ENABLE_SEQUENTIAL_MPIWAIT 1
 
 /* If enabled, tagaspi will be used to exchange ghost positions */
-#define ENABLE_GASPI 0
+#define ENABLE_GASPI 1
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */
-#define ENABLE_SLOW_DEATH 0
+#define ENABLE_SLOW_DEATH 1
 
 /* Sleep for a day before aborting (if enabled) */
 #define DEATH_SLEEP (3600*24)
