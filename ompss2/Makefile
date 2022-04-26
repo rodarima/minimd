@@ -16,10 +16,10 @@ LIBS+=-lm
 
 # Use tampi?
 LIBS+=-lstdc++ -l:libtampi-c.a
-#LIBS+=-lGPI2 -ltagaspi
+LIBS+=-lGPI2 -ltagaspi
 
-#CFLAGS+=-O0
-CFLAGS+=-O3
+CFLAGS+=-O0
+#CFLAGS+=-O3
 
 CFLAGS+=-g
 LDFLAGS+=-g
@@ -47,6 +47,7 @@ SRC=box.c \
   neigh.c \
   packbuf.c \
   packbuf_mpi.c \
+  packbuf_gaspi.c \
   ref.c \
   safe.c \
   thermo.c

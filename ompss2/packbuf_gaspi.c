@@ -30,9 +30,9 @@ send_buf(PackBuf *pb)
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
     dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d tag=%d\n",
-            pb->natoms, pb->remoterank, pb->tag);
+            pb->natoms, pb->remoterank, pb->tag[PB_BUF]);
 
-    if (pb->waitreq)
+    if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_send_buf: buffer in use\n");
 
     /* Repeat until success */
@@ -42,7 +42,7 @@ send_buf(PackBuf *pb)
                 pb->remoterank,
                 pb->recvseg, pb->recvoffset,
                 pb->natoms * pb->atomsize,
-                pb->tag, 1,
+                pb->tag[PB_BUF], 1,
                 pb->queue);
 
         if (ret == GASPI_SUCCESS)
@@ -54,8 +54,8 @@ send_buf(PackBuf *pb)
         }
     }
 
-    /* Always set the waitreq flag with tagaspi */
-    pb->waitreq = 1;
+    /* FIXME: we may need to wait before overwriting the buffer */
+    //pb->waitreq[PB_BUF] = 1;
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
 
@@ -65,7 +65,7 @@ packbuf_gaspi_send(PackBuf *pb, enum pb_reqtype reqtype)
     if (reqtype == PB_NATOMS) {
         die("not implemented\n");
     } else {
-        send_buf(pb)
+        send_buf(pb);
     }
 }
 
@@ -75,23 +75,23 @@ recv_buf(PackBuf *pb)
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
     dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d tag=%d\n",
-            pb->recvnatoms, pb->remoterank, pb->tag);
+            pb->recvnatoms, pb->remoterank, pb->tag[PB_BUF]);
 
-    if (pb->waitreq)
+    if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_recv_buf: buffer in use\n");
 
     if (pb->recvnatoms < 0)
         die("bad recvnatoms\n");
 
     if (pb->recvnatoms > 0) {
-        if (pb->recvnatoms < pb->nalloc)
-            die("packbuf_gaspi_recv_buf: buffer too small for %d atoms\n",
-                    pb->recvnatoms);
+        if (pb->recvnatoms > pb->nalloc)
+            die("packbuf_gaspi_recv_buf: buffer of %d too small for %d atoms\n",
+                    pb->nalloc, pb->recvnatoms);
 
         while (1) {
             gaspi_return_t ret = tagaspi_notify_async_wait(
                     pb->recvseg,
-                    pb->tag,
+                    pb->tag[PB_BUF],
                     GASPI_NOTIFICATION_IGNORE);
 
             if (ret == GASPI_SUCCESS)
@@ -103,7 +103,7 @@ recv_buf(PackBuf *pb)
             }
         }
 
-        pb->waitreq = 1;
+        //pb->waitreq[PB_BUF] = 1;
     }
 
     pb->natoms = pb->recvnatoms;
@@ -116,6 +116,6 @@ packbuf_gaspi_recv(PackBuf *pb, enum pb_reqtype reqtype)
     if (reqtype == PB_NATOMS) {
         die("not implemented\n");
     } else {
-        recv_buf(pb)
+        recv_buf(pb);
     }
 }
