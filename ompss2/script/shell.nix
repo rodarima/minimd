@@ -55,7 +55,7 @@ in
     tampi
     gaspi
     tagaspi
-  ];
+  ] ++ (with pkgs; [ vim ]);
     shellHook = ''
       echo "NOTE: using mpi=${bsc'.mpi}"
     '';
