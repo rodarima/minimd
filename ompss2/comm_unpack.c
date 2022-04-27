@@ -47,7 +47,10 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
 
                 double dist = sqrt(get_distsq(oldr, newr));
                 if (dist > 0.1)
-                    die("jump too large\n");
+                    die("rank %d box %d neigh %d: jump too large: oldr=(%e %e %e) newr=(%e %e %e)\n",
+                                sim->rank, box->i, neigh->i,
+                                oldr[X], oldr[Y], oldr[Z],
+                                newr[X], newr[Y], newr[Z]);
 
             }
         }
