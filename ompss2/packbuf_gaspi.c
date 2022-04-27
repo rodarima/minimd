@@ -29,8 +29,8 @@ send_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-    dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d tag=%d\n",
-            pb->natoms, pb->remoterank, pb->tag[PB_BUF]);
+    dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d tag=%d name='%s'\n",
+            pb->natoms, pb->remoterank, pb->tag[PB_BUF], pb->name);
 
     if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_send_buf: buffer in use\n");
@@ -74,8 +74,8 @@ recv_buf(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
-    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d tag=%d\n",
-            pb->recvnatoms, pb->remoterank, pb->tag[PB_BUF]);
+    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d tag=%d name='%s'\n",
+            pb->recvnatoms, pb->remoterank, pb->tag[PB_BUF], pb->name);
 
     if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_recv_buf: buffer in use\n");
