@@ -4,51 +4,47 @@
 #include "packbuf.h"
 #include "neigh.h"
 
+/** Exchanges the PackBuf of the given type and req by using a internode
+ * communication task. */
 static void
 neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
-        enum pb_type type, enum pb_reqtype reqtype)
+        enum pb_type type, enum pb_req reqtype)
 {
-    PackBuf *pb = box->pb[type][neigh->i];
+    PackBuf *pb = box->pb[neigh->i][type][PB_RECV];
 
-    dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+    dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
             "CREATE", sim->rank, box->i, neigh->i,
-            PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
-            &pb->buf, &box->pb[type][neigh->i]->buf);
+            PB_TYPENAME(type), PB_REQNAME(reqtype));
 
     /* TODO: We should move the task dependencies to the functions that modify
      * the actual data, rather than here */
 
     #pragma oss task label("neigh_recv_internode") \
-        inout(pb->buf) \
-        inout(pb->natoms) \
-        inout(pb->recvnatoms) firstprivate(pb)
+        inout(pb->data) inout(pb->natoms)
     {
-        dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+        dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
                 "RUN", sim->rank, box->i, neigh->i,
-                PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
-                &pb->buf, &box->pb[type][neigh->i]->buf);
+                PB_TYPENAME(type), PB_REQNAME(reqtype));
 
         packbuf_debug_switch(pb, PB_READY, PB_RECVING);
         packbuf_recv(pb, reqtype);
 
-        dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s buf=%p buf'=%p\n",
+        dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
                 "DONE", sim->rank, box->i, neigh->i,
-                PB_TYPENAME(type), PB_REQTYPENAME(reqtype),
-                &pb->buf, &box->pb[type][neigh->i]->buf);
+                PB_TYPENAME(type), PB_REQNAME(reqtype));
 
         packbuf_debug_switch(pb, PB_RECVING, PB_READY);
     }
-
 }
 
 static void
 neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
-        enum pb_type type, enum pb_reqtype reqtype)
+        enum pb_type type, enum pb_req reqtype)
 {
     if (reqtype == PB_NATOMS) {
         /* No-op as we already know the size */
         //dbg("noop for box %d neigh %d with reqtype=%s\n",
-        //        box->i, neigh->i, PB_REQTYPENAME(reqtype));
+        //        box->i, neigh->i, PB_REQNAME(reqtype));
         return;
     }
 
@@ -79,15 +75,13 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
     Box *recv_box = box;
     Box *send_box = neigh->box;
 
-    enum pb_type sendtype = packbuf_opposite_dir(type);
-
-    PackBuf *send_pb = send_box->pb[sendtype][send_idir];
-    PackBuf *recv_pb = recv_box->pb[type][recv_idir];
+    PackBuf *send_pb = send_box->pb[send_idir][type][PB_SEND];
+    PackBuf *recv_pb = recv_box->pb[recv_idir][type][PB_RECV];
 
     #pragma oss task label("neigh_recv_intranode:shmcopy") \
-        inout(send_pb->buf) \
+        inout(send_pb->data) \
         inout(send_pb->natoms) \
-        inout(recv_pb->buf) \
+        inout(recv_pb->data) \
         inout(recv_pb->natoms)
     {
         //dbg("shmcopy box%d:neigh%d:pb.%p --(%d)--> box%d:neigh%d:pb.%p\n",
@@ -110,7 +104,7 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
 
 static void
 neigh_recv(Sim *sim, Box *box, Neigh *neigh,
-        enum pb_type type, enum pb_reqtype reqtype)
+        enum pb_type type, enum pb_req reqtype)
 {
     /* Use MPI for inter process comm */
     if (neigh->rank != sim->rank) {
@@ -121,10 +115,10 @@ neigh_recv(Sim *sim, Box *box, Neigh *neigh,
 }
 
 void
-comm_recv(Sim *sim, enum pb_type type, enum pb_reqtype reqtype)
+comm_recv(Sim *sim, enum pb_type type, enum pb_req reqtype)
 {
     dbg("comm_recv type=%s reqtype=%s\n",
-            PB_TYPENAME(type), PB_REQTYPENAME(reqtype));
+            PB_TYPENAME(type), PB_REQNAME(reqtype));
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];

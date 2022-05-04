@@ -1,6 +1,7 @@
 #define ENABLE_DEBUG 0
 #include "types.h"
 #include "log.h"
+#include "safe.h"
 #include "packbuf.h"
 
 #include <string.h>
@@ -33,6 +34,13 @@ packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state ne
     }
 }
 
+size_t
+packbuf_data_size(size_t natoms, size_t atomdoubles)
+{
+    size_t datasize = natoms * atomdoubles * sizeof(double);
+    return sizeof(PackBufData) + datasize;
+}
+
 /* Grows the buffer so that the allocated capacity can hold at least n
  * atoms. */
 void
@@ -42,17 +50,18 @@ packbuf_grow(PackBuf *pb, int n)
         n = pb->natoms;
 
     if (pb->nalloc < n) {
-        if (pb->gaspi)
-            die("packbuf_grow cannot operate on GASPI buffer\n");
+        if (pb->mode == PB_GASPI)
+            die("packbuf_grow cannot grow GASPI buffer\n");
+
+        if (n == 0)
+            die("cannot allocate 0 atoms\n");
+
         //if (pb->nalloc + PACKBUF_INCR < n)
         //    n = pb->nalloc + PACKBUF_INCR;
 
-        size_t newalloc = sizeof(double) * pb->atomsize * n;
+        size_t newalloc = packbuf_data_size(n, pb->atomsize);
 
-        if (newalloc == 0)
-            abort();
-
-        pb->buf = (double *) safe_realloc(pb->buf, newalloc);
+        pb->data = safe_realloc(pb->data, newalloc);
 
         /* Also grow the selection buffer if enabled */
         if (pb->enable_sel) {
@@ -71,7 +80,7 @@ packbuf_grow_extra(PackBuf *pb, int nextra)
 }
 
 void
-packbuf_shmcopy(PackBuf *src, PackBuf *dst, enum pb_reqtype reqtype)
+packbuf_shmcopy(PackBuf *src, PackBuf *dst, enum pb_req reqtype)
 {
     dbg("packbuf_shmcopy: natoms=%d reqtype=%d\n",
             src->natoms, reqtype);
@@ -84,7 +93,8 @@ packbuf_shmcopy(PackBuf *src, PackBuf *dst, enum pb_reqtype reqtype)
 
     if (src->natoms != 0) {
         packbuf_grow(dst, src->natoms);
-        memcpy(dst->buf, src->buf, src->natoms * src->atomsize * sizeof(double));
+        memcpy(dst->data->buf, src->data->buf,
+                src->natoms * src->atomsize * sizeof(double));
     }
 
     dst->natoms = src->natoms;
@@ -109,17 +119,17 @@ packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
 
     if (r != NULL) {
         for (int d = X; d <= Z; d++)
-            pb->buf[j++] = r[0][d];
+            pb->data->buf[j++] = r[0][d];
     }
 
     if (v != NULL) {
         for (int d = X; d <= Z; d++)
-            pb->buf[j++] = v[0][d];
+            pb->data->buf[j++] = v[0][d];
     }
 
     if (type != NULL) {
         /* FIXME: We are sending the type as a double */
-        pb->buf[j++] = (double) type[0];
+        pb->data->buf[j++] = (double) type[0];
     }
 
     pb->natoms++;
@@ -153,16 +163,16 @@ packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
             for (int d = X; d <= Z; d++)
-                r[i][d] = pb->buf[j++];
+                r[i][d] = pb->data->buf[j++];
         }
 
         if (v != NULL) {
             for (int d = X; d <= Z; d++)
-                v[i][d] = pb->buf[j++];
+                v[i][d] = pb->data->buf[j++];
         }
 
         if (types != NULL) {
-            types[i] = (int) pb->buf[j++];
+            types[i] = (int) pb->data->buf[j++];
         }
     }
     packbuf_switch(pb, PB_UNPACKING, PB_READY);
@@ -179,16 +189,16 @@ packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
             for (int d = X; d <= Z; d++)
-                r[sel[i]][d] = pb->buf[j++];
+                r[sel[i]][d] = pb->data->buf[j++];
         }
 
         if (v != NULL) {
             for (int d = X; d <= Z; d++)
-                v[sel[i]][d] = pb->buf[j++];
+                v[sel[i]][d] = pb->data->buf[j++];
         }
 
         if (types != NULL) {
-            types[sel[i]] = (int) pb->buf[j++];
+            types[sel[i]] = (int) pb->data->buf[j++];
         }
     }
     packbuf_switch(pb, PB_UNPACKING, PB_READY);
@@ -208,60 +218,43 @@ packbuf_clear(PackBuf *pb)
 }
 
 void
-packbuf_send(PackBuf *pb, enum pb_reqtype reqtype)
+packbuf_send(PackBuf *pb, enum pb_req reqtype)
 {
-    if (ENABLE_GASPI && pb->gaspi) {
+    if (pb->mode == PB_GASPI) {
         packbuf_gaspi_send(pb, reqtype);
-    } else {
+    } else if (pb->mode == PB_MPI) {
         packbuf_mpi_send(pb, reqtype);
-    }
-}
-
-void
-packbuf_recv(PackBuf *pb, enum pb_reqtype reqtype)
-{
-    if (ENABLE_GASPI && pb->gaspi) {
-        packbuf_gaspi_recv(pb, reqtype);
     } else {
-        packbuf_mpi_recv(pb, reqtype);
+        die("packbuf_send: bad mode\n");
     }
 }
 
 void
-packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
-        int remoterank, int tag[PB_NREQTYPES], int icomm, MPI_Comm *comm)
+packbuf_recv(PackBuf *pb, enum pb_req reqtype)
+{
+    if (pb->mode == PB_GASPI) {
+        packbuf_gaspi_recv(pb, reqtype);
+    } else if (pb->mode == PB_MPI) {
+        packbuf_mpi_recv(pb, reqtype);
+    } else {
+        die("packbuf_recv: bad mode\n");
+    }
+}
+
+void
+packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank)
 {
     memset(pb, 0, sizeof(*pb));
 
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
-    pb->icomm = icomm;
-    pb->comm = comm;
+    pb->mode = PB_BAD;
 
     if (remoterank < 0)
-        abort();
+        die("packbuf_init: negative remote rank %d\n", remoterank);
 
     pb->remoterank = remoterank;
-
-    for (int i = 0; i < PB_NREQTYPES; i++)
-        pb->tag[i] = tag[i];
+    pb->data = NULL;
 
     packbuf_switch(pb, PB_GARBAGE, PB_READY);
-}
-
-enum pb_type
-packbuf_opposite_dir(enum pb_type type)
-{
-    switch (type) {
-        case PB_SEND_R: return PB_RECV_R;
-        case PB_SEND_RT: return PB_RECV_RT;
-        case PB_SEND_RVT: return PB_RECV_RVT;
-        case PB_RECV_R: return PB_SEND_R;
-        case PB_RECV_RT: return PB_SEND_RT;
-        case PB_RECV_RVT: return PB_SEND_RVT;
-        default: die("unknown pb_type\n");
-    }
-
-    /* Not reached */
-    return 0;
 }

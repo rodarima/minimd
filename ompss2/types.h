@@ -97,62 +97,10 @@ typedef struct bin {
 #define NNEIGH (NNEIGHDIM*NNEIGHDIM*NNEIGHDIM - 1)
 #define NSUB 27
 
-/* Used to mark the status of the buffer, so we can detect concurrent
- * access to the buffer and explain what was using it before */
-enum packbuf_state {
-    PB_GARBAGE = 0,
-    PB_READY = 1,
-    PB_PACKING = 2,
-    PB_SENDING = 3,
-    PB_RECVING = 4,
-    PB_COPYING = 5,
-    PB_UNPACKING = 6,
-    PB_ADDING = 7,
-    PB_READING = 8,
-    PB_CLEANING = 9,
-    PB_WAITING = 10,
-};
-
-enum gaspi_segment_dir {
-    SENDSEG = 0,
-    RECVSEG = 1
-};
-
-enum pb_reqtype {
-    PB_BUF = 0,
-    PB_NATOMS = 1,
-    PB_NREQTYPES = 2
-};
-
-typedef struct {
-    int natoms;     /* Number of atoms currently in the buffer */
-    int recvnatoms; /* Number of atoms to be received */
-    int nalloc;     /* Number of atoms allocated */
-    int atomsize;   /* Number of doubles required per atom */
-    double *buf;    /* The contiguous buffer */
-    int enable_sel; /* If non-zero use selection for packing */
-    int *sel;       /* Selection of atoms */
-    enum packbuf_state debug_state; /* Reserved for debugging purposes */
-    enum packbuf_state state;
-    MPI_Request req[PB_NREQTYPES];
-    MPI_Comm *comm;
-    int icomm;      /* And index to identify the MPI_Comm */
-    int waitreq[PB_NREQTYPES];    /* Wait for the request before writing the buffer */
-    int remoterank;
-    int tag[PB_NREQTYPES];
-
-    /* GASPI related */
-    int gaspi;
-    int sendseg;
-    int recvseg;
-    size_t sendoffset; /* in bytes */
-    size_t recvoffset;
-    int queue;
-    char name[256];
-} PackBuf;
-
 typedef struct box Box;
 typedef struct neigh Neigh;
+
+#include "packbuf.h"
 
 /* A neighboring box */
 typedef struct neigh {
@@ -170,13 +118,7 @@ typedef struct neigh {
     int wraps;  /* Non-zero if some dimension needs PBC correction */
     Vec addpbc; /* PBC correction per dimension */
 
-    /* Communication packing buffers */
-    PackBuf send_r;     /* Send atom positions */
-    PackBuf recv_r;     /* Receive atom positions */
-    PackBuf send_rt;    /* Send atom positions and types */
-    PackBuf recv_rt;    /* Receive atom positions and types */
-    PackBuf send_rvt;   /* Send atom position, velocity and type */
-    PackBuf recv_rvt;   /* Receive atom positions, velocity and type */
+    PackBuf pb[PB_NTYPES][PB_NDIR]; /* Communication packing buffers */
 
 } Neigh;
 
@@ -205,29 +147,6 @@ typedef struct Hist {
     double delta;
     const char *filepath;
 } Hist;
-
-enum pb_type {
-    PB_SEND_R = 0,
-    PB_RECV_R,
-    PB_SEND_RT,
-    PB_RECV_RT,
-    PB_SEND_RVT,
-    PB_RECV_RVT,
-    PB_NTYPES
-};
-
-#define PB_TYPENAME(x) ( \
-((char *[]){ \
-"PB_SEND_R", "PB_RECV_R", \
-"PB_SEND_RT", "PB_RECV_RT", \
-"PB_SEND_RVT", "PB_RECV_RVT" \
-})[x])
-
-#define PB_REQTYPENAME(x) ( \
-((char *[]){ \
-"PB_BUF", "PB_NATOMS" \
-})[x])
-
 
 /* All information needed for a box of the simulation */
 typedef struct box {
@@ -285,12 +204,11 @@ typedef struct box {
     Neigh neigh[NNEIGH]; /* Neighboring boxes info */
 
     /* Communicators for each type of buffer */
-    MPI_Comm comm_r;
-    MPI_Comm comm_rt;
-    MPI_Comm comm_rvt;
+    MPI_Comm comm[PB_NTYPES];
 
-    /* Contiguous pointers to the send and recv PackBuf */
-    PackBuf *pb[PB_NTYPES][NNEIGH];
+    /* Contiguous pointers to the send and recv PackBuf. We need the
+     * last dimension to be NNEIGH so we can wait all neighbors. */
+    PackBuf *pb[PB_NTYPES][PB_NDIR][NNEIGH];
 
 } Box;
 
@@ -310,6 +228,21 @@ typedef struct force {
 typedef struct thermo {
     double pot_energy;
 } ThermoT;
+
+typedef struct gaspi {
+    size_t segsize;
+    int segid[NNEIGH][PB_NDIR]; /* Segment ids */
+    void *buf[NNEIGH][PB_NDIR]; /* Buffer of each segment */
+    int nqueues;
+
+    size_t nslots;
+    size_t slotsize;
+
+    size_t pbsize;
+    size_t pboffset;
+    size_t nalloc;
+    size_t atomsize;
+} Gaspi;
 
 /* Information for each MPI rank */
 typedef struct sim {
@@ -401,11 +334,7 @@ typedef struct sim {
     int ntotatoms;
     int iter;   /* Current iteration from the main task */
 
-    /* GASPI info */
-    size_t segsize;
-    double *sendseg;
-    double *recvseg;
-    int nqueues;
+    Gaspi gaspi;
 
     Force force;
     Box *box;
@@ -418,8 +347,6 @@ void box_add_atom(Box *box, Vec r, Vec v, int type);
 
 void force_init(Sim *sim);
 void force_update(Sim *sim);
-
-void *safe_realloc(void *ptr, size_t size);
 
 void build_nearby_atoms(Sim *sim);
 

@@ -4,32 +4,32 @@
 #include "packbuf.h"
 #include "dom.h"
 #include "neigh.h"
+#include "box.h"
 
 #pragma oss task label("box_ghost_pack_r") \
     in(box->r) \
-    inout({box->neigh[i].send_rt.buf, i=0;NNEIGH}) \
-    inout({box->neigh[i].send_r.buf,  i=0;NNEIGH})
+    inout({box->pb[PB_RT][PB_SEND][i]->sel,     i=0;NNEIGH}) \
+    inout({box->pb[PB_RT][PB_SEND][i]->natoms,  i=0;NNEIGH}) \
+    inout({box->pb[PB_R ][PB_SEND][i]->data,     i=0;NNEIGH})
 static void
 box_ghost_pack_r(Sim *sim, Box *box)
 {
     dbg("packing internal ghosts from box %d\n", box->i);
 
     /* Reset all PackBuf from neighbors */
-    for (int i = 0; i < NNEIGH; i++) {
-        packbuf_clear(&box->neigh[i].send_r);
-        packbuf_debug_switch(&box->neigh[i].send_r, PB_READY, PB_PACKING);
-    }
+    box_packbuf_clear(box, PB_R, PB_SEND);
+    box_packbuf_switch(box, PB_R, PB_SEND, PB_READY, PB_PACKING);
+    box_packbuf_switch(box, PB_RT, PB_SEND, PB_READY, PB_READING);
 
-    /* Use the selection in send_rt populated by borders to pack the
-     * atom position */
     for (int i = 0; i < NNEIGH; i++) {
         Neigh *neigh = &box->neigh[i];
+        PackBuf *pb_r = box->pb[PB_R][PB_SEND][i];
+        PackBuf *pb_rt = box->pb[PB_RT][PB_SEND][i];
 
-        packbuf_debug_switch(&neigh->send_rt, PB_READY, PB_READING);
-        PackBuf *pb = &neigh->send_rt;
-
-        for (int j = 0; j < pb->natoms; j++) {
-            int iatom = pb->sel[j];
+        /* Use the selection in PB_RT populated by borders to
+         * pack the atom position */
+        for (int j = 0; j < pb_rt->natoms; j++) {
+            int iatom = pb_rt->sel[j];
             if (iatom < 0 || iatom >= box->nlocal) {
                 die("atom %d outside local range\n", iatom);
             }
@@ -66,41 +66,31 @@ box_ghost_pack_r(Sim *sim, Box *box)
                 }
             }
 
-            packbuf_add(&neigh->send_r, &r, NULL, NULL);
+            packbuf_add(pb_r, &r, NULL, NULL);
         }
 
         dbg("box.%d neigh.%d: packed %d internal ghosts\n",
-                box->i, neigh->i, neigh->send_r.natoms);
-
-        packbuf_debug_switch(&neigh->send_rt, PB_READING, PB_READY);
-        packbuf_debug_switch(&neigh->send_r, PB_PACKING, PB_READY);
+                box->i, neigh->i, pb_r->natoms);
     }
+
+    box_packbuf_switch(box, PB_R, PB_SEND, PB_PACKING, PB_READY);
+    box_packbuf_switch(box, PB_RT, PB_SEND, PB_READING, PB_READY);
 }
 
 #pragma oss task label("neigh_border_pack_rt") \
     in(box->r) \
-    out({box->neigh[i].send_rt.buf,     i=0;NNEIGH}) \
-    out({box->neigh[i].send_rt.natoms,  i=0;NNEIGH}) \
-    out({box->neigh[i].send_rt.sel,     i=0;NNEIGH})
+    out({box->pb[PB_RT][PB_SEND][i]->data,    i=0;NNEIGH}) \
+    out({box->pb[PB_RT][PB_SEND][i]->natoms,  i=0;NNEIGH}) \
+    out({box->pb[PB_RT][PB_SEND][i]->sel,     i=0;NNEIGH})
 static void
 box_border_pack_rt(Sim *sim, Box *box)
 {
     dbg("packing borders for box %2d with nlocal %d\n",
             box->i, box->nlocal);
 
-//    for (int i = 0; i < box->nlocal; i++) {
-//        if (!in_domain(box->r[i], box->domhalo)) {
-//            dbg("box %d: atom %d at %e %e %e is outside halo domain\n",
-//                    box->i, i, box->r[i][X], box->r[i][Y], box->r[i][Z]);
-//            abort();
-//        }
-//    }
-
     /* Reset all PackBuf from neighbors */
-    for (int i = 0; i < NNEIGH; i++) {
-        packbuf_debug_switch(&box->neigh[i].send_rt, PB_READY, PB_PACKING);
-        packbuf_clear(&box->neigh[i].send_rt);
-    }
+    box_packbuf_clear(box, PB_RT, PB_SEND);
+    box_packbuf_switch(box, PB_RT, PB_SEND, PB_READY, PB_PACKING);
 
     /* Reset ghosts in this box */
     box->nghost = 0;
@@ -122,6 +112,7 @@ box_border_pack_rt(Sim *sim, Box *box)
             Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
 
             Neigh *neigh = sub->neigh[j];
+            PackBuf *pb = box->pb[PB_RT][PB_SEND][neigh->i];
 
             dbg("atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
                     i, delta[X], delta[Y], delta[Z], neigh->i,
@@ -139,28 +130,13 @@ box_border_pack_rt(Sim *sim, Box *box)
                         neigh->i, i, r[X], r[Y], r[Z]);
             }
 
-            /* Encode the origin of the atom in the type */
             int type = box->atomtype[i];
-            packbuf_add_sel(&neigh->send_rt, &r, NULL, &type, i);
+            packbuf_add_sel(pb, &r, NULL, &type, i);
         }
 
     }
 
-    for (int i = 0; i < NNEIGH; i++) {
-        packbuf_debug_switch(&box->neigh[i].send_rt, PB_PACKING, PB_READY);
-    }
-
-//    if (box->i == 1) {
-//        abort();
-//    }
-
-//    for (int i = 0; i < NNEIGH; i++) {
-//        Neigh *neigh = &box->neigh[i];
-//        dbg("box %2d neigh %2d at delta %2d %2d %2d has %8d ghosts\n",
-//                box->i, neigh->i,
-//                neigh->delta[X], neigh->delta[Y], neigh->delta[Z],
-//                neigh->send_rt.natoms);
-//    }
+    box_packbuf_switch(box, PB_RT, PB_SEND, PB_PACKING, PB_READY);
 
     dbg("rank%d: packed borders for box %2d\n", sim->rank, box->i);
 }
@@ -184,8 +160,8 @@ copy_atom_rvt(Box *box, int src, int dst)
  * invalidated.*/
 #pragma oss task label("box_tidy_pack_rvt") \
     inout(box->r) \
-    out({box->neigh[i].send_rvt.buf, i=0;NNEIGH}) \
-    out({box->neigh[i].send_rvt.natoms, i=0;NNEIGH})
+    out({box->pb[PB_RVT][PB_SEND][i]->data,     i=0;NNEIGH}) \
+    out({box->pb[PB_RVT][PB_SEND][i]->natoms,   i=0;NNEIGH})
 static void
 box_tidy_pack_rvt(Sim *sim, Box *box)
 {
@@ -193,10 +169,8 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
             box->i, box->nlocal);
 
     /* Reset all PackBuf from neighbors */
-    for (int i = 0; i < NNEIGH; i++) {
-        packbuf_clear(&box->neigh[i].send_rvt);
-        packbuf_debug_switch(&box->neigh[i].send_rvt, PB_READY, PB_PACKING);
-    }
+    box_packbuf_clear(box, PB_RVT, PB_SEND);
+    box_packbuf_switch(box, PB_RVT, PB_SEND, PB_READY, PB_PACKING);
 
     /* Invalidate ghosts, as we are going to modify box->nlocal */
     box->nghost = -666;
@@ -212,46 +186,25 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
         }
 
         Neigh *neigh = &box->neigh[delta2neigh(delta)];
-
-//        dbg("box %d packing atom %3d in neigh %d at %e %e %e\n",
-//                box->i, i, neigh->i, r[X], r[Y], r[Z]);
+        PackBuf *pb = &neigh->pb[PB_RVT][PB_SEND];
 
         /* Enforce PBC before packing the atom position */
         if (neigh->wraps) {
             for (int d = X; d <= Z; d++)
                 r[d] += neigh->addpbc[d];
-
-//            dbg("               atom %3d wraps, now at %e %e %e\n",
-//                    i, r[X], r[Y], r[Z]);
         }
 
         int type = box->atomtype[i];
-        packbuf_add(&neigh->send_rvt, &r, &box->v[i], &type);
+        packbuf_add(pb, &r, &box->v[i], &type);
 
         /* Fill the hole with one atom from the end */
         int src = box->nlocal - 1, dst = i;
-        //dbg("box %d moving atom %d to %d\n",
-        //        box->i, src, dst);
         copy_atom_rvt(box, src, dst);
         box->nlocal--;
 
     }
 
-    for (int i = 0; i < NNEIGH; i++) {
-        packbuf_debug_switch(&box->neigh[i].send_rvt, PB_PACKING, PB_READY);
-    }
-
-    for (int i = 0; i < NNEIGH; i++) {
-        Neigh *neigh = &box->neigh[i];
-        if (neigh->send_rvt.natoms > 0) {
-            dbg("packed %d atoms in box%d:neigh%02d pb=%p\n",
-                    neigh->send_rvt.natoms,
-                    box->i, neigh->i, &neigh->send_rvt);
-        }
-    }
-
-    dbg("after packing out atoms for box %2d, nlocal=%d\n",
-            box->i, box->nlocal);
+    box_packbuf_switch(box, PB_RVT, PB_SEND, PB_PACKING, PB_READY);
 }
 
 void
@@ -263,9 +216,9 @@ comm_pack(Sim *sim, enum pb_type type)
         Box *box = &sim->box[i];
 
         switch (type) {
-        case PB_SEND_R: box_ghost_pack_r(sim, box); break;
-        case PB_SEND_RT: box_border_pack_rt(sim, box); break;
-        case PB_SEND_RVT: box_tidy_pack_rvt(sim, box); break;
+        case PB_R: box_ghost_pack_r(sim, box); break;
+        case PB_RT: box_border_pack_rt(sim, box); break;
+        case PB_RVT: box_tidy_pack_rvt(sim, box); break;
         default: die("not implemented\n");
         }
     }

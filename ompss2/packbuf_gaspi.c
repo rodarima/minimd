@@ -7,30 +7,46 @@
 #include <GASPI.h>
 #include <TAGASPI.h>
 
+static int
+check_tag(int tag)
+{
+    gaspi_number_t maxtag;
+    CHECK(gaspi_notification_num(&maxtag));
+
+    if (tag >= maxtag)
+        die("GASPI tag exceed limit: %d >= %d\n", tag, maxtag);
+
+    return tag;
+}
+
 void
 packbuf_gaspi_init(PackBuf *pb,
-        double *newbuf,
+        PackBufData *newdata,
         int sendseg, size_t send_offset_bytes,
         int recvseg, size_t recv_offset_bytes,
-        size_t nalloc, int queue)
+        size_t nalloc, int queue, int tag)
 {
-    pb->sendseg = sendseg;
-    pb->recvseg = recvseg;
-    pb->sendoffset = send_offset_bytes;
-    pb->recvoffset = recv_offset_bytes;
-    pb->buf = newbuf;
-    pb->queue = queue;
-    pb->gaspi = 1;
+    PackBufGASPI *pbg = &pb->gaspi;
+    pbg->sendseg = sendseg;
+    pbg->recvseg = recvseg;
+    pbg->sendoffset = send_offset_bytes;
+    pbg->recvoffset = recv_offset_bytes;
+    pbg->queue = queue;
+    pbg->nid = check_tag(tag);
+
     pb->nalloc = nalloc;
+    pb->data = newdata;
+    pb->mode = PB_GASPI;
 }
 
 static void
 send_buf(PackBuf *pb)
 {
+    PackBufGASPI *pbg = &pb->gaspi;
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-    dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d tag=%d name='%s'\n",
-            pb->natoms, pb->remoterank, pb->tag[PB_BUF], pb->name);
+    dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d nid=%d name='%s'\n",
+            pb->natoms, pb->remoterank, pbg->nid, pb->name);
 
     if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_send_buf: buffer in use\n");
@@ -38,12 +54,12 @@ send_buf(PackBuf *pb)
     /* Repeat until success */
     while (1) {
         gaspi_return_t ret = tagaspi_write_notify(
-                pb->sendseg, pb->sendoffset,
+                pbg->sendseg, pbg->sendoffset,
                 pb->remoterank,
-                pb->recvseg, pb->recvoffset,
+                pbg->recvseg, pbg->recvoffset,
                 pb->natoms * pb->atomsize,
-                pb->tag[PB_BUF], 1,
-                pb->queue);
+                pbg->nid, 1,
+                pbg->queue);
 
         if (ret == GASPI_SUCCESS)
             break;
@@ -60,7 +76,7 @@ send_buf(PackBuf *pb)
 }
 
 void
-packbuf_gaspi_send(PackBuf *pb, enum pb_reqtype reqtype)
+packbuf_gaspi_send(PackBuf *pb, enum pb_req reqtype)
 {
     if (reqtype == PB_NATOMS) {
         die("not implemented\n");
@@ -72,26 +88,27 @@ packbuf_gaspi_send(PackBuf *pb, enum pb_reqtype reqtype)
 static void
 recv_buf(PackBuf *pb)
 {
+    PackBufGASPI *pbg = &pb->gaspi;
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
-    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d tag=%d name='%s'\n",
-            pb->recvnatoms, pb->remoterank, pb->tag[PB_BUF], pb->name);
+    dbg("packbuf_gaspi_recv_buf: xnatoms=%d remoterank=%d nid=%d name='%s'\n",
+            pb->data->xnatoms, pb->remoterank, pbg->nid, pb->name);
 
     if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_recv_buf: buffer in use\n");
 
-    if (pb->recvnatoms < 0)
-        die("bad recvnatoms\n");
+    if (pb->data->xnatoms < 0)
+        die("bad xnatoms\n");
 
-    if (pb->recvnatoms > 0) {
-        if (pb->recvnatoms > pb->nalloc)
+    if (pb->data->xnatoms > 0) {
+        if (pb->data->xnatoms > pb->nalloc)
             die("packbuf_gaspi_recv_buf: buffer of %d too small for %d atoms\n",
-                    pb->nalloc, pb->recvnatoms);
+                    pb->nalloc, pb->data->xnatoms);
 
         while (1) {
             gaspi_return_t ret = tagaspi_notify_async_wait(
-                    pb->recvseg,
-                    pb->tag[PB_BUF],
+                    pbg->recvseg,
+                    pbg->nid,
                     GASPI_NOTIFICATION_IGNORE);
 
             if (ret == GASPI_SUCCESS)
@@ -106,12 +123,12 @@ recv_buf(PackBuf *pb)
         //pb->waitreq[PB_BUF] = 1;
     }
 
-    pb->natoms = pb->recvnatoms;
+    pb->natoms = pb->data->xnatoms;
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
 
 void
-packbuf_gaspi_recv(PackBuf *pb, enum pb_reqtype reqtype)
+packbuf_gaspi_recv(PackBuf *pb, enum pb_req reqtype)
 {
     if (reqtype == PB_NATOMS) {
         die("not implemented\n");

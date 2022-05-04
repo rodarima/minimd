@@ -32,6 +32,7 @@
 #define ENABLE_DEBUG 0
 #include "types.h"
 #include "packbuf.h"
+#include "setup.h"
 #include "log.h"
 #include "neigh.h"
 #include "gaspi_check.h"
@@ -707,9 +708,9 @@ check_neighbor_coords(Sim *sim)
 
             for (int i = 0; i < NNEIGH; i++) {
                 Neigh *neigh = &box->neigh[i];
-                PackBuf *pb = &neigh->send_rvt;
+                PackBuf *pb = &neigh->pb[PB_RVT][PB_SEND];
 
-                pb->req[PB_BUF] = MPI_REQUEST_NULL;
+                pb->mpi.req[PB_BUF] = MPI_REQUEST_NULL;
 
                 /* Only need to send with distinct ranks */
                 if (neigh->rank == sim->rank)
@@ -726,8 +727,8 @@ check_neighbor_coords(Sim *sim)
                         box->idim[Z]
                     },
                     .send_dir = neigh->i,
-                    .tag = pb->tag[PB_BUF],
-                    .icomm = pb->icomm,
+                    .tag = pb->mpi.tag[PB_BUF],
+                    .icomm = pb->mpi.icomm,
                     .dstrank = pb->remoterank,
                     .dstbox = neigh->boxid,
                     .dstbox_coord = {
@@ -744,7 +745,7 @@ check_neighbor_coords(Sim *sim)
                 memcpy(msend, &m, sizeof(m));
 
                 MPI_Isend(msend, sizeof(m), MPI_BYTE, pb->remoterank,
-                        pb->tag[PB_BUF], *pb->comm, &pb->req[PB_BUF]);
+                        pb->mpi.tag[PB_BUF], *pb->mpi.comm, &pb->mpi.req[PB_BUF]);
             }
         }
     }
@@ -755,9 +756,9 @@ check_neighbor_coords(Sim *sim)
             for (int i = 0; i < NNEIGH; i++) {
                 Neigh *neigh = &box->neigh[i];
 
-                PackBuf *pb = &neigh->recv_rvt;
+                PackBuf *pb = &neigh->pb[PB_RVT][PB_RECV];
 
-                pb->req[PB_BUF] = MPI_REQUEST_NULL;
+                pb->mpi.req[PB_BUF] = MPI_REQUEST_NULL;
 
                 if (neigh->rank == sim->rank)
                     continue;
@@ -765,7 +766,7 @@ check_neighbor_coords(Sim *sim)
                 struct msg mrecv;
 
                 MPI_Recv(&mrecv, sizeof(mrecv), MPI_BYTE, pb->remoterank,
-                        pb->tag[PB_BUF], *pb->comm, MPI_STATUS_IGNORE);
+                        pb->mpi.tag[PB_BUF], *pb->mpi.comm, MPI_STATUS_IGNORE);
 
                 struct msg mexp = {
                     .srcrank = pb->remoterank,
@@ -776,8 +777,8 @@ check_neighbor_coords(Sim *sim)
                         neigh->opposite->boxcoordw[Z]
                     },
                     .send_dir = neigh->opposite->i,
-                    .tag = pb->tag[PB_BUF],
-                    .icomm = pb->icomm,
+                    .tag = pb->mpi.tag[PB_BUF],
+                    .icomm = pb->mpi.icomm,
                     .dstrank = sim->rank,
                     .dstbox = ibox,
                     .dstbox_coord = {
@@ -800,7 +801,8 @@ check_neighbor_coords(Sim *sim)
         for (int i = 0; i < NNEIGH; i++) {
             Neigh *neigh = &box->neigh[i];
             if (neigh->rank != sim->rank) {
-                MPI_Wait(&neigh->send_rvt.req[PB_BUF], MPI_STATUS_IGNORE);
+                PackBuf *pb = &neigh->pb[PB_RVT][PB_SEND];
+                MPI_Wait(&pb->mpi.req[PB_BUF], MPI_STATUS_IGNORE);
             }
         }
     }
@@ -1060,289 +1062,6 @@ setup_subdomains(Sim *sim)
 {
     for (int i = 0; i < sim->nboxes; i++)
         setup_subdomains_box(sim, &sim->box[i]);
-}
-
-static int
-build_tag(int boxid, int neighid, enum pb_reqtype reqtype)
-{
-    int tag = neighid * PB_NREQTYPES + reqtype;
-    //int tag = boxid * NNEIGH + neighid;
-
-    /* Ensure the tag is within the MPI standard limit */
-    if (tag >= 32767) {
-        die("tag exceed limit: %d >= %d\n", tag, 32767);
-    }
-
-    return tag;
-}
-
-static void
-setup_gaspi_segments(Sim *sim)
-{
-    /* Setup GASPI config */
-    gaspi_config_t conf;
-    CHECK(gaspi_config_get(&conf));
-    conf.build_infrastructure = GASPI_TOPOLOGY_DYNAMIC;
-    conf.queue_size_max = 4*1024;
-    CHECK(gaspi_config_set(conf));
-
-    CHECK(tagaspi_proc_init(GASPI_BLOCK));
-
-    unsigned short g_rank, g_nranks;
-    CHECK(gaspi_proc_rank(&g_rank));
-    CHECK(gaspi_proc_num(&g_nranks));
-
-    /* Should be the same as MPI */
-    if (g_rank != sim->rank)
-        die("wrong gaspi rank\n");
-
-    if (g_nranks != sim->nranks)
-        die("wrong gaspi nranks\n");
-
-    /* Create two large segments where we are going to place the send and
-     * receive buffers for each PackBuf. They are all consecutive */
-
-    /* For now, we only use the send_r and recv_r PackBuf, of which we know the
-     * size in each iteration */
-    size_t npackbuf = sim->nboxes * NNEIGH;
-
-    /* Set the size of the segment to the maximum */
-    size_t packbuf_nalloc = 16 * 1024;
-    size_t packbuf_ndoubles = packbuf_nalloc * NDIM;
-    size_t packbuf_nbytes = packbuf_ndoubles * sizeof(double);
-    size_t seg_nbytes = npackbuf * packbuf_nbytes;
-
-    /* Send segment */
-    if ((sim->sendseg = malloc(seg_nbytes)) == NULL)
-        die("malloc of %zu bytes failed\n", seg_nbytes);
-
-    CHECK(gaspi_segment_use(SENDSEG,
-                sim->sendseg, seg_nbytes,
-                GASPI_GROUP_ALL,
-                GASPI_BLOCK, 0));
-
-    CHECK(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
-
-    /* Receive segment */
-    if ((sim->recvseg = malloc(seg_nbytes)) == NULL)
-        die("malloc of %zu bytes failed\n", seg_nbytes);
-
-    CHECK(gaspi_segment_use(RECVSEG,
-                sim->recvseg, seg_nbytes,
-                GASPI_GROUP_ALL,
-                GASPI_BLOCK, 0));
-
-    CHECK(gaspi_barrier(GASPI_GROUP_ALL, GASPI_BLOCK));
-
-    /* Setup queues */
-    gaspi_number_t nqueues;
-    CHECK(gaspi_queue_num(&nqueues));
-    CHECK(tagaspi_queue_group_create(0, 0, nqueues,
-                GASPI_QUEUE_GROUP_POLICY_CPU_RR));
-
-    sim->nqueues = nqueues;
-
-    /* Now we need to properly adjust the buf pointers in each PackBuf to the
-     * right position in the segments */
-
-    for (int ibox = 0; ibox < sim->nboxes; ibox++) {
-        Box *box = &sim->box[ibox];
-        for (int ineigh = 0; ineigh < NNEIGH; ineigh++) {
-            Neigh *neigh = &box->neigh[ineigh];
-
-            size_t send_pbindex = ibox * NNEIGH + ineigh;
-            size_t send_offset = send_pbindex * packbuf_ndoubles;
-            int sendqueue = ibox % nqueues;
-            double *send_buf = &sim->sendseg[send_offset];
-
-            /* See the diagram in setup_packbuf() */
-            size_t jbox = neigh->boxid;
-            size_t jneigh = neigh->opposite->i;
-            size_t recv_pbindex = jbox * NNEIGH + jneigh;
-            size_t recv_offset = recv_pbindex * packbuf_ndoubles;
-            double *recv_buf = &sim->recvseg[recv_offset];
-            int recvqueue = jbox % nqueues;
-
-            packbuf_gaspi_init(&neigh->send_r,
-                    send_buf, 
-                    SENDSEG, send_offset,
-                    RECVSEG, recv_offset,
-                    packbuf_nalloc,
-                    sendqueue);
-
-            packbuf_gaspi_init(&neigh->recv_r,
-                    recv_buf,
-                    -1, 0, /* send not used */
-                    RECVSEG, recv_offset,
-                    packbuf_nalloc,
-                    recvqueue);
-        }
-    }
-}
-
-static void
-setup_packbuf(Sim *sim)
-{
-    /* Init all pack buffers */
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-
-        MPI_Comm_dup(MPI_COMM_WORLD, &box->comm_r);
-        MPI_Comm_dup(MPI_COMM_WORLD, &box->comm_rt);
-        MPI_Comm_dup(MPI_COMM_WORLD, &box->comm_rvt);
-
-        for (int j = 0; j < NNEIGH; j++) {
-            Neigh *neigh = &box->neigh[j];
-
-            /* Setup the number of doubles needed per buffer */
-            int s[3] = { NDIM, NDIM + 1, 2*NDIM + 1 };
-
-            /* Send to same direction as neigh */
-            int sendrank = neigh->rank;
-            int sendtag[2] = {
-                build_tag(box->i, neigh->i, PB_BUF),
-                build_tag(box->i, neigh->i, PB_NATOMS)
-            };
-            int sendicomm = box->i;
-
-            packbuf_init(&neigh->send_r,   0, s[0], sendrank, sendtag, sendicomm, &box->comm_r);
-            packbuf_init(&neigh->send_rt,  1, s[1], sendrank, sendtag, sendicomm, &box->comm_rt);
-            packbuf_init(&neigh->send_rvt, 0, s[2], sendrank, sendtag, sendicomm, &box->comm_rvt);
-
-            sprintf(neigh->send_r.name, "send_r rank=%d, box=%d, neigh=%d",
-                    sim->rank, box->i, j);
-            sprintf(neigh->send_rt.name, "send_rt rank=%d, box=%d, neigh=%d",
-                    sim->rank, box->i, j);
-            sprintf(neigh->send_rvt.name, "send_rvt rank=%d, box=%d, neigh=%d",
-                    sim->rank, box->i, j);
-
-            /* Set the PB pointers in the box table */
-            box->pb[PB_SEND_R][neigh->i] = &neigh->send_r;
-            box->pb[PB_SEND_RT][neigh->i] = &neigh->send_rt;
-            box->pb[PB_SEND_RVT][neigh->i] = &neigh->send_rvt;
-
-            /*
-             * The recv is tricky, here is a diagram:
-             *
-             * +-------+                           +-------+
-             * |       |                           |       |
-             * | box i -> neigh a  -->--  neigh b <- box j |
-             * |       |                           |       |
-             * +-------+                           +-------+
-             *
-             * To send via (i, a) we use:
-             *
-             *  rank = a->rank
-             *  tag = build_tag(i, a)
-             *
-             * But to receive, in (j, b) we need to use:
-             *
-             *  rank = b->rank
-             *  tag = build_tag(i, a)
-             *
-             * The index of neigh a is b->opposite->i. And the index of
-             * the box i is b->boxid, so:
-             *
-             *   tag = build_tag(b->boxid, b->opposite->i)
-             */
-
-            int recvrank = neigh->rank;
-            /* Same tag used for send in the opposite send direction */
-            Neigh *opp = neigh->opposite;
-            int recvtag[2] = {
-                build_tag(neigh->boxid, neigh->opposite->i, PB_BUF),
-                build_tag(neigh->boxid, neigh->opposite->i, PB_NATOMS)
-            };
-
-            Box *recvbox = &sim->box[neigh->boxid];
-            int recvicomm = neigh->boxid;
-
-            packbuf_init(&neigh->recv_r,   0, s[0], recvrank, recvtag, recvicomm, &recvbox->comm_r);
-            packbuf_init(&neigh->recv_rt,  1, s[1], recvrank, recvtag, recvicomm, &recvbox->comm_rt);
-            packbuf_init(&neigh->recv_rvt, 0, s[2], recvrank, recvtag, recvicomm, &recvbox->comm_rvt);
-
-            sprintf(neigh->recv_r.name, "recv_r rank=%d, box=%d, neigh=%d",
-                    sim->rank, box->i, j);
-            sprintf(neigh->recv_rt.name, "recv_rt rank=%d, box=%d, neigh=%d",
-                    sim->rank, box->i, j);
-            sprintf(neigh->recv_rvt.name, "recv_rvt rank=%d, box=%d, neigh=%d",
-                    sim->rank, box->i, j);
-
-            /* Set the PB pointers in the box table */
-            box->pb[PB_RECV_R][neigh->i] = &neigh->recv_r;
-            box->pb[PB_RECV_RT][neigh->i] = &neigh->recv_rt;
-            box->pb[PB_RECV_RVT][neigh->i] = &neigh->recv_rvt;
-
-            packbuf_debug_switch(&neigh->send_r, PB_GARBAGE, PB_READY);
-            packbuf_debug_switch(&neigh->recv_r, PB_GARBAGE, PB_READY);
-            packbuf_debug_switch(&neigh->send_rt, PB_GARBAGE, PB_READY);
-            packbuf_debug_switch(&neigh->recv_rt, PB_GARBAGE, PB_READY);
-            packbuf_debug_switch(&neigh->send_rvt, PB_GARBAGE, PB_READY);
-            packbuf_debug_switch(&neigh->recv_rvt, PB_GARBAGE, PB_READY);
-        }
-    }
-
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-
-        for (int j = 0; j < NNEIGH; j++) {
-            Neigh *neigh = &box->neigh[j];
-
-            if (box->pb[PB_SEND_R][j] != &neigh->send_r)
-                die("bad pb pointer\n");
-            if (box->pb[PB_SEND_RT][j] != &neigh->send_rt)
-                die("bad pb pointer\n");
-            if (box->pb[PB_SEND_RVT][j] != &neigh->send_rvt)
-                die("bad pb pointer\n");
-
-            if (box->pb[PB_RECV_R][j] != &neigh->recv_r)
-                die("bad pb pointer\n");
-            if (box->pb[PB_RECV_RT][j] != &neigh->recv_rt)
-                die("bad pb pointer\n");
-            if (box->pb[PB_RECV_RVT][j] != &neigh->recv_rvt)
-                die("bad pb pointer\n");
-        }
-    }
-
-    for (int i = 0; i < sim->nboxes; i++) {
-        Box *box = &sim->box[i];
-
-        for (int j = 0; j < NNEIGH; j++) {
-            Neigh *neigh = &box->neigh[j];
-
-            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  sendtag=(%d %d)  remoterank=%d\n",
-                    sim->rank, box->i,
-                    box->idim[X], box->idim[Y], box->idim[Z],
-                    neigh->i,
-                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
-                    neigh->boxcoordw[X], neigh->boxcoordw[Y], neigh->boxcoordw[Z], 
-                    neigh->send_r.tag[0],
-                    neigh->send_r.tag[1],
-                    neigh->send_r.remoterank);
-        }
-
-        dbg(" ------------- \n");
-
-        for (int j = 0; j < NNEIGH; j++) {
-            Neigh *neigh = &box->neigh[j];
-
-            dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)  boxcoordw=(%2d %2d %2d)  recvtag=(%d %d)  remoterank=%d\n",
-                    sim->rank, box->i,
-                    box->idim[X], box->idim[Y], box->idim[Z],
-                    neigh->i,
-                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
-                    neigh->boxcoordw[X], neigh->boxcoordw[Y], neigh->boxcoordw[Z], 
-                    neigh->recv_r.tag[0],
-                    neigh->recv_r.tag[1],
-                    neigh->recv_r.remoterank);
-        }
-
-        dbg(" ------------- \n");
-
-    }
-
-    if (ENABLE_GASPI)
-        setup_gaspi_segments(sim);
 }
 
 static void

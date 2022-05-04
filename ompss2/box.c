@@ -1,4 +1,5 @@
 #include "types.h"
+#include "safe.h"
 
 
 #define BOX_ALLOC_INCR 20000

@@ -27,6 +27,7 @@ LDFLAGS+=-g
 #CFLAGS+=--line-markers
 
 CFLAGS+=-std=c11
+CFLAGS+=-Werror-implicit-function-declaration
 
 #CFLAGS+=-fsanitize=address
 #LDFLAGS+=-fsanitize=address
@@ -34,6 +35,7 @@ CFLAGS+=-std=c11
 #CFLAGS+=-Wno-attributes
 
 SRC=box.c \
+  box_packbuf.c \
   comm.c \
   comm_send.c \
   comm_recv.c \
@@ -48,6 +50,7 @@ SRC=box.c \
   packbuf.c \
   packbuf_mpi.c \
   packbuf_gaspi.c \
+  setup_packbuf.c \
   ref.c \
   safe.c \
   thermo.c

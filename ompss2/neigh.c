@@ -1,6 +1,7 @@
 #include "types.h"
 #include "neigh.h"
 #include "dom.h"
+#include "safe.h"
 
 #define BIN_ALLOC_INCR 100
 #define NEARBY_ALLOC_INCR 100

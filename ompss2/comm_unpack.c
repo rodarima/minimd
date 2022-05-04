@@ -9,73 +9,80 @@
 #include <math.h>
 
 static void
+check_max_jump(Sim *sim, Box *box, PackBuf *pb, int i, int nnew)
+{
+    for (int j = 0; j < nnew; j++) {
+        int ii = i + j;
+        Vec oldr = {
+            box->r[ii][X],
+            box->r[ii][Y],
+            box->r[ii][Z]
+        };
+
+        Vec newr = {
+            pb->data->buf[j * 3 + X],
+            pb->data->buf[j * 3 + Y],
+            pb->data->buf[j * 3 + Z]
+        };
+
+        /* We should not expect jumps caused by wraps here */
+
+        double dist = sqrt(get_distsq(oldr, newr));
+        if (dist > 0.1)
+            die("rank %d box %d: jump too large: ii=%d oldr=(%e %e %e) newr=(%e %e %e)\n",
+                    sim->rank, box->i, ii,
+                    oldr[X], oldr[Y], oldr[Z],
+                    newr[X], newr[Y], newr[Z]);
+
+    }
+}
+
+static void
 neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
 {
-    packbuf_debug_switch(&neigh->recv_r, PB_READY, PB_RECVING);
-    packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_READING);
+    PackBuf *pb_r = &neigh->pb[PB_R][PB_RECV];
+    PackBuf *pb_rt = &neigh->pb[PB_RT][PB_RECV];
 
-    if (neigh->recv_rt.natoms != neigh->recv_r.natoms)
-        abort();
+    packbuf_debug_switch(pb_r, PB_READY, PB_RECVING);
+    packbuf_debug_switch(pb_rt, PB_READY, PB_READING);
 
-    if (neigh->recv_r.natoms != 0) {
-        int nnew = neigh->recv_r.natoms;
+    if (pb_rt->natoms != pb_r->natoms)
+        die("ghost_unpack_r: mismatch natoms r != rt\n");
+
+    if (pb_r->natoms != 0) {
+        int nnew = pb_r->natoms;
         int ntot = box->nlocal + box->nghost + nnew;
         if (ntot > box->nalloc) {
-            die("error: box%d:neigh%d cannot unpack %d atoms, capacity exeeeded\n",
+            die("box%d:neigh%d cannot unpack %d atoms, capacity exeeeded\n",
                     box->i, neigh->i, nnew);
         }
 
         int i = box->nlocal + box->nghost;
 
-        if (ENABLE_MAX_JUMP_CHECK) {
-
-            for (int j = 0; j < nnew; j++) {
-                int ii = i + j;
-                Vec oldr = {
-                    box->r[ii][X],
-                    box->r[ii][Y],
-                    box->r[ii][Z]
-                };
-
-                Vec newr = {
-                    neigh->recv_r.buf[j * 3 + X],
-                    neigh->recv_r.buf[j * 3 + Y],
-                    neigh->recv_r.buf[j * 3 + Z]
-                };
-
-                /* We should not expect jumps caused by wraps here */
-
-                double dist = sqrt(get_distsq(oldr, newr));
-                if (dist > 0.1)
-                    die("rank %d box %d neigh %d: jump too large: oldr=(%e %e %e) newr=(%e %e %e)\n",
-                                sim->rank, box->i, neigh->i,
-                                oldr[X], oldr[Y], oldr[Z],
-                                newr[X], newr[Y], newr[Z]);
-
-            }
-        }
+        if (ENABLE_MAX_JUMP_CHECK)
+            check_max_jump(sim, box, pb_r, i, nnew);
 
         /* The unpack order must be kept the same to match the ghost atom
          * order given by borders */
-        packbuf_unpack(&neigh->recv_r, &box->r[i], NULL, NULL);
+        packbuf_unpack(pb_r, &box->r[i], NULL, NULL);
 
         /* We cannot check the domain bounds of the new ghost atom
          * positions, as they are moving around, even exceeding the halo
          * domain */
 
-        box->nghost += neigh->recv_r.natoms;
+        box->nghost += pb_r->natoms;
     }
 
-    packbuf_debug_switch(&neigh->recv_r, PB_RECVING, PB_READY);
-    packbuf_debug_switch(&neigh->recv_rt, PB_READING, PB_READY);
+    packbuf_debug_switch(pb_r, PB_RECVING, PB_READY);
+    packbuf_debug_switch(pb_rt, PB_READING, PB_READY);
 }
 
 /* FIXME: We shouldn't need to use inout */
 #pragma oss task label("box_ghost_unpack_r_neigh") \
-    inout({box->neigh[i].recv_rt.natoms,    i=0;NNEIGH}) \
-    inout({box->neigh[i].recv_rt.buf,       i=0;NNEIGH}) \
-    inout({box->neigh[i].recv_r.natoms,     i=0;NNEIGH}) \
-    inout({box->neigh[i].recv_r.buf,        i=0;NNEIGH}) \
+    inout({box->pb[PB_RT][PB_RECV][i]->natoms,  i=0;NNEIGH}) \
+    inout({box->pb[PB_RT][PB_RECV][i]->data,    i=0;NNEIGH}) \
+    inout({box->pb[PB_R ][PB_RECV][i]->natoms,  i=0;NNEIGH}) \
+    inout({box->pb[PB_R ][PB_RECV][i]->data,    i=0;NNEIGH}) \
     inout(box->r)
 static void
 box_ghost_unpack_r(Sim *sim, Box *box)
@@ -87,7 +94,7 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 
     for (int j = 0; j < NNEIGH; j++) {
         /* NOTE: The unpack order must match the neighbor order of the unpack of
-         * the recv_rt buffer */
+         * the rt buffer */
         Neigh *neigh = &box->neigh[j];
         neigh_ghost_unpack_r(sim, box, neigh);
     }
@@ -105,35 +112,36 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 
 /* FIXME: We shouldn't need to use inout */
 #pragma oss task label("neigh_border_unpack_rt") \
-    inout(neigh->recv_rt.buf) \
-    inout(neigh->recv_rt.natoms) \
-    out(neigh->recv_r.recvnatoms) \
+    inout(neigh->pb[PB_RT][PB_RECV].data) \
+    inout(neigh->pb[PB_RT][PB_RECV].natoms) \
+    inout(neigh->pb[PB_R ][PB_RECV].data) \
     out(box->r)
 static void
 neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 {
-    neigh->recv_r.recvnatoms = neigh->recv_rt.natoms;
+    PackBuf *pb_r = &neigh->pb[PB_R][PB_RECV];
+    PackBuf *pb_rt = &neigh->pb[PB_RT][PB_RECV];
 
-    if (neigh->recv_rt.natoms == 0)
+    /* Set the natoms to be sent and received in the PB_R buffer */
+
+    /* XXX: This looks like a mix of concerns; use another variable in
+     * Box to account for these number? */
+    pb_r->data->xnatoms = pb_rt->natoms;
+
+    if (pb_rt->natoms == 0)
         return;
 
-    packbuf_debug_switch(&neigh->recv_rt, PB_READY, PB_UNPACKING);
+    packbuf_debug_switch(pb_rt, PB_READY, PB_UNPACKING);
 
     /* Ensure we have room to place the new ghost atoms */
-    int nnew = neigh->recv_rt.natoms;
+    int nnew = pb_rt->natoms;
     int nend = box->nlocal + box->nghost;
     int ntot = nend + nnew;
     int oldalloc = box->nalloc;
     box_realloc(box, ntot);
 
-//    dbg("unpacking %d atoms from neigh %d into box %d (%d -> %d)\n",
-//            neigh->recv_rt.natoms, neigh->i, box->i, nend, ntot);
-
-    //dbg("box %d realloc from %d to %d (nnew=%d nend=%d ntot=%d)\n",
-    //        box->i, oldalloc, box->nalloc, nnew, nend, ntot);
-
     /* Unpack the position and type at the end of the local atoms */
-    packbuf_unpack(&neigh->recv_rt, &box->r[nend], NULL, &box->atomtype[nend]);
+    packbuf_unpack(pb_rt, &box->r[nend], NULL, &box->atomtype[nend]);
 
     for (int i = nend; i < ntot; i++) {
         Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
@@ -152,7 +160,7 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     /* Adjust the number of ghost atoms in the box */
     box->nghost += nnew;
 
-    packbuf_debug_switch(&neigh->recv_rt, PB_UNPACKING, PB_READY);
+    packbuf_debug_switch(pb_rt, PB_UNPACKING, PB_READY);
 }
 
 static void
@@ -180,7 +188,6 @@ check_atom(Sim *sim, Box *box, Vec r)
     /* Identify the atom bin */
     int iindbin = get_atom_bin(sim, box, r);
     Bin *ibin = &box->bin[iindbin];
-
 
     int match = 0;
     double closest = 1e50;
@@ -239,25 +246,24 @@ check_atom(Sim *sim, Box *box, Vec r)
     inout(box->r) \
     inout(box->v) \
     inout(box->f) /* May realloc f too */\
-    inout(neigh->recv_rvt.buf) \
-    inout(neigh->recv_rvt.natoms)
+    inout(neigh->pb[PB_RVT][PB_RECV].data) \
+    inout(neigh->pb[PB_RVT][PB_RECV].natoms)
 static void
 neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
-    packbuf_debug_switch(&neigh->recv_rvt, PB_READY, PB_UNPACKING);
-//    if (neigh->recv_rvt.natoms > 0) {
-//        dbg("box %d: unpacking %d atoms from neigh %d\n",
-//                box->i, neigh->recv_rvt.natoms, neigh->i);
-//    }
+    PackBuf *pb = &neigh->pb[PB_RVT][PB_RECV];
+
+    packbuf_debug_switch(pb, PB_READY, PB_UNPACKING);
+
     /* Ensure we have room to place the new local atoms */
-    int n = box->nlocal + neigh->recv_rvt.natoms;
+    int n = box->nlocal + pb->natoms;
     box_realloc(box, n);
 
 //    /* Here we are receiving new local atoms that have just moved into
 //     * our box. Ensure that there was a ghost atom before and that is
 //     * not too close to an already existing atom */
-//    for (int i = 0; i < neigh->recv_rvt.natoms; i++) {
-//        double *r = &neigh->recv_rvt.buf[i * (NDIM * 2 + 1)];
+//    for (int i = 0; i < pb->natoms; i++) {
+//        double *r = &pb->data->buf[i * (NDIM * 2 + 1)];
 //        check_atom(sim, box, *(Vec *) r);
 //    }
 
@@ -265,11 +271,11 @@ neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
     Vec *r = &box->r[box->nlocal];
     Vec *v = &box->v[box->nlocal];
     int *types = &box->atomtype[box->nlocal];
-    packbuf_unpack(&neigh->recv_rvt, r, v, types);
+    packbuf_unpack(pb, r, v, types);
 
     /* Adjust the number of local atoms in the box */
     box->nlocal = n;
-    packbuf_debug_switch(&neigh->recv_rvt, PB_UNPACKING, PB_READY);
+    packbuf_debug_switch(pb, PB_UNPACKING, PB_READY);
 }
 
 static void
@@ -294,9 +300,9 @@ comm_unpack(Sim *sim, enum pb_type type)
         Box *box = &sim->box[i];
 
         switch (type) {
-        case PB_RECV_R: box_ghost_unpack_r(sim, box); break;
-        case PB_RECV_RT: box_border_unpack_rt(sim, box); break;
-        case PB_RECV_RVT: box_tidy_unpack_rvt(sim, box); break;
+        case PB_R: box_ghost_unpack_r(sim, box); break;
+        case PB_RT: box_border_unpack_rt(sim, box); break;
+        case PB_RVT: box_tidy_unpack_rvt(sim, box); break;
         default: die("not implemented\n");
         }
     }
