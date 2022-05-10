@@ -18,26 +18,26 @@ LIBS+=-lm
 LIBS+=-lstdc++ -l:libtampi-c.a
 LIBS+=-lGPI2 -ltagaspi
 
-CFLAGS+=-O0
-#CFLAGS+=-O3
+#CFLAGS+=-O0
+CFLAGS+=-O3
 
 CFLAGS+=-g
 LDFLAGS+=-g
 #CFLAGS+=-k
 #CFLAGS+=--line-markers
 
-CFLAGS+=-Wall
-CFLAGS+=-Wextra
-CFLAGS+=-Wenum-conversion -Wenum-compare
+#CFLAGS+=-Wall
+#CFLAGS+=-Wextra
+#CFLAGS+=-Wenum-conversion -Wenum-compare
 
 CFLAGS+=-std=c11
-CFLAGS+=-Werror-implicit-function-declaration
+#CFLAGS+=-Werror-implicit-function-declaration
 CFLAGS+=-Wshadow
-CFLAGS+=-Wstrict-prototypes -Wmissing-prototypes
+#CFLAGS+=-Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=-Wno-unused-parameter
 
-CFLAGS+=-fsanitize=address
-LDFLAGS+=-fsanitize=address
+#CFLAGS+=-fsanitize=address
+#LDFLAGS+=-fsanitize=address
 
 #CFLAGS+=-Wno-attributes
 

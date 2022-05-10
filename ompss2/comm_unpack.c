@@ -146,8 +146,6 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     packbuf_grow(pb_r, pb_rt->natoms);
     pb_r->natoms = pb_rt->natoms;
 
-    err("%s setting natoms=%d\n", pb_r->name, pb_r->natoms);
-
     if (pb_rt->natoms == 0)
         return;
 

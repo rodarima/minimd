@@ -216,14 +216,17 @@ update_force_box_loop(Sim *sim, Box *box)
 static void
 dump_atoms(Sim *sim, Box *box)
 {
+    FILE *f;
+
     #pragma oss taskwait /* for debug */
+
     if (box->iter == 0) {
-        FILE *f = fopen("atompos.csv", "w");
+        f = fopen("atompos.csv", "w");
         fprintf(f, "iter,atom,ghost,x,y,z,neigh\n");
         fclose(f);
     }
 
-    FILE *f = fopen("atompos.csv", "a");
+    f = fopen("atompos.csv", "a");
     for (int j = 0; j < box->nlocal + box->nghost; j++) {
         Vec *r = &box->r[j];
         int ghost = j >= box->nlocal;
@@ -235,24 +238,22 @@ dump_atoms(Sim *sim, Box *box)
     fclose(f);
 
     if (box->iter == 0) {
-        FILE *f = fopen("atomneigh.csv", "w");
+        f = fopen("atomneigh.csv", "w");
         fprintf(f, "iter,atom,i,neigh,x,y,z\n");
         fclose(f);
     }
 
-    {
-        FILE *f = fopen("atomneigh.csv", "a");
-        for (int j = 0; j < box->nlocal; j++) {
-            for (int i = 0; i < box->nearby[j].natoms; i++) {
-                int neigh = box->nearby[j].atom[i];
-                Vec *r = &box->r[neigh];
-                fprintf(f, "%d,%d,%d,%d,%e,%e,%e\n",
-                        box->iter, j, i, neigh,
-                        (*r)[X], (*r)[Y], (*r)[Z]);
-            }
+    f = fopen("atomneigh.csv", "a");
+    for (int j = 0; j < box->nlocal; j++) {
+        for (int i = 0; i < box->nearby[j].natoms; i++) {
+            int neigh = box->nearby[j].atom[i];
+            Vec *r = &box->r[neigh];
+            fprintf(f, "%d,%d,%d,%d,%e,%e,%e\n",
+                    box->iter, j, i, neigh,
+                    (*r)[X], (*r)[Y], (*r)[Z]);
         }
-        fclose(f);
     }
+    fclose(f);
 }
 
 /* Update force for the local atoms in a box */

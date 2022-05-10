@@ -51,3 +51,23 @@ box_add_atom(Box *box, Vec r, Vec v, int type)
     box->atomtype[i] = type;
     box->nlocal++;
 }
+
+/** Selects the correct PackBuf for a given (type, dir, ineigh) tuple.
+ *
+ * @param type      The PackBuf type
+ * @param dir       The direction of the message (PB_SEND or PB_RECV)
+ * @param ineigh    The index of the remote neighboring box.
+ *                  If sending, the box which will receive the data.
+ *                  If receiving, the box which should send the data.
+ *
+ * NOTE: Ensure the ineigh is carefully chosen!
+ */
+PackBuf *
+box_pb(Box *box, enum pb_type type, enum pb_dir dir, int ineigh)
+{
+    int isendneigh = ineigh;
+    if (dir == PB_RECV)
+        ineigh = NNEIGH - ineigh - 1;
+
+    return box->pb[type][dir][ineigh];
+}

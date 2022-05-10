@@ -81,7 +81,7 @@
 #define ENABLE_SEQUENTIAL_MPIWAIT 1
 
 /* If enabled, tagaspi will be used to exchange ghost positions */
-#define ENABLE_GASPI 1
+#define ENABLE_GASPI 0
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */

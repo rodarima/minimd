@@ -770,11 +770,11 @@ check_neighbor_coords(Sim *sim)
 
                 struct msg mexp = {
                     .srcrank = pb->remoterank,
-                    .srcbox = neigh->opposite->boxid,
+                    .srcbox = neigh->boxid,
                     .srcbox_coord = {
-                        neigh->opposite->boxcoordw[X],
-                        neigh->opposite->boxcoordw[Y],
-                        neigh->opposite->boxcoordw[Z]
+                        neigh->boxcoordw[X],
+                        neigh->boxcoordw[Y],
+                        neigh->boxcoordw[Z]
                     },
                     .send_dir = neigh->opposite->i,
                     .tag = pb->mpi.tag[PB_BUF],
@@ -790,7 +790,7 @@ check_neighbor_coords(Sim *sim)
                 };
 
                 if (memcmp(&mrecv, &mexp, sizeof(mexp)) != 0)
-                    die("incosistent message received\n");
+                    die("inconsistent message received\n");
             }
         }
     }
@@ -809,48 +809,54 @@ check_neighbor_coords(Sim *sim)
 
     /* Compare all boxes that are in the same rank */
     for (int ibox = 0; ibox < sim->nboxes; ibox++) {
-        Box *box = &sim->box[ibox];
+        Box *sendbox = &sim->box[ibox];
         for (int i = 0; i < NNEIGH; i++) {
-            Neigh *neigh = &box->neigh[i];
-            if (neigh->rank != sim->rank)
+            Neigh *sendneigh = &sendbox->neigh[i];
+
+            if (sendneigh->rank != sim->rank)
                 continue;
 
             /* FIXME: This is too complex, we need to find a better structure to
              * obtain the opposite (box,neigh) pairs */
 
-            int send_idir = neigh->i;
-            int recv_idir = opposite_neigh(send_idir);
+            int send_idir = sendneigh->i;
+            int recv_idir = sendneigh->opposite->i;
 
-            Box *sendbox = box;
-            Neigh *sendneigh = neigh;
-
-            Box *recvbox = &sim->box[sendneigh->opposite->boxid];
+            Box *recvbox = sendneigh->box;
             Neigh *recvneigh = &recvbox->neigh[recv_idir];
+
+            if (sendbox->i != recvneigh->boxid)
+                die("wrong box\n");
+
+            for (int d = X; d <= Z; d++) {
+                if (sendbox->idim[d] != recvneigh->boxcoordw[d])
+                    die("wrong box idim\n");
+            }
 
             struct msg msend = {
                 .srcrank = sim->rank,
-                .srcbox = box->i,
+                .srcbox = sendbox->i,
                 .srcbox_coord = {
-                    box->idim[X],
-                    box->idim[Y],
-                    box->idim[Z]
+                    sendbox->idim[X],
+                    sendbox->idim[Y],
+                    sendbox->idim[Z]
                 },
-                .send_dir = neigh->i,
+                .send_dir = sendneigh->i,
                 .tag = 666,
                 .icomm = 666,
                 .dstrank = sim->rank,
-                .dstbox = neigh->boxid,
+                .dstbox = sendneigh->boxid,
                 .dstbox_coord = {
-                    neigh->boxcoordw[X],
-                    neigh->boxcoordw[Y],
-                    neigh->boxcoordw[Z]
+                    sendneigh->boxcoordw[X],
+                    sendneigh->boxcoordw[Y],
+                    sendneigh->boxcoordw[Z]
                 },
-                .recv_dir = neigh->opposite->i
+                .recv_dir = sendneigh->opposite->i
             };
 
             struct msg mrecv = {
                 .srcrank = sim->rank,
-                .srcbox = recvneigh->opposite->boxid,
+                .srcbox = recvneigh->boxid,
                 .srcbox_coord = {
                     recvneigh->boxcoordw[X],
                     recvneigh->boxcoordw[Y],
@@ -870,7 +876,7 @@ check_neighbor_coords(Sim *sim)
             };
 
             if (memcmp(&msend, &mrecv, sizeof(mrecv)) != 0)
-                die("incosistent shm message\n");
+                die("inconsistent shm message\n");
 
         }
     }
@@ -1315,8 +1321,8 @@ sim_run(Sim *sim)
             /* Wait for the velocity or thermo to finish */
             #pragma oss task in(box->v) inout(box->iter)
             {
-                if (sim->rank == 0 && i == 0)
-                    err("===== ITERATION %d COMPLETE =====\n", box->iter);
+                //if (sim->rank == 0 && i == 0)
+                //    err("===== ITERATION %d COMPLETE =====\n", box->iter);
 
                 box->iter++;
             }

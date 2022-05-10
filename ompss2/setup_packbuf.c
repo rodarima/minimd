@@ -270,6 +270,7 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
     for (int type = 0; type < PB_NTYPES; type++) {
         for (enum pb_dir dir = 0; dir < PB_NDIR; dir++) {
             PackBuf *pb = &neigh->pb[type][dir];
+            //PabkBuf *pb = box_pb(box, type, dir, neigh->i);
             packbuf_init(pb, dir, enablesel[type], ndoubles[type], remoterank[dir]);
 
             sprintf(pb->name, "PackBuf[type=%s dir=%s rank=%d box=%d neigh=%d]",
@@ -297,6 +298,56 @@ setup_mpi(Sim *sim)
     }
 }
 
+static void
+dump_packbuf(Sim *sim)
+{
+    /* Only dump one packbuf type */
+    enum pb_type type = PB_RT;
+
+    for (int rank = 0; rank < sim->nranks; rank++) {
+        if (rank != sim->rank) {
+            MPI_Barrier(MPI_COMM_WORLD);
+            continue;
+        }
+
+        for (int i = 0; i < sim->nboxes; i++) {
+            Box *box = &sim->box[i];
+
+            for (int dir = 0; dir < PB_NDIR; dir++) {
+
+                char *dirname;
+
+                if (dir == PB_SEND)
+                    dirname = "SEND";
+                else
+                    dirname = "RECV";
+
+                for (int j = 0; j < NNEIGH; j++) {
+                    Neigh *neigh = &box->neigh[j];
+
+                    dbg("rank%d  box%d(%2d %2d %2d)  neigh%2d(%2d %2d %2d)"
+                            "  boxcoordw=(%2d %2d %2d)  dir=%s"
+                            "  tag=(natoms=%d buf=%d)  remoterank=%d\n",
+                            sim->rank, box->i,
+                            box->idim[X], box->idim[Y], box->idim[Z],
+                            neigh->i,
+                            neigh->delta[X], neigh->delta[Y], neigh->delta[Z], 
+                            neigh->boxcoordw[X],
+                            neigh->boxcoordw[Y],
+                            neigh->boxcoordw[Z], 
+                            dirname,
+                            neigh->pb[type][dir].mpi.tag[PB_NATOMS],
+                            neigh->pb[type][dir].mpi.tag[PB_BUF],
+                            neigh->pb[type][dir].remoterank);
+                }
+
+                dbg(" ------------- \n");
+            }
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
+}
+
 void
 setup_packbuf(Sim *sim)
 {
@@ -314,10 +365,13 @@ setup_packbuf(Sim *sim)
             setup_packbuf_neigh(sim, box, &box->neigh[j]);
         }
     }
+
+    if (ENABLE_DEBUG)
+        dump_packbuf(sim);
 }
 
-void
-cleanup_packbuf(Sim *sim)
+static void
+cleanup_gaspi(Sim *sim)
 {
     if (sim->rank == 0) {
         err("terminating gaspi, wait...\n");
@@ -325,5 +379,13 @@ cleanup_packbuf(Sim *sim)
     }
 
     CHECK(tagaspi_proc_term(GASPI_BLOCK));
+}
+
+void
+cleanup_packbuf(Sim *sim)
+{
+    if (ENABLE_GASPI)
+        cleanup_gaspi(sim);
+
     //MPI_Finalize();
 }
