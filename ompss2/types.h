@@ -120,6 +120,10 @@ typedef struct neigh {
 
     PackBuf pb[PB_NTYPES][PB_NDIR]; /* Communication packing buffers */
 
+    /* The number of atoms to be send for PB_R, computed in the PB_RT
+     * exchange. */
+    int recv_natoms_r;
+
 } Neigh;
 
 /* Subdivision of the box into cubic subdomains, each with a list of

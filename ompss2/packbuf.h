@@ -20,6 +20,11 @@ enum packbuf_state {
     PB_WAITING = 10,
 };
 
+enum pb_magic {
+    PB_MAGIC_OK = 12345,
+    PB_MAGIC_KO = 666
+};
+
 enum gaspi_segment_dir {
     SENDSEG = 0,
     RECVSEG = 1
@@ -73,6 +78,10 @@ typedef struct {
 
 typedef struct {
     int magic;
+    int srcbox;
+    int senddir;
+    int dstbox;
+    int icomm;
 } PackBufHeader;
 
 /* The data to be communicated */
@@ -83,6 +92,11 @@ typedef struct {
 } PackBufData;
 
 typedef struct {
+    int box;
+    int senddir;
+
+    enum pb_dir dir;
+
     char name[256];
     int natoms;     /* Number of atoms currently in the buffer */
     int nalloc;     /* Number of atoms allocated */
@@ -107,7 +121,7 @@ typedef struct {
     };
 } PackBuf;
 
-void packbuf_init(PackBuf *pb,
+void packbuf_init(PackBuf *pb, enum pb_dir dir,
         int enable_sel, int atomsize, int remoterank);
 
 void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
@@ -124,6 +138,8 @@ void packbuf_send(PackBuf *pb, enum pb_req req);
 void packbuf_recv(PackBuf *pb, enum pb_req req);
 
 size_t packbuf_data_size(size_t natoms, size_t atomdoubles);
+
+void packbuf_check_header(PackBuf *pb);
 
 /* MPI */
 

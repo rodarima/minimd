@@ -242,13 +242,14 @@ packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 }
 
 void
-packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank)
+packbuf_init(PackBuf *pb, enum pb_dir dir, int enable_sel, int atomsize, int remoterank)
 {
     memset(pb, 0, sizeof(*pb));
 
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
     pb->mode = PB_BAD;
+    pb->dir = dir;
 
     if (remoterank < 0)
         die("packbuf_init: negative remote rank %d\n", remoterank);
@@ -257,4 +258,33 @@ packbuf_init(PackBuf *pb, int enable_sel, int atomsize, int remoterank)
     pb->data = NULL;
 
     packbuf_switch(pb, PB_GARBAGE, PB_READY);
+}
+
+/** Ensure the header matches with the expected values */
+void
+packbuf_check_header(PackBuf *pb)
+{
+    if (pb->dir != PB_RECV)
+        return;
+
+    PackBufHeader *h = &pb->data->header;
+
+    if (h->magic != PB_MAGIC_OK)
+        die("%s wrong magic %d\n", pb->name, h->magic);
+
+    if (h->dstbox != pb->box)
+        die("%s box mismatch: recv %d, expected %d\n",
+                pb->name, h->dstbox, pb->box);
+
+    if (h->senddir != pb->senddir)
+        die("%s senddir mismatch: recv %d, expected %d\n",
+                pb->name, h->senddir, pb->senddir);
+
+    if (pb->mode == PB_MPI) {
+        if (h->icomm != pb->mpi.icomm)
+            die("%s icomm mismatch: recv %d, expected %d\n",
+                    pb->name, h->icomm, pb->mpi.icomm);
+    }
+
+    dbg("%s header ok\n", pb->name);
 }

@@ -1343,8 +1343,10 @@ sim_run(Sim *sim)
 }
 
 void
-sim_finalize()
+sim_finalize(Sim *sim)
 {
+    cleanup_packbuf(sim);
+
 //    // DSM Multibox: Sum nlocal over all boxes in this process and contribute that to the Allreduce.
 //    // DSM TODO: What is the purpose of this Allreduce? natoms appears to only be used in the PERF_SUMMARY
 //    int natoms;
@@ -1395,7 +1397,7 @@ int main(int argc, char *argv[])
      * configuration */
     sim_init(sim, argc, argv);
     sim_run(sim);
-    //sim_finalize(sim);
+    sim_finalize(sim);
 
     MPI_Barrier(MPI_COMM_WORLD);
 

@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "log.h"
 #include "types.h"
 #include "packbuf.h"
@@ -13,7 +13,7 @@ check_tag(int tag)
     gaspi_number_t maxtag;
     CHECK(gaspi_notification_num(&maxtag));
 
-    if (tag >= maxtag)
+    if (tag >= (int) maxtag)
         die("GASPI tag exceed limit: %d >= %d\n", tag, maxtag);
 
     return tag;
@@ -91,19 +91,22 @@ recv_buf(PackBuf *pb)
     PackBufGASPI *pbg = &pb->gaspi;
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
-    dbg("packbuf_gaspi_recv_buf: xnatoms=%d remoterank=%d nid=%d name='%s'\n",
-            pb->data->xnatoms, pb->remoterank, pbg->nid, pb->name);
+    /* xnatoms will be overwritten by the message */
+    int recvnatoms = pb->natoms;
+
+    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d nid=%d name='%s'\n",
+            recvnatoms, pb->remoterank, pbg->nid, pb->name);
 
     if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_recv_buf: buffer in use\n");
 
-    if (pb->data->xnatoms < 0)
-        die("bad xnatoms\n");
+    if (recvnatoms < 0)
+        die("%s: negative recvnatoms=%d\n", pb->name, recvnatoms);
 
-    if (pb->data->xnatoms > 0) {
-        if (pb->data->xnatoms > pb->nalloc)
+    if (recvnatoms > 0) {
+        if (recvnatoms > pb->nalloc)
             die("packbuf_gaspi_recv_buf: buffer of %d too small for %d atoms\n",
-                    pb->nalloc, pb->data->xnatoms);
+                    pb->nalloc, recvnatoms);
 
         while (1) {
             gaspi_return_t ret = tagaspi_notify_async_wait(
@@ -123,7 +126,6 @@ recv_buf(PackBuf *pb)
         //pb->waitreq[PB_BUF] = 1;
     }
 
-    pb->natoms = pb->data->xnatoms;
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
 

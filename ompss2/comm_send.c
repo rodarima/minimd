@@ -1,4 +1,5 @@
 #define ENABLE_DEBUG 0
+#include "comm.h"
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"

@@ -1,4 +1,5 @@
 #define ENABLE_DEBUG 0
+#include "comm.h"
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"
@@ -32,8 +33,6 @@ static void
 box_waitmpi(Sim *sim, Box *box,
         enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
-    if (!NEED_EXPLICIT_WAIT)
-        return;
 
     #pragma oss task label("box_waitmpi") \
         inout({box->pb[type][dir][i]->natoms, i=0;NNEIGH}) \
@@ -47,6 +46,9 @@ void
 comm_wait(Sim *sim,
         enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
+    if (!NEED_EXPLICIT_WAIT)
+        return;
+
     //dbg("rank%d -- comm_tidy -- recv recv_rvt buf\n", sim->rank);
 
     for (int i = 0; i < sim->nboxes; i++) {

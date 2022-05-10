@@ -1,4 +1,5 @@
 #define ENABLE_DEBUG 0
+#include "comm.h"
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"
@@ -10,7 +11,7 @@ static void
 neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
         enum pb_type type, enum pb_req reqtype)
 {
-    PackBuf *pb = box->pb[neigh->i][type][PB_RECV];
+    PackBuf *pb = box->pb[type][PB_RECV][neigh->i];
 
     dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
             "CREATE", sim->rank, box->i, neigh->i,
@@ -75,8 +76,8 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
     Box *recv_box = box;
     Box *send_box = neigh->box;
 
-    PackBuf *send_pb = send_box->pb[send_idir][type][PB_SEND];
-    PackBuf *recv_pb = recv_box->pb[recv_idir][type][PB_RECV];
+    PackBuf *send_pb = send_box->pb[type][PB_SEND][send_idir];
+    PackBuf *recv_pb = recv_box->pb[type][PB_RECV][recv_idir];
 
     #pragma oss task label("neigh_recv_intranode:shmcopy") \
         inout(send_pb->data) \
@@ -104,25 +105,26 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
 
 static void
 neigh_recv(Sim *sim, Box *box, Neigh *neigh,
-        enum pb_type type, enum pb_req reqtype)
+        enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
     /* Use MPI for inter process comm */
     if (neigh->rank != sim->rank) {
-        neigh_recv_internode(sim, box, neigh, type, reqtype);
+        neigh_recv_internode(sim, box, neigh, type, req);
     } else {
-        neigh_recv_intranode(sim, box, neigh, type, reqtype);
+        neigh_recv_intranode(sim, box, neigh, type, req);
     }
 }
 
 void
-comm_recv(Sim *sim, enum pb_type type, enum pb_req reqtype)
+comm_recv(Sim *sim,
+        enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
     dbg("comm_recv type=%s reqtype=%s\n",
-            PB_TYPENAME(type), PB_REQNAME(reqtype));
+            PB_TYPENAME(type), PB_REQNAME(req));
 
     for (int i = 0; i < sim->nboxes; i++) {
         Box *box = &sim->box[i];
         for (int j = 0; j < NNEIGH; j++)
-            neigh_recv(sim, box, &box->neigh[j], type, reqtype);
+            neigh_recv(sim, box, &box->neigh[j], type, dir, req);
     }
 }

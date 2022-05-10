@@ -1,4 +1,5 @@
 #define ENABLE_DEBUG 0
+#include "comm.h"
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"
@@ -68,6 +69,9 @@ box_ghost_pack_r(Sim *sim, Box *box)
 
             packbuf_add(pb_r, &r, NULL, NULL);
         }
+
+        if (pb_r->natoms != pb_rt->natoms)
+            die("mismatch packed natoms\n");
 
         dbg("box.%d neigh.%d: packed %d internal ghosts\n",
                 box->i, neigh->i, pb_r->natoms);
@@ -208,7 +212,7 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
 }
 
 void
-comm_pack(Sim *sim, enum pb_type type)
+comm_pack(Sim *sim, enum pb_type type, enum pb_dir dir)
 {
     dbg("comm_pack %s\n", PB_TYPENAME(type));
 

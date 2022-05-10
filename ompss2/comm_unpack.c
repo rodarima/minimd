@@ -1,4 +1,5 @@
 #define ENABLE_DEBUG 0
+#include "comm.h"
 #include "types.h"
 #include "log.h"
 #include "packbuf.h"
@@ -9,9 +10,13 @@
 #include <math.h>
 
 static void
-check_max_jump(Sim *sim, Box *box, PackBuf *pb, int i, int nnew)
+check_max_jump(Sim *sim, Box *box, PackBuf *pb, int i)
 {
-    for (int j = 0; j < nnew; j++) {
+    if (pb->natoms > pb->nalloc)
+        die("%s: natoms=%d larger than nalloc=%d\n",
+                pb->name, pb->natoms, pb->nalloc);
+
+    for (int j = 0; j < pb->natoms; j++) {
         int ii = i + j;
         Vec oldr = {
             box->r[ii][X],
@@ -20,9 +25,9 @@ check_max_jump(Sim *sim, Box *box, PackBuf *pb, int i, int nnew)
         };
 
         Vec newr = {
-            pb->data->buf[j * 3 + X],
-            pb->data->buf[j * 3 + Y],
-            pb->data->buf[j * 3 + Z]
+            pb->data->buf[j * pb->atomsize + X],
+            pb->data->buf[j * pb->atomsize + Y],
+            pb->data->buf[j * pb->atomsize + Z]
         };
 
         /* We should not expect jumps caused by wraps here */
@@ -47,9 +52,16 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
     packbuf_debug_switch(pb_rt, PB_READY, PB_READING);
 
     if (pb_rt->natoms != pb_r->natoms)
-        die("ghost_unpack_r: mismatch natoms r != rt\n");
+        die("ghost_unpack_r: %s mismatch natoms r=%d != rt=%d (neigh natoms=%d)\n",
+                pb_r->name, pb_r->natoms, pb_rt->natoms, neigh->recv_natoms_r);
 
     if (pb_r->natoms != 0) {
+
+        /* Only check the header if we received some atoms */
+        if (pb_r->remoterank != sim->rank)
+            packbuf_check_header(pb_r);
+
+
         int nnew = pb_r->natoms;
         int ntot = box->nlocal + box->nghost + nnew;
         if (ntot > box->nalloc) {
@@ -60,7 +72,7 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
         int i = box->nlocal + box->nghost;
 
         if (ENABLE_MAX_JUMP_CHECK)
-            check_max_jump(sim, box, pb_r, i, nnew);
+            check_max_jump(sim, box, pb_r, i);
 
         /* The unpack order must be kept the same to match the ghost atom
          * order given by borders */
@@ -114,19 +126,27 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 #pragma oss task label("neigh_border_unpack_rt") \
     inout(neigh->pb[PB_RT][PB_RECV].data) \
     inout(neigh->pb[PB_RT][PB_RECV].natoms) \
-    inout(neigh->pb[PB_R ][PB_RECV].data) \
+    inout(neigh->pb[PB_R][PB_RECV].data) \
+    inout(neigh->pb[PB_R][PB_RECV].natoms) \
+    inout(neigh->recv_natoms_r) \
     out(box->r)
 static void
 neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 {
-    PackBuf *pb_r = &neigh->pb[PB_R][PB_RECV];
     PackBuf *pb_rt = &neigh->pb[PB_RT][PB_RECV];
+    PackBuf *pb_r = &neigh->pb[PB_R][PB_RECV];
+
+    if (pb_rt->remoterank != sim->rank)
+        packbuf_check_header(pb_rt);
 
     /* Set the natoms to be sent and received in the PB_R buffer */
+    neigh->recv_natoms_r = pb_rt->natoms;
 
-    /* XXX: This looks like a mix of concerns; use another variable in
-     * Box to account for these number? */
-    pb_r->data->xnatoms = pb_rt->natoms;
+    /* Ensure it has room */
+    packbuf_grow(pb_r, pb_rt->natoms);
+    pb_r->natoms = pb_rt->natoms;
+
+    err("%s setting natoms=%d\n", pb_r->name, pb_r->natoms);
 
     if (pb_rt->natoms == 0)
         return;
@@ -137,7 +157,6 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     int nnew = pb_rt->natoms;
     int nend = box->nlocal + box->nghost;
     int ntot = nend + nnew;
-    int oldalloc = box->nalloc;
     box_realloc(box, ntot);
 
     /* Unpack the position and type at the end of the local atoms */
@@ -187,7 +206,6 @@ check_atom(Sim *sim, Box *box, Vec r)
 
     /* Identify the atom bin */
     int iindbin = get_atom_bin(sim, box, r);
-    Bin *ibin = &box->bin[iindbin];
 
     int match = 0;
     double closest = 1e50;
@@ -253,6 +271,9 @@ neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
     PackBuf *pb = &neigh->pb[PB_RVT][PB_RECV];
 
+    if (pb->remoterank != sim->rank)
+        packbuf_check_header(pb);
+
     packbuf_debug_switch(pb, PB_READY, PB_UNPACKING);
 
     /* Ensure we have room to place the new local atoms */
@@ -292,7 +313,7 @@ box_tidy_unpack_rvt(Sim *sim, Box *box)
 }
 
 void
-comm_unpack(Sim *sim, enum pb_type type)
+comm_unpack(Sim *sim, enum pb_type type, enum pb_dir dir)
 {
     dbg("comm_unpack %s\n", PB_TYPENAME(type));
 

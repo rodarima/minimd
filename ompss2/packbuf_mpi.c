@@ -71,13 +71,18 @@ send_buf(PackBuf *pb)
             pb->natoms, pb->remoterank, tag, pbm->icomm,
             pb->name);
 
+    /* Skip the double buf[] at the end */
+    int bytes = sizeof(*pb->data) +
+        pb->natoms * pb->atomsize * sizeof(double);
+    void *buf = pb->data;
+
     if (ENABLE_NONBLOCKING_MPI) {
         if (pb->waitreq[PB_BUF])
             die("packbuf_mpi_send_buf: buffer in use\n");
 
         if (pb->natoms != 0) {
 
-            isend((void *) pb->data->buf, pb->natoms * pb->atomsize, MPI_DOUBLE,
+            isend(buf, bytes, MPI_BYTE,
                     pb->remoterank, tag, *pbm->comm, &pbm->req[PB_BUF]);
 
             if (NEED_EXPLICIT_WAIT)
@@ -85,8 +90,8 @@ send_buf(PackBuf *pb)
         }
     } else {
         if (pb->natoms != 0) {
-            MPI_Send((void *) pb->data->buf, pb->natoms * pb->atomsize,
-                    MPI_DOUBLE, pb->remoterank, tag, *pbm->comm);
+            MPI_Send(buf, bytes, MPI_BYTE,
+                    pb->remoterank, tag, *pbm->comm);
         }
     }
 
@@ -106,16 +111,20 @@ send_natoms(PackBuf *pb)
 
     pb->data->xnatoms = pb->natoms;
 
-    void *buf = (void *) &pb->data->xnatoms;
+    /* Skip the double buf[] at the end */
+    int bytes = sizeof(*pb->data);
+    void *buf = pb->data;
 
     if (ENABLE_NONBLOCKING_MPI) {
-        isend(buf, 1, MPI_INT, pb->remoterank, tag, *pb->mpi.comm,
+        isend(buf, bytes, MPI_BYTE,
+                pb->remoterank, tag, *pb->mpi.comm,
                 &pb->mpi.req[PB_NATOMS]);
 
         if (NEED_EXPLICIT_WAIT)
             pb->waitreq[PB_NATOMS] = 1;
     } else {
-        MPI_Send(buf, 1, MPI_INT, pb->remoterank, tag, *pb->mpi.comm);
+        MPI_Send(buf, bytes, MPI_BYTE,
+                pb->remoterank, tag, *pb->mpi.comm);
     }
 
     packbuf_switch(pb, PB_SENDING, PB_READY);
@@ -155,24 +164,30 @@ recv_buf(PackBuf *pb)
     if (ENABLE_NONBLOCKING_MPI && pb->waitreq[PB_BUF])
         die("packbuf_mpi_recv_buf: buffer in use\n");
 
-    /* NOTE: Ensure xnatoms is properly set */
-    int recvnatoms = pb->data->xnatoms;
+    /* xnatoms will be overwritten by the message */
+    int recvnatoms = pb->natoms;
 
     if (recvnatoms > 0) {
         /* Grow the buffer if needed */
         packbuf_grow(pb, recvnatoms);
 
-        /* And receive that many atoms */
-        int size = recvnatoms * pb->atomsize;
+        /* And receive the header with the atom data */
+        int bytes = sizeof(*pb->data)
+            + recvnatoms * pb->atomsize * sizeof(double);
+
+        void *buf = pb->data;
 
         if (ENABLE_NONBLOCKING_MPI) {
-            irecv((void *) pb->data->buf, size, MPI_DOUBLE,
-                    pb->remoterank, tag, *pb->mpi.comm, &pb->mpi.req[PB_BUF]);
+            irecv(buf, bytes, MPI_BYTE,
+                    pb->remoterank, tag, *pb->mpi.comm,
+                    &pb->mpi.req[PB_BUF]);
+
             if (NEED_EXPLICIT_WAIT)
                 pb->waitreq[PB_BUF] = 1;
         } else {
-            MPI_Recv((void *) pb->data->buf, size, MPI_DOUBLE,
-                    pb->remoterank, tag, *pb->mpi.comm, MPI_STATUS_IGNORE);
+            MPI_Recv(buf, bytes, MPI_BYTE,
+                    pb->remoterank, tag, *pb->mpi.comm,
+                    MPI_STATUS_IGNORE);
         }
     }
 
@@ -192,21 +207,35 @@ recv_natoms(PackBuf *pb)
     if (pb->mode != PB_MPI)
         die("packbuf_mpi_recv_buf: incorrect mode\n");
 
+    /* And receive the header with the atom data */
+    int bytes = sizeof(*pb->data);
+    void *buf = pb->data;
+
     if (ENABLE_NONBLOCKING_MPI) {
 
         if (pb->waitreq[PB_NATOMS])
             die("packbuf_mpi_recv_natoms: buffer in use\n");
 
-        irecv((void *) &pb->data->xnatoms, 1, MPI_INT,
-                pb->remoterank, tag, *pb->mpi.comm, &pb->mpi.req[PB_NATOMS]);
+        irecv(buf, bytes, MPI_BYTE,
+                pb->remoterank, tag, *pb->mpi.comm,
+                &pb->mpi.req[PB_NATOMS]);
 
         if (NEED_EXPLICIT_WAIT) {
             pb->waitreq[PB_NATOMS] = 1;
         }
 
     } else {
-        MPI_Recv((void *) &pb->data->xnatoms, 1, MPI_INT,
-                pb->remoterank, tag, *pb->mpi.comm, MPI_STATUS_IGNORE);
+        MPI_Recv(buf, bytes, MPI_BYTE,
+                pb->remoterank, tag, *pb->mpi.comm,
+                MPI_STATUS_IGNORE);
+
+        dbg("recv_natoms: MPI_Recv natoms=%d %s\n",
+                pb->data->xnatoms, pb->name);
+
+        /* Set the natoms here, as they are already in the buffer */
+        pb->natoms = pb->data->xnatoms;
+
+        packbuf_check_header(pb);
     }
 
     packbuf_switch(pb, PB_RECVING, PB_READY);
@@ -261,7 +290,13 @@ packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_req req)
     }
 
     for (int i = 0; i < n; i++) {
-        pbs[i]->natoms = pbs[i]->data->xnatoms;
+        if (pbs[i]->waitreq[req] && pbs[i]->dir == PB_RECV) {
+            packbuf_check_header(pbs[i]);
+
+            /* Only set the natoms when waiting for PB_NATOMS */
+            if (req == PB_NATOMS)
+                pbs[i]->natoms = pbs[i]->data->xnatoms;
+        }
         pbs[i]->waitreq[req] = 0;
         packbuf_switch(pbs[i], PB_WAITING, PB_READY);
     }

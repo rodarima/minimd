@@ -26,11 +26,18 @@ LDFLAGS+=-g
 #CFLAGS+=-k
 #CFLAGS+=--line-markers
 
+CFLAGS+=-Wall
+CFLAGS+=-Wextra
+CFLAGS+=-Wenum-conversion -Wenum-compare
+
 CFLAGS+=-std=c11
 CFLAGS+=-Werror-implicit-function-declaration
+CFLAGS+=-Wshadow
+CFLAGS+=-Wstrict-prototypes -Wmissing-prototypes
+CFLAGS+=-Wno-unused-parameter
 
-#CFLAGS+=-fsanitize=address
-#LDFLAGS+=-fsanitize=address
+CFLAGS+=-fsanitize=address
+LDFLAGS+=-fsanitize=address
 
 #CFLAGS+=-Wno-attributes
 

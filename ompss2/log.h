@@ -22,7 +22,12 @@
 #define die(...) do { \
     err("fatal: " __VA_ARGS__); \
     fflush(stderr); \
-    if (ENABLE_SLOW_DEATH) sleep(DEATH_SLEEP); \
+    if (ENABLE_SLOW_DEATH) { \
+        for (int __die__i = 0; __die__i < DEATH_SLEEP/3; __die__i++) { \
+            sleep(3); \
+            err("fatal (repeat): " __VA_ARGS__); \
+        } \
+    } \
     abort(); \
 } while (0) 
 

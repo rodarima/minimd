@@ -1,5 +1,6 @@
 #define ENABLE_DEBUG 0
 #include "log.h"
+#include "setup.h"
 #include "types.h"
 #include "gaspi_check.h"
 
@@ -160,6 +161,7 @@ setup_packbuf_gaspi(Sim *sim, Box *box, Neigh *neigh,
     void *slot = seg + slot_offset;
     PackBufData *pbdata = slot;
 
+    dbg("pachbuf_gaspi_init with tag=%d\n", tag);
     packbuf_gaspi_init(pb, pbdata,
             sendiseg, slot_offset,
             recviseg, slot_offset,
@@ -198,15 +200,49 @@ setup_packbuf_mpi(Sim *sim, Box *box, Neigh *neigh,
 }
 
 static void
+setup_packbuf_header(Sim *sim, Box *box, Neigh *neigh,
+        PackBuf *pb, enum pb_type type, enum pb_dir dir)
+{
+    PackBufHeader *h = &pb->data->header;
+    if (dir == PB_SEND) {
+        h->magic = PB_MAGIC_OK;
+        h->srcbox = box->i;
+        h->dstbox = neigh->boxid;
+        h->senddir = neigh->i;
+        h->icomm = pb->mpi.icomm;
+    } else {
+        h->magic = PB_MAGIC_KO;
+        h->srcbox = -1;
+        h->dstbox = -1;
+        h->senddir = -1;
+        h->icomm = -1;
+    }
+
+    int sendibox, sendineigh;
+    get_send_pair(box, neigh, dir, &sendibox, &sendineigh);
+
+    pb->box = box->i;
+    pb->senddir = sendineigh;
+}
+
+static void
 setup_packbuf_comm(Sim *sim, Box *box, Neigh *neigh,
         PackBuf *pb, enum pb_type type, enum pb_dir dir)
 {
+    if (box->i < 0 || box->i >= sim->nboxes)
+        die("box index corrupted\n");
+
     /* Enable GASPI only on the R packbuf */
     if (ENABLE_GASPI && type == PB_R) {
         setup_packbuf_gaspi(sim, box, neigh, pb, type, dir);
     } else {
         setup_packbuf_mpi(sim, box, neigh, pb, type, dir);
     }
+
+    setup_packbuf_header(sim, box, neigh, pb, type, dir);
+
+    if (box->i < 0 || box->i >= sim->nboxes)
+        die("box index corrupted\n");
 }
 
 static void
@@ -232,9 +268,9 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
     };
 
     for (int type = 0; type < PB_NTYPES; type++) {
-        for (int dir = 0; dir < PB_NDIR; dir++) {
+        for (enum pb_dir dir = 0; dir < PB_NDIR; dir++) {
             PackBuf *pb = &neigh->pb[type][dir];
-            packbuf_init(pb, enablesel[type], ndoubles[type], remoterank[dir]);
+            packbuf_init(pb, dir, enablesel[type], ndoubles[type], remoterank[dir]);
 
             sprintf(pb->name, "PackBuf[type=%s dir=%s rank=%d box=%d neigh=%d]",
                     PB_TYPENAME(type), PB_DIRNAME(dir),
@@ -244,7 +280,7 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
             packbuf_debug_switch(pb, PB_GARBAGE, PB_READY);
 
             /* Set the PB pointers in the box table */
-            box->pb[neigh->i][type][dir] = pb;
+            box->pb[type][dir][neigh->i] = pb;
         }
     }
 }
@@ -264,6 +300,9 @@ setup_mpi(Sim *sim)
 void
 setup_packbuf(Sim *sim)
 {
+    //int wait = 1;
+    //while (sim->rank == 0 && wait) sleep(1);
+
     setup_mpi(sim);
 
     if (ENABLE_GASPI)
@@ -275,4 +314,16 @@ setup_packbuf(Sim *sim)
             setup_packbuf_neigh(sim, box, &box->neigh[j]);
         }
     }
+}
+
+void
+cleanup_packbuf(Sim *sim)
+{
+    if (sim->rank == 0) {
+        err("terminating gaspi, wait...\n");
+        fflush(stderr);
+    }
+
+    CHECK(tagaspi_proc_term(GASPI_BLOCK));
+    //MPI_Finalize();
 }

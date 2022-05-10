@@ -17,6 +17,7 @@ comm_tidy(Sim *sim)
     comm_wait  (sim, type, PB_RECV, PB_NATOMS);
     comm_recv  (sim, type, PB_RECV, PB_BUF);
     comm_wait  (sim, type, PB_RECV, PB_BUF);
+
     comm_unpack(sim, type, PB_RECV);
 }
 

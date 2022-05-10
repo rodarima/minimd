@@ -6,4 +6,7 @@
 void
 setup_packbuf(Sim *sim);
 
+void
+cleanup_packbuf(Sim *sim);
+
 #endif /* SETUP_H */
