@@ -422,10 +422,9 @@ setup_atoms_box(Sim *sim, Box *box)
             continue;
         }
 
-
         /* Compute deterministic seed for pseudorandom velocity */
         int seed = ind[Z] * (2 * sim->npoints[Y]) * (2 * sim->npoints[X])
-            + ind[Y] * (2 * sim->npoints[Y])
+            + ind[Y] * (2 * sim->npoints[X])
             + ind[X] + 1;
 
         Vec v;
