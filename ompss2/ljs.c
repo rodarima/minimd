@@ -103,6 +103,12 @@ setup_boxes(Sim *sim)
     for (int d = X; d <= Z; d++)
         sim->boxlen[d] = sim->worldlen[d] / sim->nboxesdim[d];
 
+    /* The space domain pf this rank (union of all its box domains) */
+    for (int d = X; d <= Z; d++) {
+        sim->rankdom[d][LO] = sim->boxlen[d] * sim->ranknboxesdim[d] * sim->rankdim[d];
+        sim->rankdom[d][HI] = sim->boxlen[d] * sim->ranknboxesdim[d] * (sim->rankdim[d] + 1);
+    }
+
     /* Ensure R_neigh doesn't overlap */
     for (int d = X; d <= Z; d++) {
         if (sim->R_neigh * 2 >= sim->boxlen[d]) {
@@ -352,11 +358,11 @@ setup_atoms_box(Sim *sim, Box *box)
     if (dist >= sim->R_force)
         die("atoms are too far away to interact\n");
 
-    /* Compute the ranges of indexes that may contain an atom */
+    /* Compute the ranges of indices that may contain an atom */
     Range idom;
     for (int d = X; d <= Z; d++) {
-        idom[d][LO] = (box->dombox[d][LO] / dist) - 1;
-        idom[d][HI] = (box->dombox[d][HI] / dist) + 1;
+        idom[d][LO] = (sim->rankdom[d][LO] / dist) - 1;
+        idom[d][HI] = (sim->rankdom[d][HI] / dist) + 1;
 
         /* Enforce limits */
         idom[d][LO] = MAX(idom[d][LO], 0);

@@ -323,6 +323,7 @@ typedef struct sim {
     int nranksdim[NDIM]; /* Number of ranks (MPI processes) per dimension */
     MPI_Comm cartesian; /* Cartesian communicator */
     int rankcoord[NDIM]; /* Coordinates of the process */
+    Domain rankdom; /* Domain processed by the rank */
     
     char *refdir; /* Directory with reference output (NULL disables) */
 
