@@ -627,6 +627,7 @@ setup_params(Sim *sim)
 
     /* Set the current iteration to 0, before sim_run() */
     sim->iter = 0;
+    sim->thermo_iter = -1;
 
     /* Derived constants */
     sim->mass = 1.0; /* Default mass. TODO check optimized value */
@@ -1252,9 +1253,9 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     if (sim->rank == 0) err("force init ok\n");
 
-    if (sim->refdir)
-        ref_check_atoms(sim);
+    ref_check_atoms(sim);
 
+    if (sim->rank == 0) err("running thermo_update\n");
     thermo_update(sim);
     #pragma oss taskwait /* required */
 
@@ -1316,11 +1317,17 @@ sim_run(Sim *sim)
             build_nearby_atoms(sim);
         }
 
+        /* Ensure the neighbors are correct *before* we compute the
+         * force */
+
+        /* FIXME: This is aborting when the local atoms don't match
+         * first, shadowing the potential problem that the neighbors are
+         * wrong from the communications. */
+        ref_check_atoms(sim);
+
         check_natoms_debug(sim);
         force_update(sim);
         integrate_velocity(sim);
-
-        ref_check_atoms(sim);
 
         if (print_thermo_stats || iter == sim->timesteps)
             thermo_update(sim);
@@ -1330,7 +1337,7 @@ sim_run(Sim *sim)
         for (int i = 0; i < sim->nboxes; i++) {
             Box *box = &sim->box[i];
             /* Wait for the velocity or thermo to finish */
-            #pragma oss task in(box->v) inout(box->iter)
+            #pragma oss task label("box->iter++") in(box->v) inout(box->iter)
             {
                 //if (sim->rank == 0 && i == 0)
                 //    err("===== ITERATION %d COMPLETE =====\n", box->iter);
@@ -1351,6 +1358,9 @@ sim_run(Sim *sim)
     MPI_Barrier(MPI_COMM_WORLD);
 
     double t1 = get_time();
+
+    /* Check the energy after the simulation runs */
+    thermo_check_energy(sim);
 
     #pragma oss taskwait /* required */
 

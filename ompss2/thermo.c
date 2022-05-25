@@ -89,20 +89,23 @@ get_temperature(Sim *sim)
     return temp;
 }
 
-static void
-check_final_energy(Sim *sim, double pot, double kin, double tot)
+void
+thermo_check_energy(Sim *sim)
 {
+    if (sim->rank != 0)
+        return;
+
     /* Can only check if the two energy corrections are enabled */
     if (ENABLE_ECUT_CORRECTION && ENABLE_NTOTATOMS_CORRECTION) {
-        double relerr = fabs((sim->E0_tot - tot) / sim->E0_tot);
+        double relerr = fabs((sim->E0_tot - sim->Etot) / sim->E0_tot);
 
         if (relerr >= MAX_ENERGY_REL_ERROR) {
-            die("the final total energy diverges too much %e (max %e)\n",
-                    relerr, MAX_ENERGY_REL_ERROR);
+            die("iter=%d total energy diverges too much %e (max %e)\n",
+                    sim->iter, relerr, MAX_ENERGY_REL_ERROR);
         }
 
-        err("total energy relative error %e (max %e)\n",
-                relerr, MAX_ENERGY_REL_ERROR);
+        err("iter=%d total energy relative error %e (max %e)\n",
+                sim->iter, relerr, MAX_ENERGY_REL_ERROR);
     }
 }
 
@@ -114,8 +117,14 @@ check_final_energy(Sim *sim, double pot, double kin, double tot)
     in(sim->iter) \
     out(sim->Ekin, sim->Epot, sim->Etot)
 static void
-thermo_update_internal(Sim *sim, int iter)
+thermo_update_internal(Sim *sim)
 {
+    if (sim->thermo_iter >= sim->iter)
+        die("inconsistency: thermo_iter=%d >= iter=%d\n",
+                sim->thermo_iter, sim->iter);
+
+    sim->thermo_iter++;
+
     double local_vdwl_energy = 0.0;
     double local_virial_pressure = 0.0;
     double local_temperature = 0.0;
@@ -141,7 +150,7 @@ thermo_update_internal(Sim *sim, int iter)
     temperature *= sim->t_scale;
 
     /* Not initialized yet at -1 */
-    if (iter == 0) {
+    if (sim->iter == 0) {
         temperature = get_temperature(sim);
     }
 
@@ -159,17 +168,17 @@ thermo_update_internal(Sim *sim, int iter)
     sim->Etot = tot_energy;
 
     /* Save initial values of energy */
-    if (iter == 0) {
+    if (sim->iter == 0) {
         sim->E0_pot = pot_energy;
         sim->E0_kin = kin_energy;
         sim->E0_tot = tot_energy;
-    } else if (iter == sim->timesteps) {
-        check_final_energy(sim, pot_energy, kin_energy, tot_energy);
+    } else if (sim->iter == sim->timesteps) {
+        thermo_check_energy(sim);
     }
 
     if (ENABLE_REALTIME_ENERGY) {
         FILE *f = fopen("energy.csv", "a");
-        fprintf(f, "%d,%e,%e,%e\n", iter, pot_energy, kin_energy, tot_energy);
+        fprintf(f, "%d,%e,%e,%e\n", sim->iter, pot_energy, kin_energy, tot_energy);
         fclose(f);
     }
 }
@@ -178,7 +187,7 @@ void
 thermo_update(Sim *sim)
 {
     if (ENABLE_REALTIME_ENERGY)
-        thermo_update_internal(sim, sim->iter);
+        thermo_update_internal(sim);
 }
 
 void
