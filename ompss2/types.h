@@ -111,6 +111,7 @@ typedef struct neigh {
     int delta[NDIM];    /* Delta vector in boxes */
     int rank;           /* Neighbor process rank */
     int rankcoord[NDIM];/* Neighbor process coordinates without wrapping */
+    Domain vdombox;     /* Neighbor virtual box domain (without wrapped) */
 
     Box *box;           /* Neighbor box or NULL if outside the rank */
     Neigh *opposite;    /* Opposite neighbor at -delta */
@@ -338,6 +339,7 @@ typedef struct sim {
     int ntypes; /* Number of atom types (species) */
     int ntotatoms;
     int iter;   /* Current iteration from the main task */
+    int thermo_iter;
 
     Gaspi gaspi;
 
@@ -357,6 +359,7 @@ void build_nearby_atoms(Sim *sim);
 
 void thermo_update(Sim *sim);
 void thermo_init(Sim *sim);
+void thermo_check_energy(Sim *sim);
 
 void integrate_init(Sim *sim);
 void integrate_position(Sim *sim);

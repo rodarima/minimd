@@ -76,8 +76,21 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
     Box *recv_box = box;
     Box *send_box = neigh->box;
 
+    /* FIXME: This is a violation of concerns. The PackBuf module should be the
+     * only one which knows which other PB are being used and place the
+     * dependencies accordingly. */
+
     PackBuf *send_pb = send_box->pb[type][PB_SEND][send_idir];
     PackBuf *recv_pb = recv_box->pb[type][PB_RECV][recv_idir];
+
+    if (recv_pb->shm.remote == NULL)
+        die("%s: remote pointer is NULL\n",
+                recv_pb->name);
+
+    if (recv_pb->shm.remote != send_pb)
+        die("remote pointer mismatch: recv remote %s != send %s\n",
+                recv_pb->shm.remote->name,
+                send_pb->name);
 
     #pragma oss task label("neigh_recv_intranode:shmcopy") \
         inout(send_pb->data) \
@@ -96,7 +109,7 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
 
         /* Clear receive buffer */
         packbuf_clear(recv_pb);
-        packbuf_shmcopy(send_pb, recv_pb, reqtype);
+        packbuf_recv(recv_pb, reqtype);
 
         packbuf_debug_switch(recv_pb, PB_COPYING, PB_READY);
         packbuf_debug_switch(send_pb, PB_COPYING, PB_READY);

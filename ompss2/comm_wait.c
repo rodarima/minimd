@@ -17,16 +17,20 @@ box_waitmpi_task(Sim *sim, Box *box,
         packbuf_debug_switch(pb, PB_READY, PB_WAITING);
     }
 
-    packbuf_mpi_waitn(box->pb[type][dir], NNEIGH, req);
+    if (NEED_EXPLICIT_WAIT)
+        packbuf_mpi_waitn(box->pb[type][dir], NNEIGH, req);
+
+
+    for (int i = 0; i < NNEIGH; i++) {
+        PackBuf *pb = box->pb[type][dir][i];
+        if (pb->waitreq[req] && dir == PB_RECV)
+            packbuf_check_header(pb, box->iter);
+        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
+    }
 
     dbg("%-6s comm_wait rank %d, box %d, %s.%s\n",
             "DONE", sim->rank, box->i,
             PB_TYPENAME(type), PB_REQNAME(req));
-
-    for (int i = 0; i < NNEIGH; i++) {
-        PackBuf *pb = box->pb[type][dir][i];
-        packbuf_debug_switch(pb, PB_WAITING, PB_READY);
-    }
 }
 
 static void
@@ -46,9 +50,6 @@ void
 comm_wait(Sim *sim,
         enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
-    if (!NEED_EXPLICIT_WAIT)
-        return;
-
     //dbg("rank%d -- comm_tidy -- recv recv_rvt buf\n", sim->rank);
 
     for (int i = 0; i < sim->nboxes; i++) {

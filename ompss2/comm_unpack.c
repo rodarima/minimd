@@ -59,7 +59,10 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
 
         /* Only check the header if we received some atoms */
         if (pb_r->remoterank != sim->rank)
-            packbuf_check_header(pb_r);
+            packbuf_check_header(pb_r, box->iter);
+
+        dbg("rank%d:box%d:neigh%d neigh_ghost_unpack_r: pb_r->natoms=%d\n",
+                sim->rank, box->i, neigh->i, pb_r->natoms);
 
 
         int nnew = pb_r->natoms;
@@ -69,6 +72,10 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
                     box->i, neigh->i, nnew);
         }
 
+        /* The previous positions are still intact after the current
+         * nghosts, as we only modify box->nghost, so we check the atom
+         * positions with the new ones from the packbuf before
+         * overwritting them. */
         int i = box->nlocal + box->nghost;
 
         if (ENABLE_MAX_JUMP_CHECK)
@@ -83,6 +90,9 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
          * domain */
 
         box->nghost += pb_r->natoms;
+    } else {
+        dbg("rank%d:box%d:neigh%d neigh_ghost_unpack_r: pb_r->natoms=0\n",
+                sim->rank, box->i, neigh->i);
     }
 
     packbuf_debug_switch(pb_r, PB_RECVING, PB_READY);
@@ -123,21 +133,31 @@ box_ghost_unpack_r(Sim *sim, Box *box)
 }
 
 /* FIXME: We shouldn't need to use inout */
+//#pragma oss task label("neigh_border_unpack_rt") \
+//    inout(neigh->pb[PB_RT][PB_RECV].data) \
+//    inout(neigh->pb[PB_RT][PB_RECV].natoms) \
+//    inout(neigh->pb[PB_R][PB_RECV].data) \
+//    inout(neigh->pb[PB_R][PB_RECV].natoms) \
+//    inout(neigh->recv_natoms_r) \
+//    out(box->r)
+
+
 #pragma oss task label("neigh_border_unpack_rt") \
-    inout(neigh->pb[PB_RT][PB_RECV].data) \
-    inout(neigh->pb[PB_RT][PB_RECV].natoms) \
-    inout(neigh->pb[PB_R][PB_RECV].data) \
-    inout(neigh->pb[PB_R][PB_RECV].natoms) \
-    inout(neigh->recv_natoms_r) \
-    out(box->r)
+    inout({box->pb[PB_RT][PB_RECV][i]->natoms,  i=0;NNEIGH}) \
+    inout({box->pb[PB_RT][PB_RECV][i]->data,    i=0;NNEIGH}) \
+    inout({box->pb[PB_R ][PB_RECV][i]->natoms,  i=0;NNEIGH}) \
+    inout({box->pb[PB_R ][PB_RECV][i]->data,    i=0;NNEIGH}) \
+    inout(box->r)
 static void
 neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 {
     PackBuf *pb_rt = &neigh->pb[PB_RT][PB_RECV];
     PackBuf *pb_r = &neigh->pb[PB_R][PB_RECV];
 
-    if (pb_rt->remoterank != sim->rank)
-        packbuf_check_header(pb_rt);
+    dbg("rank%d.box%d.neigh%d: neigh_border_unpack_rt: unpacking %d atoms\n",
+            sim->rank, box->i, neigh->i, pb_rt->natoms);
+
+    packbuf_check_header(pb_rt, box->iter);
 
     /* Set the natoms to be sent and received in the PB_R buffer */
     neigh->recv_natoms_r = pb_rt->natoms;
@@ -151,10 +171,21 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
 
     packbuf_debug_switch(pb_rt, PB_READY, PB_UNPACKING);
 
+    Vec r0 = {
+            pb_rt->data->buf[X],
+            pb_rt->data->buf[Y],
+            pb_rt->data->buf[Z]
+    };
+
     /* Ensure we have room to place the new ghost atoms */
     int nnew = pb_rt->natoms;
     int nend = box->nlocal + box->nghost;
     int ntot = nend + nnew;
+
+    dbg("rank%d.box%d.neigh%d: neigh_border_unpack_rt: first atom at (%e %e %e) to be inserted at i=%d\n",
+            sim->rank, box->i, neigh->i,
+            r0[X], r0[Y], r0[Z], nend);
+
     box_realloc(box, ntot);
 
     /* Unpack the position and type at the end of the local atoms */
@@ -171,6 +202,30 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
                 die("rank%d.box%d.neigh%d: unpacked ghost atom %d at %e %e %e inside box domain\n",
                         sim->rank, box->i, neigh->i, i, r[X], r[Y], r[Z]);
             }
+            /* Ensure the atom comes from the neighbor box domain */
+            if (!in_domain(r, neigh->vdombox)) {
+                die("rank%d.box%d.neigh%d: unpacked ghost atom %d at %e %e %e\n"
+                        "  outside source virtual box domain (%e .. %e, %e .. %e, %e .. %e)\n",
+                        sim->rank, box->i, neigh->i, i,
+                        r[X], r[Y], r[Z],
+                        neigh->vdombox[X][LO], neigh->vdombox[X][HI],
+                        neigh->vdombox[Y][LO], neigh->vdombox[Y][HI],
+                        neigh->vdombox[Z][LO], neigh->vdombox[Z][HI]);
+            }
+        }
+    }
+
+    /* Ensure the first atom has the proper position */
+    Vec r1 = {
+        box->r[nend][X],
+        box->r[nend][Y],
+        box->r[nend][Z]
+    };
+
+    for (int d = X; d <= Z; d++) {
+        if (r0[d] != r1[d]) {
+            die("rank%d.box%d.neigh%d: inconsistent position in first atom unpacked\n",
+                    sim->rank, box->i, neigh->i);
         }
     }
 
@@ -270,7 +325,7 @@ neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
     PackBuf *pb = &neigh->pb[PB_RVT][PB_RECV];
 
     if (pb->remoterank != sim->rank)
-        packbuf_check_header(pb);
+        packbuf_check_header(pb, box->iter);
 
     packbuf_debug_switch(pb, PB_READY, PB_UNPACKING);
 

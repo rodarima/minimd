@@ -928,6 +928,12 @@ setup_neighbors_box(Sim *sim, Box *box)
                     }
                 }
 
+                /* Setup the neighbor box domain */
+                for (int d = X; d <= Z; d++) {
+                    neigh->vdombox[d][LO] = sim->boxlen[d] * neigh->boxcoord[d];
+                    neigh->vdombox[d][HI] = sim->boxlen[d] * (neigh->boxcoord[d] + 1);
+                }
+
                 /* Set the box id based on the Y coordinate */
                 neigh->boxid = neigh->boxcoordw[Y];
 

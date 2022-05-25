@@ -17,7 +17,14 @@ box_send_neigh_task(Sim *sim, Box *box, Neigh *neigh, PackBuf *pb,
 
     packbuf_debug_switch(pb, PB_READY, PB_SENDING);
 
-    packbuf_send(pb, req);
+    /* FIXME: This should be implemented by PackBuf */
+    pb->data->header.iter = box->iter;
+
+    if (neigh->rank != sim->rank) {
+        packbuf_send(pb, req);
+    } else {
+        /* No-op: will be copied at recv */
+    }
 
     dbg("%-6s comm_send rank %d, box %d, neigh %d, %s.%s\n",
             "DONE", sim->rank, box->i, neigh->i,
@@ -30,13 +37,6 @@ static void
 box_send_neigh(Sim *sim, Box *box, Neigh *neigh, enum pb_type type,
         enum pb_dir dir, enum pb_req req)
 {
-    if (neigh->rank == sim->rank) {
-        /* No-op: will be copied at recv */
-        //dbg("refusing send for rank %d box %d neigh %d\n",
-        //        sim->rank, box->i, neigh->i);
-        return;
-    }
-
     PackBuf *pb = box->pb[type][dir][neigh->i];
 
     dbg("%-6s comm_send rank %d, box %d, neigh %d, %s.%s\n",

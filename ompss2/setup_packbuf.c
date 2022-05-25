@@ -3,6 +3,7 @@
 #include "setup.h"
 #include "types.h"
 #include "gaspi_check.h"
+#include "neigh.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -200,18 +201,40 @@ setup_packbuf_mpi(Sim *sim, Box *box, Neigh *neigh,
 }
 
 static void
+setup_packbuf_shm(Sim *sim, Box *box, Neigh *neigh,
+        PackBuf *pb, enum pb_type type, enum pb_dir dir)
+{
+    /* We only need to set the remote on the receiving end */
+    PackBuf *remote = NULL;
+
+    if (dir == PB_RECV) {
+        int recv_idir = neigh->i;
+        int send_idir = opposite_neigh(recv_idir);
+
+        Box *send_box = neigh->box;
+
+        /* The table in box->pb is not ready yet! */
+        remote = &send_box->neigh[send_idir].pb[type][PB_SEND];
+    }
+
+    packbuf_shm_init(pb, remote);
+}
+
+static void
 setup_packbuf_header(Sim *sim, Box *box, Neigh *neigh,
         PackBuf *pb, enum pb_type type, enum pb_dir dir)
 {
     PackBufHeader *h = &pb->data->header;
     if (dir == PB_SEND) {
         h->magic = PB_MAGIC_OK;
+        h->iter = -666; /* Must be properly set each time */
         h->srcbox = box->i;
         h->dstbox = neigh->boxid;
         h->senddir = neigh->i;
         h->icomm = pb->mpi.icomm;
     } else {
         h->magic = PB_MAGIC_KO;
+        h->iter = -1;
         h->srcbox = -1;
         h->dstbox = -1;
         h->senddir = -1;
@@ -225,24 +248,40 @@ setup_packbuf_header(Sim *sim, Box *box, Neigh *neigh,
     pb->senddir = sendineigh;
 }
 
+/** Selects which transport to use given the remote rank and the PackBuf type */
+static enum pb_transport
+select_transport(Sim *sim, int remoterank, enum pb_type type)
+{
+    if (sim->rank == remoterank)
+        return PB_SHM;
+    else if (ENABLE_GASPI && type == PB_R)
+        return PB_GASPI;
+    else
+        return PB_MPI;
+}
+
 static void
-setup_packbuf_comm(Sim *sim, Box *box, Neigh *neigh,
+setup_packbuf_transport(Sim *sim, Box *box, Neigh *neigh,
         PackBuf *pb, enum pb_type type, enum pb_dir dir)
 {
-    if (box->i < 0 || box->i >= sim->nboxes)
-        die("box index corrupted\n");
+    int remoterank = neigh->rank;
+    enum pb_transport transport = select_transport(sim, remoterank, type);
 
-    /* Enable GASPI only on the R packbuf */
-    if (ENABLE_GASPI && type == PB_R) {
-        setup_packbuf_gaspi(sim, box, neigh, pb, type, dir);
-    } else {
-        setup_packbuf_mpi(sim, box, neigh, pb, type, dir);
+    switch (transport) {
+        case PB_GASPI:
+            setup_packbuf_gaspi(sim, box, neigh, pb, type, dir);
+            break;
+        case PB_MPI:
+            setup_packbuf_mpi(sim, box, neigh, pb, type, dir);
+            break;
+        case PB_SHM:
+            setup_packbuf_shm(sim, box, neigh, pb, type, dir);
+            break;
+        default:
+            die("bad transport\n");
     }
 
     setup_packbuf_header(sim, box, neigh, pb, type, dir);
-
-    if (box->i < 0 || box->i >= sim->nboxes)
-        die("box index corrupted\n");
 }
 
 static void
@@ -277,11 +316,14 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
                     PB_TYPENAME(type), PB_DIRNAME(dir),
                     sim->rank, box->i, neigh->i);
 
-            setup_packbuf_comm(sim, box, neigh, pb, type, dir);
+            setup_packbuf_transport(sim, box, neigh, pb, type, dir);
+
             packbuf_debug_switch(pb, PB_GARBAGE, PB_READY);
 
             /* Set the PB pointers in the box table */
             box->pb[type][dir][neigh->i] = pb;
+
+            dbg("%s\n", pb->name);
         }
     }
 }
@@ -356,7 +398,7 @@ setup_packbuf(Sim *sim)
 
     setup_mpi(sim);
 
-    if (ENABLE_GASPI)
+    if (ENABLE_GASPI && sim->nranks > 1)
         setup_gaspi_segments(sim);
 
     for (int i = 0; i < sim->nboxes; i++) {
@@ -384,7 +426,7 @@ cleanup_gaspi(Sim *sim)
 void
 cleanup_packbuf(Sim *sim)
 {
-    if (ENABLE_GASPI)
+    if (ENABLE_GASPI && sim->nranks > 1)
         cleanup_gaspi(sim);
 
     //MPI_Finalize();
