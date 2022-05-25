@@ -50,7 +50,7 @@ packbuf_grow(PackBuf *pb, int n)
         n = pb->natoms;
 
     if (pb->nalloc < n) {
-        if (pb->mode == PB_GASPI)
+        if (pb->transport == PB_GASPI)
             die("packbuf_grow cannot grow GASPI buffer\n");
 
         if (n == 0)
@@ -77,30 +77,6 @@ static void
 packbuf_grow_extra(PackBuf *pb, int nextra)
 {
     packbuf_grow(pb, pb->natoms + nextra);
-}
-
-void
-packbuf_shmcopy(PackBuf *src, PackBuf *dst, enum pb_req reqtype)
-{
-    dbg("packbuf_shmcopy: natoms=%d reqtype=%d\n",
-            src->natoms, reqtype);
-
-    packbuf_switch(src, PB_READY, PB_COPYING);
-    packbuf_switch(dst, PB_READY, PB_COPYING);
-
-    if (reqtype == PB_NATOMS)
-        die("non-sense\n");
-
-    if (src->natoms != 0) {
-        packbuf_grow(dst, src->natoms);
-        memcpy(dst->data->buf, src->data->buf,
-                src->natoms * src->atomsize * sizeof(double));
-    }
-
-    dst->natoms = src->natoms;
-
-    packbuf_switch(dst, PB_COPYING, PB_READY);
-    packbuf_switch(src, PB_COPYING, PB_READY);
 }
 
 /* FIXME: move to .h so the compiler can optimize the constant NULL
@@ -220,24 +196,22 @@ packbuf_clear(PackBuf *pb)
 void
 packbuf_send(PackBuf *pb, enum pb_req reqtype)
 {
-    if (pb->mode == PB_GASPI) {
-        packbuf_gaspi_send(pb, reqtype);
-    } else if (pb->mode == PB_MPI) {
-        packbuf_mpi_send(pb, reqtype);
-    } else {
-        die("packbuf_send: bad mode\n");
+    switch (pb->transport) {
+        case PB_GASPI: packbuf_gaspi_send(pb, reqtype); break;
+        case PB_MPI: packbuf_mpi_send(pb, reqtype); break;
+        case PB_SHM: packbuf_shm_send(pb, reqtype); break;
+        default: die("packbuf_send: bad transport\n");
     }
 }
 
 void
 packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 {
-    if (pb->mode == PB_GASPI) {
-        packbuf_gaspi_recv(pb, reqtype);
-    } else if (pb->mode == PB_MPI) {
-        packbuf_mpi_recv(pb, reqtype);
-    } else {
-        die("packbuf_recv: bad mode\n");
+    switch (pb->transport) {
+        case PB_GASPI: packbuf_gaspi_recv(pb, reqtype); break;
+        case PB_MPI: packbuf_mpi_recv(pb, reqtype); break;
+        case PB_SHM: packbuf_shm_recv(pb, reqtype); break;
+        default: die("packbuf_recv: bad transport\n");
     }
 }
 
@@ -248,7 +222,7 @@ packbuf_init(PackBuf *pb, enum pb_dir dir, int enable_sel, int atomsize, int rem
 
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
-    pb->mode = PB_BAD;
+    pb->transport = PB_BAD;
     pb->dir = dir;
 
     if (remoterank < 0)
@@ -262,7 +236,7 @@ packbuf_init(PackBuf *pb, enum pb_dir dir, int enable_sel, int atomsize, int rem
 
 /** Ensure the header matches with the expected values */
 void
-packbuf_check_header(PackBuf *pb)
+packbuf_check_header(PackBuf *pb, int iter)
 {
     if (pb->dir != PB_RECV)
         return;
@@ -272,6 +246,10 @@ packbuf_check_header(PackBuf *pb)
     if (h->magic != PB_MAGIC_OK)
         die("%s wrong magic %d\n", pb->name, h->magic);
 
+    if (h->iter != iter)
+        die("%s iter mismatch: recv %d, expected %d\n",
+                pb->name, h->iter, iter);
+
     if (h->dstbox != pb->box)
         die("%s box mismatch: recv %d, expected %d\n",
                 pb->name, h->dstbox, pb->box);
@@ -280,7 +258,7 @@ packbuf_check_header(PackBuf *pb)
         die("%s senddir mismatch: recv %d, expected %d\n",
                 pb->name, h->senddir, pb->senddir);
 
-    if (pb->mode == PB_MPI) {
+    if (pb->transport == PB_MPI) {
         if (h->icomm != pb->mpi.icomm)
             die("%s icomm mismatch: recv %d, expected %d\n",
                     pb->name, h->icomm, pb->mpi.icomm);

@@ -36,10 +36,11 @@ enum pb_req {
     PB_NREQS = 2
 };
 
-enum pb_mode {
+enum pb_transport {
     PB_BAD = 0,
     PB_MPI = 1,
-    PB_GASPI = 2
+    PB_GASPI = 2,
+    PB_SHM = 3,
 };
 
 enum pb_type {
@@ -59,6 +60,7 @@ enum pb_dir {
 #define PB_TYPENAME(x)  (((char *[]){"R","RT","RVT"})[x])
 #define PB_DIRNAME(x)   (((char *[]){"SEND","RECV"})[x])
 #define PB_REQNAME(x)   (((char *[]){"BUF","NATOMS"})[x])
+#define PB_TRANSPORT(x) (((char *[]){"BAD","MPI","GASPI","SHM"})[x])
 
 typedef struct {
     int tag[PB_NREQS];
@@ -76,8 +78,15 @@ typedef struct {
     int queue;
 } PackBufGASPI;
 
+typedef struct PackBuf PackBuf;
+
+typedef struct {
+    PackBuf *remote;
+} PackBufShm;
+
 typedef struct {
     int magic;
+    int iter;
     int srcbox;
     int senddir;
     int dstbox;
@@ -91,7 +100,7 @@ typedef struct {
     double buf[];   /* Exchanged floating point data */
 } PackBufData;
 
-typedef struct {
+struct PackBuf {
     int box;
     int senddir;
 
@@ -114,19 +123,19 @@ typedef struct {
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
 
-    enum pb_mode mode;
+    enum pb_transport transport;
     union {
         PackBufMPI mpi;
         PackBufGASPI gaspi;
+        PackBufShm shm;
     };
-} PackBuf;
+};
 
 void packbuf_init(PackBuf *pb, enum pb_dir dir,
         int enable_sel, int atomsize, int remoterank);
 
 void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
 void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
-void packbuf_shmcopy(PackBuf *src, PackBuf *dst, enum pb_req req);
 void packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type);
 void packbuf_add_sel(PackBuf *pb, Vec *r, Vec *v, int *type, int iatom);
 void packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types);
@@ -139,7 +148,7 @@ void packbuf_recv(PackBuf *pb, enum pb_req req);
 
 size_t packbuf_data_size(size_t natoms, size_t atomdoubles);
 
-void packbuf_check_header(PackBuf *pb);
+void packbuf_check_header(PackBuf *pb, int iter);
 
 /* MPI */
 
@@ -159,5 +168,11 @@ void packbuf_gaspi_init(PackBuf *pb, PackBufData *newdata,
 
 void packbuf_gaspi_send(PackBuf *pb, enum pb_req req);
 void packbuf_gaspi_recv(PackBuf *pb, enum pb_req req);
+
+/* SHM */
+
+void packbuf_shm_init(PackBuf *pb, PackBuf *remote);
+void packbuf_shm_send(PackBuf *pb, enum pb_req req);
+void packbuf_shm_recv(PackBuf *pb, enum pb_req req);
 
 #endif /* PACKBUF_H */

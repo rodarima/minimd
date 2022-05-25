@@ -36,7 +36,7 @@ packbuf_gaspi_init(PackBuf *pb,
 
     pb->nalloc = nalloc;
     pb->data = newdata;
-    pb->mode = PB_GASPI;
+    pb->transport = PB_GASPI;
 }
 
 static void

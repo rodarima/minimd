@@ -23,7 +23,7 @@ void
 packbuf_mpi_init(PackBuf *pb, int tag[PB_NREQS],
         int icomm, MPI_Comm *comm)
 {
-    pb->mode = PB_MPI;
+    pb->transport = PB_MPI;
     pb->mpi.icomm = icomm;
     pb->mpi.comm = comm;
 
@@ -133,8 +133,8 @@ send_natoms(PackBuf *pb)
 void
 packbuf_mpi_send(PackBuf *pb, enum pb_req reqtype)
 {
-    if (pb->mode != PB_MPI)
-        die("packbuf_mpi_send: incorrect mode\n");
+    if (pb->transport != PB_MPI)
+        die("packbuf_mpi_send: incorrect transport\n");
 
     if (ENABLE_NONBLOCKING_MPI && pb->waitreq[reqtype]) {
         die("packbuf_mpi_send: buffer %s in use\n",
@@ -158,8 +158,8 @@ recv_buf(PackBuf *pb)
             pb->data->xnatoms, pb->remoterank, tag, pb->mpi.icomm,
             pb->name);
 
-    if (pb->mode != PB_MPI)
-        die("packbuf_mpi_recv_buf: incorrect mode\n");
+    if (pb->transport != PB_MPI)
+        die("packbuf_mpi_recv_buf: incorrect transport\n");
 
     if (ENABLE_NONBLOCKING_MPI && pb->waitreq[PB_BUF])
         die("packbuf_mpi_recv_buf: buffer in use\n");
@@ -204,8 +204,8 @@ recv_natoms(PackBuf *pb)
     dbg("recv_natoms: natoms=? remoterank=%d tag=%d icomm=%d name='%s'\n",
             pb->remoterank, tag, pb->mpi.icomm, pb->name);
 
-    if (pb->mode != PB_MPI)
-        die("packbuf_mpi_recv_buf: incorrect mode\n");
+    if (pb->transport != PB_MPI)
+        die("packbuf_mpi_recv_buf: incorrect transport\n");
 
     /* And receive the header with the atom data */
     int bytes = sizeof(*pb->data);
@@ -234,8 +234,6 @@ recv_natoms(PackBuf *pb)
 
         /* Set the natoms here, as they are already in the buffer */
         pb->natoms = pb->data->xnatoms;
-
-        packbuf_check_header(pb);
     }
 
     packbuf_switch(pb, PB_RECVING, PB_READY);
@@ -291,8 +289,6 @@ packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_req req)
 
     for (int i = 0; i < n; i++) {
         if (pbs[i]->waitreq[req] && pbs[i]->dir == PB_RECV) {
-            packbuf_check_header(pbs[i]);
-
             /* Only set the natoms when waiting for PB_NATOMS */
             if (req == PB_NATOMS)
                 pbs[i]->natoms = pbs[i]->data->xnatoms;

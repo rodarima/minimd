@@ -58,6 +58,7 @@ SRC=box.c \
   packbuf.c \
   packbuf_mpi.c \
   packbuf_gaspi.c \
+  packbuf_shm.c \
   setup_packbuf.c \
   ref.c \
   safe.c \
