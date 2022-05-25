@@ -1,3 +1,5 @@
+#define ENABLE_DEBUG 0
+#include "log.h"
 #include "types.h"
 #include "safe.h"
 
@@ -39,6 +41,10 @@ void
 box_add_atom(Box *box, Vec r, Vec v, int type)
 {
     int i = box->nlocal;
+
+    dbg("new atom at r=(%e %e %e) with v=(%e %e %e)\n",
+            r[X], r[Y], r[Z],
+            v[X], v[Y], v[Z]);
 
     if (i == box->nalloc)
         box_grow_array(box);
