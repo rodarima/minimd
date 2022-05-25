@@ -89,8 +89,8 @@ box_ghost_pack_r(Sim *sim, Box *box)
 static void
 box_border_pack_rt(Sim *sim, Box *box)
 {
-    dbg("packing borders for box %2d with nlocal %d\n",
-            box->i, box->nlocal);
+    dbg("rank%d.box%d: packing borders with nlocal %d\n",
+            sim->rank, box->i, box->nlocal);
 
     /* Reset all PackBuf from neighbors */
     box_packbuf_clear(box, PB_RT, PB_SEND);
@@ -98,6 +98,8 @@ box_border_pack_rt(Sim *sim, Box *box)
 
     /* Reset ghosts in this box */
     box->nghost = 0;
+
+    int npacked = 0;
 
     for (int i = 0; i < box->nlocal; i++) {
         int delta[NDIM];
@@ -118,31 +120,36 @@ box_border_pack_rt(Sim *sim, Box *box)
             Neigh *neigh = sub->neigh[j];
             PackBuf *pb = box->pb[PB_RT][PB_SEND][neigh->i];
 
-            dbg("atom %d out of core, delta sub (%2d %2d %2d), neigh %d/%d\n",
-                    i, delta[X], delta[Y], delta[Z], neigh->i,
-                    sub->nneigh);
+            dbg("rank%d.box%d.atom%d: out of core, sub=%d/%d (%2d %2d %2d), neigh=%d (%2d %2d %2d)\n",
+                    sim->rank, box->i, i,
+                    j, sub->nneigh,
+                    delta[X], delta[Y], delta[Z],
+                    neigh->i,
+                    neigh->delta[X], neigh->delta[Y], neigh->delta[Z]);
 
             /* Enforce PBC before packing the atom position */
             if (neigh->wraps) {
-                dbg("wrapping neigh %d atom %d position from %e %e %e\n",
-                        neigh->i, i, r[X], r[Y], r[Z]);
+                dbg("rank%d.box%d.atom%d: wrapping to neigh %d, position from %e %e %e\n",
+                        sim->rank, box->i, i, neigh->i, r[X], r[Y], r[Z]);
     
                 for (int d = X; d <= Z; d++)
                     r[d] += neigh->addpbc[d];
     
-                dbg("wrapped  neigh %d atom %d position to   %e %e %e\n",
-                        neigh->i, i, r[X], r[Y], r[Z]);
+                dbg("rank%d.box%d.atom%d: wrapped  to neigh %d, position to   %e %e %e\n",
+                        sim->rank, box->i, i, neigh->i, r[X], r[Y], r[Z]);
             }
 
             int type = box->atomtype[i];
             packbuf_add_sel(pb, &r, NULL, &type, i);
         }
 
+        npacked++;
     }
 
     box_packbuf_switch(box, PB_RT, PB_SEND, PB_PACKING, PB_READY);
 
-    dbg("rank%d: packed borders for box %2d\n", sim->rank, box->i);
+    dbg("rank%d.box%d: packed %d atoms\n",
+            sim->rank, box->i, npacked);
 }
 
 static void
@@ -179,7 +186,9 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
     /* Invalidate ghosts, as we are going to modify box->nlocal */
     box->nghost = -666;
 
-    for (int i = 0; i < box->nlocal; ) {
+    int npacked = 0;
+
+    for (int i = 0; i < box->nlocal; /* nop */) {
 
         Vec r = { box->r[i][X], box->r[i][Y], box->r[i][Z] };
         int delta[NDIM];
@@ -200,13 +209,16 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
 
         int type = box->atomtype[i];
         packbuf_add(pb, &r, &box->v[i], &type);
+        npacked++;
 
         /* Fill the hole with one atom from the end */
         int src = box->nlocal - 1, dst = i;
         copy_atom_rvt(box, src, dst);
         box->nlocal--;
-
     }
+
+    dbg("packed out %d atoms for box %2d with nlocal %d\n",
+            npacked, box->i, box->nlocal);
 
     box_packbuf_switch(box, PB_RVT, PB_SEND, PB_PACKING, PB_READY);
 }
