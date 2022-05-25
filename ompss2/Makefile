@@ -61,6 +61,7 @@ SRC=box.c \
   packbuf_shm.c \
   setup_packbuf.c \
   ref.c \
+  ref_atom.c \
   safe.c \
   thermo.c
 
