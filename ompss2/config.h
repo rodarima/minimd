@@ -85,7 +85,7 @@
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */
-#define ENABLE_SLOW_DEATH 0
+#define ENABLE_SLOW_DEATH 1
 
 /* Sleep for a day before aborting (if enabled) */
 #define DEATH_SLEEP (3600*24)

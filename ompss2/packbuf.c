@@ -204,9 +204,22 @@ packbuf_send(PackBuf *pb, enum pb_req reqtype)
     }
 }
 
+static void
+destroy_header(PackBuf *pb)
+{
+    PackBufHeader *h = &pb->data->header;
+
+    memset(h, 0xff, sizeof(*h));
+
+    h->magic = PB_MAGIC_CLEAN;
+}
+
 void
 packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 {
+    /* Before receiving data, destroy the data header */
+    destroy_header(pb);
+
     switch (pb->transport) {
         case PB_GASPI: packbuf_gaspi_recv(pb, reqtype); break;
         case PB_MPI: packbuf_mpi_recv(pb, reqtype); break;
@@ -216,7 +229,7 @@ packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 }
 
 void
-packbuf_init(PackBuf *pb, enum pb_dir dir, int enable_sel, int atomsize, int remoterank)
+packbuf_init(PackBuf *pb, enum pb_dir dir, int ineigh, int enable_sel, int atomsize, int remoterank)
 {
     memset(pb, 0, sizeof(*pb));
 
@@ -224,6 +237,7 @@ packbuf_init(PackBuf *pb, enum pb_dir dir, int enable_sel, int atomsize, int rem
     pb->enable_sel = enable_sel;
     pb->transport = PB_BAD;
     pb->dir = dir;
+    pb->ineigh = ineigh;
 
     if (remoterank < 0)
         die("packbuf_init: negative remote rank %d\n", remoterank);
@@ -246,7 +260,7 @@ packbuf_check_header(PackBuf *pb, int iter)
     if (h->magic != PB_MAGIC_OK)
         die("%s wrong magic %d\n", pb->name, h->magic);
 
-    if (h->iter != iter)
+    if (iter != -666 && h->iter != iter)
         die("%s iter mismatch: recv %d, expected %d\n",
                 pb->name, h->iter, iter);
 
@@ -266,3 +280,13 @@ packbuf_check_header(PackBuf *pb, int iter)
 
     dbg("%s header ok\n", pb->name);
 }
+
+//void
+//packbuf_waitn(PackBuf **pbs, int n, enum pb_req reqtype)
+//{
+//    switch (pb->transport) {
+//        case PB_GASPI: packbuf_gaspi_waitn(pbs, n, reqtype); break;
+//        case PB_MPI: packbuf_mpi_waitn(pbs, n, reqtype); break;
+//        default: die("packbuf_recv: bad transport\n");
+//    }
+//}

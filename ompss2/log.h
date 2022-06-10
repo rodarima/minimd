@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "config.h"
+
 #ifndef ENABLE_DEBUG
 #error ENABLE_DEBUG must be defined
 #endif

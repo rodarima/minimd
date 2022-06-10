@@ -38,6 +38,7 @@
 #include "gaspi_check.h"
 #include "comm.h"
 #include "ref.h"
+#include "trace.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -1193,7 +1194,6 @@ sim_init(Sim *sim, int argc, char *argv[])
         err("ENABLE_GASPI: %d\n", ENABLE_GASPI);
     }
 
-
     /* Create boxes */
     setup_boxes(sim);
 
@@ -1225,19 +1225,30 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     thermo_init(sim);
 
+    /* Begin tracing */
+    trace_open(sim->rank, sim->nboxes * NNEIGH, 3.0);
+
+    trace_barrier("sim_init", "#ff0000");
+
+    trace_barrier("com_tidy begins", "#ff0000");
+
     /* Move atoms to their correct box.
      * FIXME: this should be unneeded, as the atoms must be already
      * initialized in their correct box. */
     if (sim->rank == 0) err("running tidy init\n");
     comm_tidy(sim);
-    comm_waitall(sim);
+//    comm_waitall(sim);
+#pragma oss taskwait
+
+    trace_barrier("com_borders begins", "#ff0000");
 
     if (sim->rank == 0) err("tidy ok\n");
 
     /* Copy the ghost atoms into the neighbor processes */
     if (sim->rank == 0) err("running borders init\n");
     comm_borders(sim);
-    comm_waitall(sim);
+//    comm_waitall(sim);
+#pragma oss taskwait
 
     if (sim->rank == 0) err("borders ok\n");
 

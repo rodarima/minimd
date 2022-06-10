@@ -170,9 +170,11 @@ setup_packbuf_gaspi(Sim *sim, Box *box, Neigh *neigh,
 }
 
 static int
-build_mpi_tag(int sendineigh, enum pb_req reqtype)
+build_mpi_tag(int sendineigh, enum pb_type type, enum pb_req reqtype)
 {
-    int tag = sendineigh * PB_NREQS + reqtype;
+    int tag = sendineigh * PB_NTYPES * PB_NREQS
+            + type * PB_NREQS
+            + reqtype;
 
     /* Ensure the tag is within the MPI standard limit */
     if (tag >= 32767) {
@@ -189,12 +191,18 @@ setup_packbuf_mpi(Sim *sim, Box *box, Neigh *neigh,
     int sendibox, sendineigh;
     get_send_pair(box, neigh, dir, &sendibox, &sendineigh);
 
-    int icomm = sendibox;
-    MPI_Comm *comm = &sim->box[icomm].comm[type];
+    /* Mapping:
+     *   icomm = sendbox + type
+     *   tag = sendineigh + reqtype + type
+     *   rank = remoterank
+     */
+
+    int icomm = type;
+    MPI_Comm *comm = &sim->box[sendibox].comm[type];
 
     int tags[PB_NREQS] = {
-        [PB_BUF]    = build_mpi_tag(sendineigh, PB_BUF),
-        [PB_NATOMS] = build_mpi_tag(sendineigh, PB_NATOMS)
+        [PB_BUF]    = build_mpi_tag(sendineigh, type, PB_BUF),
+        [PB_NATOMS] = build_mpi_tag(sendineigh, type, PB_NATOMS)
     };
 
     packbuf_mpi_init(pb, tags, icomm, comm);
@@ -310,7 +318,7 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
         for (enum pb_dir dir = 0; dir < PB_NDIR; dir++) {
             PackBuf *pb = &neigh->pb[type][dir];
             //PabkBuf *pb = box_pb(box, type, dir, neigh->i);
-            packbuf_init(pb, dir, enablesel[type], ndoubles[type], remoterank[dir]);
+            packbuf_init(pb, dir, neigh->i, enablesel[type], ndoubles[type], remoterank[dir]);
 
             sprintf(pb->name, "PackBuf[type=%s dir=%s rank=%d box=%d neigh=%d]",
                     PB_TYPENAME(type), PB_DIRNAME(dir),

@@ -4,18 +4,19 @@
 #include "log.h"
 #include "packbuf.h"
 #include "neigh.h"
+#include "trace.h"
 
 /** Exchanges the PackBuf of the given type and req by using a internode
  * communication task. */
 static void
 neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
-        enum pb_type type, enum pb_req reqtype)
+        enum pb_type type, enum pb_req req)
 {
     PackBuf *pb = box->pb[type][PB_RECV][neigh->i];
 
     dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
             "CREATE", sim->rank, box->i, neigh->i,
-            PB_TYPENAME(type), PB_REQNAME(reqtype));
+            PB_TYPENAME(type), PB_REQNAME(req));
 
     /* TODO: We should move the task dependencies to the functions that modify
      * the actual data, rather than here */
@@ -25,14 +26,32 @@ neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
     {
         dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
                 "RUN", sim->rank, box->i, neigh->i,
-                PB_TYPENAME(type), PB_REQNAME(reqtype));
+                PB_TYPENAME(type), PB_REQNAME(req));
+
+        char label[1024];
+        double t0 = MPI_Wtime();
+        sprintf(label, "BEGINS neigh_recv_internode %s natoms=%d %s",
+            PB_REQNAME(req), pb->natoms, pb->name);
+        trace_event(box->i * sim->nboxes + neigh->i, label, "#008800");
+
+        if (pb->trace[req].started)
+            die("already tracing\n");
+
+        sprintf(pb->trace[req].color, "#0000ff");
+        sprintf(pb->trace[req].label, "ENDS comm_recv internode box=%d neigh=%d %s.%s",
+                box->i, neigh->i,
+                PB_TYPENAME(type), PB_REQNAME(req));
+
+        pb->trace[req].t0 = MPI_Wtime();
+        pb->trace[req].h = 0.5;
+        pb->trace[req].started = 1;
 
         packbuf_debug_switch(pb, PB_READY, PB_RECVING);
-        packbuf_recv(pb, reqtype);
+        packbuf_recv(pb, req);
 
         dbg("%-6s comm_recv rank %d, box %d, neigh %d, %s.%s\n",
                 "DONE", sim->rank, box->i, neigh->i,
-                PB_TYPENAME(type), PB_REQNAME(reqtype));
+                PB_TYPENAME(type), PB_REQNAME(req));
 
         packbuf_debug_switch(pb, PB_RECVING, PB_READY);
     }
@@ -40,12 +59,12 @@ neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
 
 static void
 neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
-        enum pb_type type, enum pb_req reqtype)
+        enum pb_type type, enum pb_req req)
 {
-    if (reqtype == PB_NATOMS) {
+    if (req == PB_NATOMS) {
         /* No-op as we already know the size */
-        //dbg("noop for box %d neigh %d with reqtype=%s\n",
-        //        box->i, neigh->i, PB_REQNAME(reqtype));
+        //dbg("noop for box %d neigh %d with req=%s\n",
+        //        box->i, neigh->i, PB_REQNAME(req));
         return;
     }
 
@@ -87,6 +106,10 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
         die("%s: remote pointer is NULL\n",
                 recv_pb->name);
 
+    if (send_pb->shm.remote != NULL)
+        die("%s: send remote pointer is not NULL\n",
+                send_pb->name);
+
     if (recv_pb->shm.remote != send_pb)
         die("remote pointer mismatch: recv remote %s != send %s\n",
                 recv_pb->shm.remote->name,
@@ -104,12 +127,31 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
         //        send_pb->natoms,
         //        recv_box->i, recv_idir, recv_pb);
 
+        PackBuf *pb = recv_pb;
+
+        char label[1024];
+        double t0 = MPI_Wtime();
+        sprintf(label, "BEGINS neigh_recv_intranode %s %s", PB_REQNAME(req), pb->name);
+        trace_event(box->i * sim->nboxes + neigh->i, label, "#0088ff");
+
         packbuf_debug_switch(send_pb, PB_READY, PB_COPYING);
         packbuf_debug_switch(recv_pb, PB_READY, PB_COPYING);
 
+        if (pb->trace[req].started)
+            die("already tracing\n");
+
+        sprintf(pb->trace[req].color, "#00ffff");
+        sprintf(pb->trace[req].label, "ENDS comm_recv intranode box=%d neigh=%d %s.%s",
+                box->i, neigh->i,
+                PB_TYPENAME(type), PB_REQNAME(req));
+
+        pb->trace[req].t0 = t0;
+        pb->trace[req].h = 0.3;
+        pb->trace[req].started = 1;
+
         /* Clear receive buffer */
         packbuf_clear(recv_pb);
-        packbuf_recv(recv_pb, reqtype);
+        packbuf_recv(recv_pb, req);
 
         packbuf_debug_switch(recv_pb, PB_COPYING, PB_READY);
         packbuf_debug_switch(send_pb, PB_COPYING, PB_READY);
@@ -120,6 +162,7 @@ static void
 neigh_recv(Sim *sim, Box *box, Neigh *neigh,
         enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
+
     /* Use MPI for inter process comm */
     if (neigh->rank != sim->rank) {
         neigh_recv_internode(sim, box, neigh, type, req);
@@ -132,7 +175,7 @@ void
 comm_recv(Sim *sim,
         enum pb_type type, enum pb_dir dir, enum pb_req req)
 {
-    dbg("comm_recv type=%s reqtype=%s\n",
+    dbg("comm_recv type=%s req=%s\n",
             PB_TYPENAME(type), PB_REQNAME(req));
 
     for (int i = 0; i < sim->nboxes; i++) {

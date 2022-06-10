@@ -22,7 +22,8 @@ enum packbuf_state {
 
 enum pb_magic {
     PB_MAGIC_OK = 12345,
-    PB_MAGIC_KO = 666
+    PB_MAGIC_KO = 666,
+    PB_MAGIC_CLEAN = 777
 };
 
 enum gaspi_segment_dir {
@@ -100,25 +101,40 @@ typedef struct {
     double buf[];   /* Exchanged floating point data */
 } PackBufData;
 
+typedef struct {
+    int started;
+    double t0;
+    double t1;
+    double h;
+    char label[1024];
+    char color[128];
+} PackBufTrace;
+
 struct PackBuf {
     int box;
     int senddir;
 
     enum pb_dir dir;
+    int ineigh;
 
     char name[256];
     int natoms;     /* Number of atoms currently in the buffer */
     int nalloc;     /* Number of atoms allocated */
     int atomsize;   /* Number of doubles required per atom */
 
+    int xfer_natoms; /* Number of atoms to be transferred */
+
     size_t datasize;
     PackBufData *data;
+
+    PackBufTrace trace[PB_NREQS];
 
     int enable_sel; /* If non-zero use selection for packing */
     int *sel;       /* Selection of atoms */
 
     int remoterank;
-    int waitreq[PB_NREQS];  /* Wait before overwrite buf/natoms */
+    int in_transfer[PB_NREQS]; /* Is transferring data? */
+    int waitreq[PB_NREQS];  /* Needs to call MPI_Wait? */
 
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
@@ -131,7 +147,7 @@ struct PackBuf {
     };
 };
 
-void packbuf_init(PackBuf *pb, enum pb_dir dir,
+void packbuf_init(PackBuf *pb, enum pb_dir dir, int ineigh,
         int enable_sel, int atomsize, int remoterank);
 
 void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);

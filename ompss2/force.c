@@ -32,6 +32,7 @@
 #include "types.h"
 #include "neigh.h"
 #include "hist.h"
+#include "trace.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -268,6 +269,8 @@ dump_atoms(Sim *sim, Box *box)
 static void
 update_force_box(Sim *sim, Box *box)
 {
+    double t0 = MPI_Wtime();
+
     if (ENABLE_FHIST)
         hist_clear(&box->fhist);
 
@@ -304,6 +307,11 @@ update_force_box(Sim *sim, Box *box)
 
     /* Increase the iteration for this box */
     box->force_iter++;
+
+    double t1 = MPI_Wtime();
+    char label[1024];
+    sprintf(label, "force_update box=%d", box->i);
+    trace_record(box->i * sim->nboxes, 0.5, t0, t1, label, "#ffff00");
 }
 
 void

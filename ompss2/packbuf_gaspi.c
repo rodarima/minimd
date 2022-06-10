@@ -3,6 +3,7 @@
 #include "types.h"
 #include "packbuf.h"
 #include "gaspi_check.h"
+#include "trace.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -51,15 +52,46 @@ send_buf(PackBuf *pb)
     if (pb->waitreq[PB_BUF])
         die("packbuf_gaspi_send_buf: buffer in use\n");
 
+    int bytes = sizeof(*pb->data) +
+        pb->natoms * pb->atomsize * sizeof(double);
+
     /* Repeat until success */
     while (1) {
+
+        char label[1024];
+        sprintf(label, "tagaspi_write_notify(sendseg=%d, sendoffset=%lu, remoterank=%d, \n"
+                "recvseg=%d, recvoffset=%lu, nbytes=%d, nid=%d, one=%d, queue=%d) ENTER\n"
+                "magic=%d natoms=%d buf[0]=%e buf[1]=%e buf[1]=%e",
+                pbg->sendseg, pbg->sendoffset,
+                pb->remoterank,
+                pbg->recvseg, pbg->recvoffset,
+                bytes,
+                pbg->nid, 1,
+                pbg->queue,
+                pb->data->header.magic,
+                pb->natoms,
+                pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
+
+        trace_event(pb->ineigh, label, "#00ff00");
+
         gaspi_return_t ret = tagaspi_write_notify(
                 pbg->sendseg, pbg->sendoffset,
                 pb->remoterank,
                 pbg->recvseg, pbg->recvoffset,
-                pb->natoms * pb->atomsize,
+                bytes,
                 pbg->nid, 1,
                 pbg->queue);
+
+        sprintf(label, "tagaspi_write_notify(sendseg=%d, sendoffset=%lu, remoterank=%d, \n"
+                "recvseg=%d, recvoffset=%lu, count=%d, nid=%d, one=%d, queue=%d) EXIT=%d",
+                pbg->sendseg, pbg->sendoffset,
+                pb->remoterank,
+                pbg->recvseg, pbg->recvoffset,
+                bytes,
+                pbg->nid, 1,
+                pbg->queue, ret);
+
+        trace_event(pb->ineigh, label, "#00ff00");
 
         if (ret == GASPI_SUCCESS)
             break;
@@ -68,6 +100,7 @@ send_buf(PackBuf *pb)
             check_gaspi(ret, "tagaspi_write_notify",
                     __FILE__, __LINE__);
         }
+
     }
 
     /* FIXME: we may need to wait before overwriting the buffer */
@@ -109,10 +142,23 @@ recv_buf(PackBuf *pb)
                     pb->nalloc, recvnatoms);
 
         while (1) {
+
+            char label[1024];
+            sprintf(label, "tagaspi_notify_async_wait(seg=%d, nid=%d) ENTER\n"
+                    "magic=%d buf[0]=%e buf[1]=%e buf[2]=%e",
+                    pbg->recvseg, pbg->nid,
+                    pb->data->header.magic,
+                    pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
+            trace_event(pb->ineigh, label, "#00ffff");
+
             gaspi_return_t ret = tagaspi_notify_async_wait(
                     pbg->recvseg,
                     pbg->nid,
                     GASPI_NOTIFICATION_IGNORE);
+
+            sprintf(label, "tagaspi_notify_async_wait(seg=%d, nid=%d) magic=%d EXIT=%d",
+                    pbg->recvseg, pbg->nid, pb->data->header.magic, ret);
+            trace_event(pb->ineigh, label, "#00ffff");
 
             if (ret == GASPI_SUCCESS)
                 break;
@@ -125,6 +171,9 @@ recv_buf(PackBuf *pb)
 
         //pb->waitreq[PB_BUF] = 1;
     }
+
+    /* We cannot check the header yet as only after the task is released we
+     * would have received the data */
 
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }

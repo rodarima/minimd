@@ -1,6 +1,8 @@
 miniMD
 data/
 trace*
+!*.c
+!*.h
 outputs
 tags
 *.csv

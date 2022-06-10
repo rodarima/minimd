@@ -6,6 +6,7 @@
 #include "box.h"
 #include "dom.h"
 #include "neigh.h"
+#include "trace.h"
 
 #include <math.h>
 
@@ -51,15 +52,14 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
     packbuf_debug_switch(pb_r, PB_READY, PB_RECVING);
     packbuf_debug_switch(pb_rt, PB_READY, PB_READING);
 
+    if (pb_r->natoms != 0)
+        packbuf_check_header(pb_r, box->iter);
+
     if (pb_rt->natoms != pb_r->natoms)
         die("ghost_unpack_r: %s mismatch natoms r=%d != rt=%d (neigh natoms=%d)\n",
                 pb_r->name, pb_r->natoms, pb_rt->natoms, neigh->recv_natoms_r);
 
     if (pb_r->natoms != 0) {
-
-        /* Only check the header if we received some atoms */
-        if (pb_r->remoterank != sim->rank)
-            packbuf_check_header(pb_r, box->iter);
 
         dbg("rank%d:box%d:neigh%d neigh_ghost_unpack_r: pb_r->natoms=%d\n",
                 sim->rank, box->i, neigh->i, pb_r->natoms);
@@ -157,7 +157,8 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
     dbg("rank%d.box%d.neigh%d: neigh_border_unpack_rt: unpacking %d atoms\n",
             sim->rank, box->i, neigh->i, pb_rt->natoms);
 
-    packbuf_check_header(pb_rt, box->iter);
+    if (pb_rt->natoms != 0)
+        packbuf_check_header(pb_rt, box->iter);
 
     /* Set the natoms to be sent and received in the PB_R buffer */
     neigh->recv_natoms_r = pb_rt->natoms;
@@ -322,34 +323,42 @@ check_atom(Sim *sim, Box *box, Vec r)
 static void
 neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
 {
+    double t0 = MPI_Wtime();
     PackBuf *pb = &neigh->pb[PB_RVT][PB_RECV];
 
-    if (pb->remoterank != sim->rank)
+    if (pb->natoms != 0) {
+        /* Only check the header if we have some atoms, otherwise it will
+         * contain garbage */
         packbuf_check_header(pb, box->iter);
+        packbuf_debug_switch(pb, PB_READY, PB_UNPACKING);
 
-    packbuf_debug_switch(pb, PB_READY, PB_UNPACKING);
+        /* Ensure we have room to place the new local atoms */
+        int n = box->nlocal + pb->natoms;
+        box_realloc(box, n);
 
-    /* Ensure we have room to place the new local atoms */
-    int n = box->nlocal + pb->natoms;
-    box_realloc(box, n);
+        //    /* Here we are receiving new local atoms that have just moved into
+        //     * our box. Ensure that there was a ghost atom before and that is
+        //     * not too close to an already existing atom */
+        //    for (int i = 0; i < pb->natoms; i++) {
+        //        double *r = &pb->data->buf[i * (NDIM * 2 + 1)];
+        //        check_atom(sim, box, *(Vec *) r);
+        //    }
 
-//    /* Here we are receiving new local atoms that have just moved into
-//     * our box. Ensure that there was a ghost atom before and that is
-//     * not too close to an already existing atom */
-//    for (int i = 0; i < pb->natoms; i++) {
-//        double *r = &pb->data->buf[i * (NDIM * 2 + 1)];
-//        check_atom(sim, box, *(Vec *) r);
-//    }
+        /* Unpack at the end of the local atoms */
+        Vec *r = &box->r[box->nlocal];
+        Vec *v = &box->v[box->nlocal];
+        int *types = &box->atomtype[box->nlocal];
+        packbuf_unpack(pb, r, v, types);
 
-    /* Unpack at the end of the local atoms */
-    Vec *r = &box->r[box->nlocal];
-    Vec *v = &box->v[box->nlocal];
-    int *types = &box->atomtype[box->nlocal];
-    packbuf_unpack(pb, r, v, types);
+        /* Adjust the number of local atoms in the box */
+        box->nlocal = n;
+        packbuf_debug_switch(pb, PB_UNPACKING, PB_READY);
+    }
 
-    /* Adjust the number of local atoms in the box */
-    box->nlocal = n;
-    packbuf_debug_switch(pb, PB_UNPACKING, PB_READY);
+    char label[1024];
+    double t1 = MPI_Wtime();
+    sprintf(label, "box_tidy_unpack_rvt box=%d neigh=%d", box->i, neigh->i);
+    trace_record(box->i * NNEIGH + neigh->i, 0.5, t0, t1, label, "#7700ff");
 }
 
 static void

@@ -3,6 +3,7 @@
 #include "log.h"
 #include "safe.h"
 #include "packbuf.h"
+#include "trace.h"
 
 #include <string.h>
 #include <mpi.h>
@@ -37,9 +38,17 @@ packbuf_mpi_init(PackBuf *pb, int tag[PB_NREQS],
 }
 
 static int
-isend(const void *buf, int count, MPI_Datatype datatype, int dest,
+isend(PackBuf *pb, const void *buf, int count, MPI_Datatype datatype, int dest,
         int tag, MPI_Comm comm, MPI_Request *request)
 {
+    char label[1024];
+    PackBufHeader *h = &pb->data->header;
+    sprintf(label, "isend xnatoms=%d count=%d dest=%d tag=%d comm=%d (%s)\n"
+        "header: magic=%d iter=%d srcbox=%d senddir=%d dstbox=%d icomm=%d",
+        pb->data->xnatoms, count, dest, tag, comm, pb->name,
+        h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm);
+    trace_event(pb->ineigh, label, "#00ffff");
+
     if (ENABLE_NONBLOCKING_TAMPI) {
         return TAMPI_Isend(buf, count, datatype, dest, tag, comm, request);
     }
@@ -48,9 +57,17 @@ isend(const void *buf, int count, MPI_Datatype datatype, int dest,
 }
 
 static int
-irecv(void *buf, int count, MPI_Datatype datatype, int source,
+irecv(PackBuf *pb, void *buf, int count, MPI_Datatype datatype, int source,
         int tag, MPI_Comm comm, MPI_Request *request)
 {
+    char label[1024];
+    PackBufHeader *h = &pb->data->header;
+    sprintf(label, "irecv count=%d source=%d tag=%d comm=%d (%s)\n"
+        "header: magic=%d iter=%d srcbox=%d senddir=%d dstbox=%d icomm=%d",
+        count, source, tag, comm, pb->name,
+        h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm);
+    trace_event(pb->ineigh, label, "#00ff00");
+
     if (ENABLE_NONBLOCKING_TAMPI) {
         return TAMPI_Irecv(buf, count, datatype, source, tag, comm, request,
                 MPI_STATUS_IGNORE);
@@ -76,13 +93,17 @@ send_buf(PackBuf *pb)
         pb->natoms * pb->atomsize * sizeof(double);
     void *buf = pb->data;
 
+    char label[1024];
+    sprintf(label, "packbuf_mpi.c:send_buf natoms=%d %s", pb->natoms, pb->name);
+    trace_event(pb->ineigh, label, "#0000ff");
+
     if (ENABLE_NONBLOCKING_MPI) {
         if (pb->waitreq[PB_BUF])
             die("packbuf_mpi_send_buf: buffer in use\n");
 
         if (pb->natoms != 0) {
 
-            isend(buf, bytes, MPI_BYTE,
+            isend(pb, buf, bytes, MPI_BYTE,
                     pb->remoterank, tag, *pbm->comm, &pbm->req[PB_BUF]);
 
             if (NEED_EXPLICIT_WAIT)
@@ -94,6 +115,9 @@ send_buf(PackBuf *pb)
                     pb->remoterank, tag, *pbm->comm);
         }
     }
+
+    if (pb->natoms != 0)
+        pb->in_transfer[PB_BUF] = 1;
 
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
@@ -109,14 +133,12 @@ send_natoms(PackBuf *pb)
 
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-    pb->data->xnatoms = pb->natoms;
-
     /* Skip the double buf[] at the end */
     int bytes = sizeof(*pb->data);
     void *buf = pb->data;
 
     if (ENABLE_NONBLOCKING_MPI) {
-        isend(buf, bytes, MPI_BYTE,
+        isend(pb, buf, bytes, MPI_BYTE,
                 pb->remoterank, tag, *pb->mpi.comm,
                 &pb->mpi.req[PB_NATOMS]);
 
@@ -127,6 +149,8 @@ send_natoms(PackBuf *pb)
                 pb->remoterank, tag, *pb->mpi.comm);
     }
 
+    pb->in_transfer[PB_NATOMS] = 1;
+
     packbuf_switch(pb, PB_SENDING, PB_READY);
 }
 
@@ -136,16 +160,22 @@ packbuf_mpi_send(PackBuf *pb, enum pb_req reqtype)
     if (pb->transport != PB_MPI)
         die("packbuf_mpi_send: incorrect transport\n");
 
+    if (pb->in_transfer[reqtype])
+        die("packbuf_mpi_send: already transferring data %s\n", pb->name);
+
     if (ENABLE_NONBLOCKING_MPI && pb->waitreq[reqtype]) {
         die("packbuf_mpi_send: buffer %s in use\n",
                 PB_REQNAME(reqtype));
     }
+
+    pb->data->xnatoms = pb->natoms;
 
     if (reqtype == PB_NATOMS) {
         send_natoms(pb);
     } else {
         send_buf(pb);
     }
+
 }
 
 static void
@@ -154,18 +184,18 @@ recv_buf(PackBuf *pb)
     int tag = pb->mpi.tag[PB_BUF];
     packbuf_switch(pb, PB_READY, PB_RECVING);
 
+    if (pb->transport != PB_MPI)
+        die("packbuf_mpi_recv_buf: incorrect transport\n");
+
+    /* Use pb->natoms as the number of atoms to be received */
+    int recvnatoms = pb->natoms;
+
     dbg("recv_buf: recvnatoms=%d remoterank=%d tag=%d icomm=%d name='%s'\n",
             pb->data->xnatoms, pb->remoterank, tag, pb->mpi.icomm,
             pb->name);
 
-    if (pb->transport != PB_MPI)
-        die("packbuf_mpi_recv_buf: incorrect transport\n");
-
     if (ENABLE_NONBLOCKING_MPI && pb->waitreq[PB_BUF])
         die("packbuf_mpi_recv_buf: buffer in use\n");
-
-    /* xnatoms will be overwritten by the message */
-    int recvnatoms = pb->natoms;
 
     if (recvnatoms > 0) {
         /* Grow the buffer if needed */
@@ -178,7 +208,7 @@ recv_buf(PackBuf *pb)
         void *buf = pb->data;
 
         if (ENABLE_NONBLOCKING_MPI) {
-            irecv(buf, bytes, MPI_BYTE,
+            irecv(pb, buf, bytes, MPI_BYTE,
                     pb->remoterank, tag, *pb->mpi.comm,
                     &pb->mpi.req[PB_BUF]);
 
@@ -189,6 +219,8 @@ recv_buf(PackBuf *pb)
                     pb->remoterank, tag, *pb->mpi.comm,
                     MPI_STATUS_IGNORE);
         }
+
+        pb->in_transfer[PB_BUF] = 1;
     }
 
     packbuf_switch(pb, PB_RECVING, PB_READY);
@@ -216,7 +248,7 @@ recv_natoms(PackBuf *pb)
         if (pb->waitreq[PB_NATOMS])
             die("packbuf_mpi_recv_natoms: buffer in use\n");
 
-        irecv(buf, bytes, MPI_BYTE,
+        irecv(pb, buf, bytes, MPI_BYTE,
                 pb->remoterank, tag, *pb->mpi.comm,
                 &pb->mpi.req[PB_NATOMS]);
 
@@ -232,9 +264,13 @@ recv_natoms(PackBuf *pb)
         dbg("recv_natoms: MPI_Recv natoms=%d %s\n",
                 pb->data->xnatoms, pb->name);
 
-        /* Set the natoms here, as they are already in the buffer */
-        pb->natoms = pb->data->xnatoms;
+        /* FIXME: The natoms are set always in the wait stage, so we keep all
+         * communication transports equivalent */
+//        /* Set the natoms here, as they are already in the buffer */
+//        pb->natoms = pb->data->xnatoms;
     }
+
+    pb->in_transfer[PB_NATOMS] = 1;
 
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
@@ -242,6 +278,12 @@ recv_natoms(PackBuf *pb)
 void
 packbuf_mpi_recv(PackBuf *pb, enum pb_req reqtype)
 {
+    if (pb->transport != PB_MPI)
+        die("packbuf_mpi_recv: incorrect transport %s\n", pb->name);
+
+    if (pb->in_transfer[reqtype])
+        die("packbuf_mpi_recv: already transferring data %s\n", pb->name);
+
     if (reqtype == PB_NATOMS) {
         recv_natoms(pb);
     } else {
@@ -268,32 +310,50 @@ packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_req req)
     MPI_Request mpireq[MAXREQ];
     int nreq = 0;
 
-    for (int i = 0; i < n; i++)
-        packbuf_switch(pbs[i], PB_READY, PB_WAITING);
+    for (int i = 0; i < n; i++) {
+        if (pbs[i]->transport == PB_MPI) {
+            packbuf_switch(pbs[i], PB_READY, PB_WAITING);
 
-    if (ENABLE_SEQUENTIAL_MPIWAIT) {
-        for (int i = 0; i < n; i++) {
-            if (pbs[i]->waitreq[req])
-                MPI_Wait(&pbs[i]->mpi.req[req], MPI_STATUS_IGNORE);
+            if (!pbs[i]->in_transfer[req] && pbs[i]->waitreq[req]) {
+                die("non-sense: not in transfer but waitreq is set\n");
+            }
         }
+    }
 
-    } else {
-
-        for (int i = 0; i < n; i++) {
-            if (pbs[i]->waitreq[req])
-                memcpy(&mpireq[nreq++], &pbs[i]->mpi.req[req], sizeof(MPI_Request));
+    if (NEED_EXPLICIT_WAIT) {
+        if (ENABLE_SEQUENTIAL_MPIWAIT) {
+            for (int i = 0; i < n; i++) {
+                if (pbs[i]->waitreq[req]) {
+                    MPI_Wait(&pbs[i]->mpi.req[req], MPI_STATUS_IGNORE);
+                }
+            }
+        } else {
+            for (int i = 0; i < n; i++) {
+                if (pbs[i]->waitreq[req])
+                    memcpy(&mpireq[nreq++], &pbs[i]->mpi.req[req], sizeof(MPI_Request));
+            }
+            MPI_Waitall(nreq, mpireq, MPI_STATUSES_IGNORE);
         }
-
-        MPI_Waitall(nreq, mpireq, MPI_STATUSES_IGNORE);
     }
 
     for (int i = 0; i < n; i++) {
-        if (pbs[i]->waitreq[req] && pbs[i]->dir == PB_RECV) {
-            /* Only set the natoms when waiting for PB_NATOMS */
-            if (req == PB_NATOMS)
-                pbs[i]->natoms = pbs[i]->data->xnatoms;
+        PackBuf *pb = pbs[i];
+
+        if (pb->transport != PB_MPI)
+            continue;
+
+        /* Ensure the header is sane */
+        if (pb->in_transfer[req] && pb->dir == PB_RECV)
+            packbuf_check_header(pb, -666);
+
+        /* Only set the natoms when receiving data */
+        if (pb->in_transfer[req] && pb->dir == PB_RECV) {
+            pb->natoms = pb->data->xnatoms;
         }
+
+        /* Clear all in_transfer and waitreq flags */
         pbs[i]->waitreq[req] = 0;
+        pbs[i]->in_transfer[req] = 0;
         packbuf_switch(pbs[i], PB_WAITING, PB_READY);
     }
 }

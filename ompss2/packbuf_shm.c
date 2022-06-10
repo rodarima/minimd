@@ -47,9 +47,11 @@ packbuf_shm_recv(PackBuf *pb, enum pb_req reqtype)
 
     if (src->natoms != 0) {
         packbuf_grow(dst, src->natoms);
-        size_t nbytes = packbuf_data_size(src->natoms, src->atomsize);
-        memcpy(dst->data, src->data, nbytes);
     }
+
+    /* Always perform the copy, even with no atoms to transfer the header */
+    size_t nbytes = packbuf_data_size(src->natoms, src->atomsize);
+    memcpy(dst->data, src->data, nbytes);
 
     dst->natoms = src->natoms;
 

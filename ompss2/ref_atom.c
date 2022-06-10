@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "types.h"
 #include "log.h"
 #include "ref.h"
