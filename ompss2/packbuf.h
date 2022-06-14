@@ -45,10 +45,10 @@ enum pb_transport {
 };
 
 enum pb_type {
-    PB_R        = 0,
-    PB_RT       = 1,
-    PB_RVT      = 2,
-    PB_NTYPES   = 3
+    PB_R = 0,
+    PB_RT = 1,
+    PB_RVT = 2,
+    PB_NTYPES = 3
 };
 
 enum pb_dir {
@@ -67,7 +67,8 @@ typedef struct {
     int tag[PB_NREQS];
     MPI_Request req[PB_NREQS];
     MPI_Comm *comm;
-    int icomm;                  /* And index to identify the MPI_Comm */
+    int icomm;              /* And index to identify the MPI_Comm */
+    int waitreq[PB_NREQS];  /* Needs to call MPI_Wait? */
 } PackBufMPI;
 
 typedef struct {
@@ -134,7 +135,6 @@ struct PackBuf {
 
     int remoterank;
     int in_transfer[PB_NREQS]; /* Is transferring data? */
-    int waitreq[PB_NREQS];  /* Needs to call MPI_Wait? */
 
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
     enum packbuf_state state;
@@ -161,6 +161,7 @@ void packbuf_grow(PackBuf *pb, int n);
 
 void packbuf_send(PackBuf *pb, enum pb_req req);
 void packbuf_recv(PackBuf *pb, enum pb_req req);
+void packbuf_waitn(PackBuf **pbs, int n, enum pb_req reqtype);
 
 size_t packbuf_data_size(size_t natoms, size_t atomdoubles);
 
@@ -184,6 +185,7 @@ void packbuf_gaspi_init(PackBuf *pb, PackBufData *newdata,
 
 void packbuf_gaspi_send(PackBuf *pb, enum pb_req req);
 void packbuf_gaspi_recv(PackBuf *pb, enum pb_req req);
+void packbuf_gaspi_waitn(PackBuf **pbs, int n, enum pb_req req);
 
 /* SHM */
 

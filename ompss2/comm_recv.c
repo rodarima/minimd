@@ -32,7 +32,7 @@ neigh_recv_internode(Sim *sim, Box *box, Neigh *neigh,
         double t0 = MPI_Wtime();
         sprintf(label, "BEGINS neigh_recv_internode %s natoms=%d %s",
             PB_REQNAME(req), pb->natoms, pb->name);
-        trace_event(box->i * sim->nboxes + neigh->i, label, "#008800");
+        trace_event(box->i * NNEIGH + neigh->i, label, "#008800");
 
         if (pb->trace[req].started)
             die("already tracing\n");
@@ -132,7 +132,7 @@ neigh_recv_intranode(Sim *sim, Box *box, Neigh *neigh,
         char label[1024];
         double t0 = MPI_Wtime();
         sprintf(label, "BEGINS neigh_recv_intranode %s %s", PB_REQNAME(req), pb->name);
-        trace_event(box->i * sim->nboxes + neigh->i, label, "#0088ff");
+        trace_event(box->i * NNEIGH + neigh->i, label, "#0088ff");
 
         packbuf_debug_switch(send_pb, PB_READY, PB_COPYING);
         packbuf_debug_switch(recv_pb, PB_READY, PB_COPYING);

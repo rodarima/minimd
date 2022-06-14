@@ -10,16 +10,16 @@ comm_tidy(Sim *sim)
 {
     enum pb_type type = PB_RVT;
 
-    comm_wait  (sim, type, PB_SEND, PB_NATOMS);
-    comm_wait  (sim, type, PB_SEND, PB_BUF);
     comm_pack  (sim, type, PB_SEND);
 
     comm_send  (sim, type, PB_SEND, PB_NATOMS);
     comm_recv  (sim, type, PB_RECV, PB_NATOMS);
+    comm_wait  (sim, type, PB_SEND, PB_NATOMS);
     comm_wait  (sim, type, PB_RECV, PB_NATOMS);
 
     comm_send  (sim, type, PB_SEND, PB_BUF);
     comm_recv  (sim, type, PB_RECV, PB_BUF);
+    comm_wait  (sim, type, PB_SEND, PB_BUF);
     comm_wait  (sim, type, PB_RECV, PB_BUF);
 
     comm_unpack(sim, type, PB_RECV);

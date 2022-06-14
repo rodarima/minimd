@@ -18,8 +18,8 @@ LIBS+=-lm
 LIBS+=-lstdc++ -l:libtampi-c.a
 LIBS+=-lGPI2 -ltagaspi
 
-#CFLAGS+=-O0
-CFLAGS+=-O3
+CFLAGS+=-O0
+#CFLAGS+=-O3
 
 CFLAGS+=-g
 LDFLAGS+=-g
@@ -36,6 +36,7 @@ CFLAGS+=-Wshadow
 #CFLAGS+=-Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=-Wno-unused-parameter
 CFLAGS+=-fdebug-default-version=4
+CFLAGS+=-fno-omit-frame-pointer
 
 #CFLAGS+=-fsanitize=address
 #LDFLAGS+=-fsanitize=address
@@ -63,8 +64,9 @@ SRC=box.c \
   ref.c \
   ref_atom.c \
   safe.c \
-  trace.c \
-  thermo.c
+  test_comm.c \
+  thermo.c \
+  trace.c
 
 #  packbuf_gaspi.c
 OBJ=$(SRC:.c=.o)

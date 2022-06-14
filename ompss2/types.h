@@ -102,6 +102,22 @@ typedef struct neigh Neigh;
 
 #include "packbuf.h"
 
+typedef struct endpoint {
+    int rank;
+    int ibox;
+    int isenddir;
+} Endpoint;
+
+typedef struct link {
+    Endpoint src;
+    Endpoint dst;
+} Link;
+
+typedef struct chan {
+    Link link[PB_NDIR];
+    PackBuf *pb[PB_NDIR];
+} Chan;
+
 /* A neighboring box */
 typedef struct neigh {
     int i;              /* Local index of this neighbor in the box */
@@ -120,6 +136,7 @@ typedef struct neigh {
     Vec addpbc; /* PBC correction per dimension */
 
     PackBuf pb[PB_NTYPES][PB_NDIR]; /* Communication packing buffers */
+    //Chan chan[PB_NTYPES];
 
     /* The number of atoms to be send for PB_R, computed in the PB_RT
      * exchange. */

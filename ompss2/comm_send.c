@@ -20,7 +20,7 @@ box_send_neigh_task(Sim *sim, Box *box, Neigh *neigh, PackBuf *pb,
     double t0 = MPI_Wtime();
     sprintf(label, "BEGIN box_send_neigh_task %s transport=%d natoms=%d %s",
         PB_REQNAME(req), pb->transport, pb->natoms, pb->name);
-    trace_event(box->i * sim->nboxes + neigh->i, label, "#008800");
+    trace_event(box->i * NNEIGH + neigh->i, label, "#008800");
 
     if (pb->trace[req].started)
         die("already tracing\n");
@@ -62,9 +62,6 @@ box_send_neigh(Sim *sim, Box *box, Neigh *neigh, enum pb_type type,
             "CREATE", sim->rank, box->i, neigh->i,
             PB_TYPENAME(type), PB_REQNAME(req));
 
-//    #pragma oss taskwait \
-//        inout(pb->data) \
-//        inout(pb->natoms)
     box_send_neigh_task(sim, box, neigh, pb, type, req);
 }
 

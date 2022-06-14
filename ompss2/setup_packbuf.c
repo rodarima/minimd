@@ -1,9 +1,10 @@
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 #include "log.h"
 #include "setup.h"
 #include "types.h"
 #include "gaspi_check.h"
 #include "neigh.h"
+#include "test.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -20,8 +21,8 @@ setup_gaspi_segment(Sim *sim, int ineigh, int dir, size_t nbytes)
 {
     void *seg;
 
-    if ((seg = malloc(nbytes)) == NULL)
-        die("malloc of %zu bytes failed\n", nbytes);
+    if ((seg = calloc(1, nbytes)) == NULL)
+        die("calloc of %zu bytes failed\n", nbytes);
 
     sim->gaspi.buf[ineigh][dir] = seg;
 
@@ -65,7 +66,7 @@ setup_gaspi_segments(Sim *sim)
      * slot 0 (box 0)           slot 1 (box 1)  ...     .
      * |------------------------|--------- ...  --------|
      * .                        .                       .
-     * .     pbbuf start         .                       .
+     * .     pbbuf start        .                       .
      * |-----|------------------|-----|--- ... ---------|
      * | PBH |
      * |     |
@@ -74,7 +75,7 @@ setup_gaspi_segments(Sim *sim)
      */
 
     Gaspi *g = &sim->gaspi;
-    g->nalloc = 16 * 1024; /* FIXME: compute */
+    g->nalloc = 1024; /* FIXME: compute */
     g->atomsize = NDIM * sizeof(double);
     g->pbsize = g->nalloc * g->atomsize;
     /* The slot contains the header at the beginning */
@@ -82,6 +83,9 @@ setup_gaspi_segments(Sim *sim)
     g->pboffset = packbuf_data_size(0, 0);
     g->nslots = sim->nboxes;
     g->segsize = g->nslots * g->slotsize;
+
+    dbg("segsize=%lu slotsize=%lu nslots=%lu\n",
+            g->segsize, g->slotsize, g->nslots);
 
     for (int ineigh = 0; ineigh < NNEIGH; ineigh++) {
         for (int dir = 0; dir < PB_NDIR; dir++) {
@@ -102,7 +106,7 @@ static void
 get_send_pair(Box *box, Neigh *neigh, enum pb_dir dir,
         int *sendibox, int *sendineigh)
 {
-    /* Always used the sending box/neigh as the reference value. In the
+    /* Always use the sending box/neigh as the reference value. In the
      * receiving part we compute the corresponding sending values */
 
     if (dir == PB_SEND) {
@@ -162,7 +166,7 @@ setup_packbuf_gaspi(Sim *sim, Box *box, Neigh *neigh,
     void *slot = seg + slot_offset;
     PackBufData *pbdata = slot;
 
-    dbg("pachbuf_gaspi_init with tag=%d\n", tag);
+    //dbg("pachbuf_gaspi_init with tag=%d\n", tag);
     packbuf_gaspi_init(pb, pbdata,
             sendiseg, slot_offset,
             recviseg, slot_offset,
@@ -330,8 +334,6 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
 
             /* Set the PB pointers in the box table */
             box->pb[type][dir][neigh->i] = pb;
-
-            dbg("%s\n", pb->name);
         }
     }
 }
@@ -418,6 +420,8 @@ setup_packbuf(Sim *sim)
 
     if (ENABLE_DEBUG)
         dump_packbuf(sim);
+
+    test_comm(sim);
 }
 
 static void

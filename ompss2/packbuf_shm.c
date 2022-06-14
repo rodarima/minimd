@@ -27,7 +27,39 @@ packbuf_shm_init(PackBuf *pb, PackBuf *remote)
 void
 packbuf_shm_send(PackBuf *pb, enum pb_req reqtype)
 {
-    die("%s: use only recv with SHM\n", pb->name);
+    //die("%s: use only recv with SHM\n", pb->name);
+}
+
+static void
+recv_natoms(PackBuf *pb)
+{
+    PackBuf *dst = pb;
+    PackBuf *src = pb->shm.remote;
+
+    size_t nbytes = packbuf_data_size(0, src->atomsize);
+    memcpy(dst->data, src->data, nbytes);
+
+    dst->natoms = src->natoms;
+}
+
+static void
+recv_buf(PackBuf *pb)
+{
+    PackBuf *dst = pb;
+    PackBuf *src = pb->shm.remote;
+
+    dst->natoms = src->natoms;
+
+    if (src->natoms != 0) {
+        packbuf_grow(dst, src->natoms);
+    }
+
+    /* Always perform the copy, even with no atoms to transfer the header */
+    size_t nbytes = packbuf_data_size(src->natoms, src->atomsize);
+    memcpy(dst->data, src->data, nbytes);
+
+    /* Set the natoms anyway */
+    dst->natoms = src->natoms;
 }
 
 void
@@ -43,17 +75,9 @@ packbuf_shm_recv(PackBuf *pb, enum pb_req reqtype)
     packbuf_switch(dst, PB_READY, PB_COPYING);
 
     if (reqtype == PB_NATOMS)
-        die("%s: non-sense receive only natoms via SHM\n", pb->name);
-
-    if (src->natoms != 0) {
-        packbuf_grow(dst, src->natoms);
-    }
-
-    /* Always perform the copy, even with no atoms to transfer the header */
-    size_t nbytes = packbuf_data_size(src->natoms, src->atomsize);
-    memcpy(dst->data, src->data, nbytes);
-
-    dst->natoms = src->natoms;
+        recv_natoms(pb);
+    else
+        recv_buf(pb);
 
     packbuf_switch(dst, PB_COPYING, PB_READY);
     packbuf_switch(src, PB_COPYING, PB_READY);

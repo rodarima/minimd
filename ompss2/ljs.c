@@ -1216,6 +1216,11 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     setup_subdomains(sim);
 
+    /* Begin tracing */
+    trace_open(sim->rank, sim->nboxes * NNEIGH, 3.0);
+    trace_barrier("sim_init", "#ff0000");
+    trace_barrier("com_tidy begins", "#ff0000");
+
     /* Init pack buffers */
     setup_packbuf(sim);
 
@@ -1225,20 +1230,11 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     thermo_init(sim);
 
-    /* Begin tracing */
-    trace_open(sim->rank, sim->nboxes * NNEIGH, 3.0);
-
-    trace_barrier("sim_init", "#ff0000");
-
-    trace_barrier("com_tidy begins", "#ff0000");
-
-    /* Move atoms to their correct box.
-     * FIXME: this should be unneeded, as the atoms must be already
-     * initialized in their correct box. */
+    /* Move atoms to their correct box. */
     if (sim->rank == 0) err("running tidy init\n");
     comm_tidy(sim);
 //    comm_waitall(sim);
-#pragma oss taskwait
+    #pragma oss taskwait
 
     trace_barrier("com_borders begins", "#ff0000");
 
@@ -1248,7 +1244,7 @@ sim_init(Sim *sim, int argc, char *argv[])
     if (sim->rank == 0) err("running borders init\n");
     comm_borders(sim);
 //    comm_waitall(sim);
-#pragma oss taskwait
+    #pragma oss taskwait
 
     if (sim->rank == 0) err("borders ok\n");
 
@@ -1421,7 +1417,7 @@ sim_finalize(Sim *sim)
 
 int main(int argc, char *argv[])
 {
-    /* Don't zero so we can find error with asan */
+    /* Don't zero so we can find errors with asan */
     Sim *sim = (Sim *) malloc(sizeof(Sim));
     int provided;
 

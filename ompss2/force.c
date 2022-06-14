@@ -311,7 +311,7 @@ update_force_box(Sim *sim, Box *box)
     double t1 = MPI_Wtime();
     char label[1024];
     sprintf(label, "force_update box=%d", box->i);
-    trace_record(box->i * sim->nboxes, 0.5, t0, t1, label, "#ffff00");
+    trace_record(box->i * NNEIGH, NNEIGH, t0, t1, label, "#ffff00");
 }
 
 void

@@ -88,7 +88,7 @@ packbuf_add(PackBuf *pb, Vec *r, Vec *v, int *type)
     /* Ensure we have room for another atom */
     packbuf_grow_extra(pb, 1);
 
-    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
+    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
         die("packbuf_add: buffer in use\n");
 
     int j = pb->natoms * pb->atomsize;
@@ -132,9 +132,10 @@ packbuf_unpack(PackBuf *pb, Vec *r, Vec *v, int *types)
 {
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
 
-    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
-        die("packbuf_unpack: buffer in use wait buf %d, wait natoms %d\n",
-                pb->waitreq[PB_BUF], pb->waitreq[PB_NATOMS]);
+    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
+        die("packbuf_unpack: buffer in use, in_transfer(buf=%d natoms=%d) %s\n",
+                pb->in_transfer[PB_BUF], pb->in_transfer[PB_NATOMS],
+                pb->name);
 
     for (int i = 0, j = 0; i < pb->natoms; i++) {
         if (r != NULL) {
@@ -159,7 +160,7 @@ packbuf_unpack_sel(PackBuf *pb, Vec *r, Vec *v, int *types, int *sel)
 {
     packbuf_switch(pb, PB_READY, PB_UNPACKING);
 
-    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
+    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
         die("packbuf_unpack_sel: buffer in use\n");
 
     for (int i = 0, j = 0; i < pb->natoms; i++) {
@@ -185,7 +186,7 @@ packbuf_clear(PackBuf *pb)
 {
     packbuf_switch(pb, PB_READY, PB_CLEANING);
 
-    if (pb->waitreq[PB_BUF] || pb->waitreq[PB_NATOMS])
+    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
         die("packbuf_unpack_sel: buffer in use\n");
 
     pb->natoms = 0;
@@ -196,6 +197,9 @@ packbuf_clear(PackBuf *pb)
 void
 packbuf_send(PackBuf *pb, enum pb_req reqtype)
 {
+    if (pb->in_transfer[reqtype])
+        die("packbuf_send: already transferring data %s\n", pb->name);
+
     switch (pb->transport) {
         case PB_GASPI: packbuf_gaspi_send(pb, reqtype); break;
         case PB_MPI: packbuf_mpi_send(pb, reqtype); break;
@@ -209,16 +213,31 @@ destroy_header(PackBuf *pb)
 {
     PackBufHeader *h = &pb->data->header;
 
+    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
+        die("cannot destroy header: in transfer is set %s", pb->name);
+
+    if (h->magic != PB_MAGIC_OK) {
+        die("cannot destroy header: magic is already clean %s\n",
+                pb->name);
+    }
+
     memset(h, 0xff, sizeof(*h));
 
     h->magic = PB_MAGIC_CLEAN;
+
+    if (pb->nalloc >= 1 && pb->atomsize >= 1) {
+        pb->data->buf[0] = 0.1234567;
+    }
 }
 
 void
 packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 {
+    if (pb->in_transfer[reqtype])
+        die("packbuf_recv: already transferring data %s\n", pb->name);
+
     /* Before receiving data, destroy the data header */
-    destroy_header(pb);
+    //destroy_header(pb);
 
     switch (pb->transport) {
         case PB_GASPI: packbuf_gaspi_recv(pb, reqtype); break;
@@ -252,9 +271,6 @@ packbuf_init(PackBuf *pb, enum pb_dir dir, int ineigh, int enable_sel, int atoms
 void
 packbuf_check_header(PackBuf *pb, int iter)
 {
-    if (pb->dir != PB_RECV)
-        return;
-
     PackBufHeader *h = &pb->data->header;
 
     if (h->magic != PB_MAGIC_OK)
@@ -281,12 +297,17 @@ packbuf_check_header(PackBuf *pb, int iter)
     dbg("%s header ok\n", pb->name);
 }
 
-//void
-//packbuf_waitn(PackBuf **pbs, int n, enum pb_req reqtype)
-//{
-//    switch (pb->transport) {
-//        case PB_GASPI: packbuf_gaspi_waitn(pbs, n, reqtype); break;
-//        case PB_MPI: packbuf_mpi_waitn(pbs, n, reqtype); break;
-//        default: die("packbuf_recv: bad transport\n");
-//    }
-//}
+void
+packbuf_waitn(PackBuf **pbs, int n, enum pb_req reqtype)
+{
+    /* The array of pbs may contain mixed transports, so we just call
+     * each implementation sequentially. Each transport will only
+     * operate on its own transport PackBuf buffers */
+    packbuf_mpi_waitn(pbs, n, reqtype);
+    packbuf_gaspi_waitn(pbs, n, reqtype);
+
+    /* Ensure all in_transfer flags are cleared */
+    for (int i = 0; i < n; i++)
+        if (pbs[i]->in_transfer[reqtype])
+            die("packbuf_waitn: still in transfer %s\n", pbs[i]->name);
+}

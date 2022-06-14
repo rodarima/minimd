@@ -11,7 +11,7 @@ static double tstart = 0.0;
 static FILE *tracefile = NULL;
 static double xfactor = 10000.0;
 static double Nrows = 0;
-static int tracing_enabled = 0;
+static int tracing_enabled = 1;
 
 void
 trace_open(int rank, int nrows, double duration)

@@ -13,7 +13,7 @@ box_waitmpi_task(Sim *sim, Box *box,
             "RUN", sim->rank, box->i,
             PB_TYPENAME(type), PB_REQNAME(req));
 
-    packbuf_mpi_waitn(box->pb[type][dir], NNEIGH, req);
+    packbuf_waitn(box->pb[type][dir], NNEIGH, req);
 
     for (int i = 0; i < NNEIGH; i++) {
         PackBuf *pb = box->pb[type][dir][i];
@@ -38,7 +38,7 @@ box_waitmpi(Sim *sim, Box *box,
 
             if (pb->trace[req].started) {
                 pb->trace[req].t1 = MPI_Wtime();
-                //trace_record(box->i * sim->nboxes + i, pb->trace[req].h,
+                //trace_record(box->i * NNEIGH + i, pb->trace[req].h,
                 //        pb->trace[req].t0, pb->trace[req].t1, pb->trace[req].label, pb->trace[req].color);
                 pb->trace[req].started = 0;
             }
@@ -51,7 +51,7 @@ box_waitmpi(Sim *sim, Box *box,
                 pb->name,
                 h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm,
 		pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
-            trace_event(box->i * sim->nboxes + i, label, "#888800");
+            trace_event(box->i * NNEIGH + i, label, "#888800");
         }
     }
 
@@ -75,7 +75,7 @@ box_waitmpi(Sim *sim, Box *box,
                 pb->natoms, pb->data->xnatoms, PB_TYPENAME(type), PB_DIRNAME(dir), PB_REQNAME(req),
                 pb->name,
                 h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm);
-            trace_event(box->i * sim->nboxes + i, label, "#880000");
+            trace_event(box->i * NNEIGH + i, label, "#880000");
         }
     }
 }

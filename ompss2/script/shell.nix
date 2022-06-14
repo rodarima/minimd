@@ -43,6 +43,13 @@ let
     };
   });
 
+  hwloc-1-11-6 = bsc'.callPackage ~/bscpkgs/bsc/hwloc/1.11.6/default.nix {};
+  slurm-16-05-8-1 = bsc'.callPackage ~/bscpkgs/bsc/slurm/16.05.8.1/default.nix {
+    hwloc = hwloc-1-11-6;
+  };
+
+  oldslurm = slurm-16-05-8-1;
+
   gaspi = /nix/store/j01fzm5i5w6f0zhdxbwfkw7f173rv061-GPI-2-f5eb152;
   tagaspi = /nix/store/x01f2gml9k7pmhkibrxj05hdhpas2lf3-tagaspi-5aabb18;
 
@@ -56,8 +63,10 @@ in
     extrae4 mpi icc
     mcxx
     clangOmpss2Fixed pkgs.cmake
+    llvmPackages.lldb
     pkgs.gdb
     rWrapper
+    oldslurm
     tampi
     gaspi
     tagaspi
