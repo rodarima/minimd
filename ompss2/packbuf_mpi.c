@@ -1,9 +1,8 @@
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "types.h"
 #include "log.h"
 #include "safe.h"
 #include "packbuf.h"
-#include "trace.h"
 
 #include <string.h>
 #include <mpi.h>
@@ -24,31 +23,34 @@ void
 packbuf_mpi_init(PackBuf *pb, int tag[PB_NREQS],
         int icomm, MPI_Comm *comm)
 {
+    PackBufMPI *pbm = &pb->mpi;
     pb->transport = PB_MPI;
-    pb->mpi.icomm = icomm;
-    pb->mpi.comm = comm;
+    pbm->icomm = icomm;
+    pbm->comm = comm;
 
     /* Allocate data with empty buf */
     pb->data = safe_calloc(1, sizeof(PackBufData));
     pb->nalloc = 0;
 
     for (int i = 0; i < PB_NREQS; i++) {
-        pb->mpi.tag[i] = check_tag(tag[i]);
+        pbm->tag[i] = check_tag(tag[i]);
     }
+
+    packbuf_header_destroy_unsafe(pb);
+
+    char tmp[1024];
+    strcpy(tmp, pb->name);
+    sprintf(pb->name,
+            "%s{transport=MPI icomm=%d tag[NATOMS]=%d tag[BUF]=%d}",
+            tmp,
+            pbm->icomm,
+            pbm->tag[PB_NATOMS], pbm->tag[PB_BUF]);
 }
 
 static int
 isend(PackBuf *pb, const void *buf, int count, MPI_Datatype datatype, int dest,
         int tag, MPI_Comm comm, MPI_Request *request)
 {
-    char label[1024];
-    PackBufHeader *h = &pb->data->header;
-    sprintf(label, "isend xnatoms=%d count=%d dest=%d tag=%d comm=%d (%s)\n"
-        "header: magic=%d iter=%d srcbox=%d senddir=%d dstbox=%d icomm=%d",
-        pb->data->xnatoms, count, dest, tag, comm, pb->name,
-        h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm);
-    trace_event(pb->box * NNEIGH + pb->ineigh, label, "#00ffff");
-
     if (ENABLE_NONBLOCKING_TAMPI) {
         return TAMPI_Isend(buf, count, datatype, dest, tag, comm, request);
     }
@@ -60,14 +62,6 @@ static int
 irecv(PackBuf *pb, void *buf, int count, MPI_Datatype datatype, int source,
         int tag, MPI_Comm comm, MPI_Request *request)
 {
-    char label[1024];
-    PackBufHeader *h = &pb->data->header;
-    sprintf(label, "irecv count=%d source=%d tag=%d comm=%d (%s)\n"
-        "header: magic=%d iter=%d srcbox=%d senddir=%d dstbox=%d icomm=%d",
-        count, source, tag, comm, pb->name,
-        h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm);
-    trace_event(pb->box * NNEIGH + pb->ineigh, label, "#00ff00");
-
     if (ENABLE_NONBLOCKING_TAMPI) {
         return TAMPI_Irecv(buf, count, datatype, source, tag, comm, request,
                 MPI_STATUS_IGNORE);
@@ -84,18 +78,14 @@ send_buf(PackBuf *pb)
 
     int tag = pbm->tag[PB_BUF];
 
-    dbg("send_buf: natoms=%d remoterank=%d tag=%d icomm=%d name='%s'\n",
-            pb->natoms, pb->remoterank, tag, pbm->icomm,
+    dbg("send_buf: natoms=%d remote.rank=%d tag=%d icomm=%d name='%s'\n",
+            pb->natoms, pb->remote.rank, tag, pbm->icomm,
             pb->name);
 
     /* Skip the double buf[] at the end */
     int bytes = sizeof(*pb->data) +
         pb->natoms * pb->atomsize * sizeof(double);
     void *buf = pb->data;
-
-    char label[1024];
-    sprintf(label, "packbuf_mpi.c:send_buf natoms=%d %s", pb->natoms, pb->name);
-    trace_event(pb->box * NNEIGH + pb->ineigh, label, "#0000ff");
 
     if (ENABLE_NONBLOCKING_MPI) {
         if (pb->mpi.waitreq[PB_BUF])
@@ -104,7 +94,7 @@ send_buf(PackBuf *pb)
         if (pb->natoms != 0) {
 
             isend(pb, buf, bytes, MPI_BYTE,
-                    pb->remoterank, tag, *pbm->comm, &pbm->req[PB_BUF]);
+                    pb->remote.rank, tag, *pbm->comm, &pbm->req[PB_BUF]);
 
             if (NEED_EXPLICIT_WAIT)
                 pb->mpi.waitreq[PB_BUF] = 1;
@@ -112,7 +102,7 @@ send_buf(PackBuf *pb)
     } else {
         if (pb->natoms != 0) {
             MPI_Send(buf, bytes, MPI_BYTE,
-                    pb->remoterank, tag, *pbm->comm);
+                    pb->remote.rank, tag, *pbm->comm);
         }
     }
 
@@ -127,8 +117,8 @@ send_natoms(PackBuf *pb)
 {
     int tag = pb->mpi.tag[PB_NATOMS];
 
-    dbg("send_natoms: xnatoms=%d remoterank=%d tag=%d icomm=%d name='%s'\n",
-            pb->natoms, pb->remoterank, tag, pb->mpi.icomm,
+    dbg("send_natoms: xnatoms=%d remote.rank=%d tag=%d icomm=%d name='%s'\n",
+            pb->natoms, pb->remote.rank, tag, pb->mpi.icomm,
             pb->name);
 
     packbuf_switch(pb, PB_READY, PB_SENDING);
@@ -139,14 +129,14 @@ send_natoms(PackBuf *pb)
 
     if (ENABLE_NONBLOCKING_MPI) {
         isend(pb, buf, bytes, MPI_BYTE,
-                pb->remoterank, tag, *pb->mpi.comm,
+                pb->remote.rank, tag, *pb->mpi.comm,
                 &pb->mpi.req[PB_NATOMS]);
 
         if (NEED_EXPLICIT_WAIT)
             pb->mpi.waitreq[PB_NATOMS] = 1;
     } else {
         MPI_Send(buf, bytes, MPI_BYTE,
-                pb->remoterank, tag, *pb->mpi.comm);
+                pb->remote.rank, tag, *pb->mpi.comm);
     }
 
     pb->in_transfer[PB_NATOMS] = 1;
@@ -168,6 +158,7 @@ packbuf_mpi_send(PackBuf *pb, enum pb_req reqtype)
                 PB_REQNAME(reqtype));
     }
 
+    pb->data->header.magic = PB_MAGIC_OK;
     pb->data->xnatoms = pb->natoms;
 
     if (reqtype == PB_NATOMS) {
@@ -190,8 +181,8 @@ recv_buf(PackBuf *pb)
     /* Use pb->natoms as the number of atoms to be received */
     int recvnatoms = pb->natoms;
 
-    dbg("recv_buf: recvnatoms=%d remoterank=%d tag=%d icomm=%d name='%s'\n",
-            pb->data->xnatoms, pb->remoterank, tag, pb->mpi.icomm,
+    dbg("recv_buf: recvnatoms=%d remote.rank=%d tag=%d icomm=%d name='%s'\n",
+            pb->data->xnatoms, pb->remote.rank, tag, pb->mpi.icomm,
             pb->name);
 
     if (ENABLE_NONBLOCKING_MPI && pb->mpi.waitreq[PB_BUF])
@@ -209,14 +200,14 @@ recv_buf(PackBuf *pb)
 
         if (ENABLE_NONBLOCKING_MPI) {
             irecv(pb, buf, bytes, MPI_BYTE,
-                    pb->remoterank, tag, *pb->mpi.comm,
+                    pb->remote.rank, tag, *pb->mpi.comm,
                     &pb->mpi.req[PB_BUF]);
 
             if (NEED_EXPLICIT_WAIT)
                 pb->mpi.waitreq[PB_BUF] = 1;
         } else {
             MPI_Recv(buf, bytes, MPI_BYTE,
-                    pb->remoterank, tag, *pb->mpi.comm,
+                    pb->remote.rank, tag, *pb->mpi.comm,
                     MPI_STATUS_IGNORE);
         }
 
@@ -233,8 +224,8 @@ recv_natoms(PackBuf *pb)
     int tag = pb->mpi.tag[PB_NATOMS];
     packbuf_switch(pb, PB_READY, PB_RECVING);
     /* Find out how many atoms I need to make room for */
-    dbg("recv_natoms: natoms=? remoterank=%d tag=%d icomm=%d name='%s'\n",
-            pb->remoterank, tag, pb->mpi.icomm, pb->name);
+    dbg("recv_natoms: natoms=? remote.rank=%d tag=%d icomm=%d name='%s'\n",
+            pb->remote.rank, tag, pb->mpi.icomm, pb->name);
 
     if (pb->transport != PB_MPI)
         die("packbuf_mpi_recv_buf: incorrect transport\n");
@@ -249,7 +240,7 @@ recv_natoms(PackBuf *pb)
             die("packbuf_mpi_recv_natoms: buffer in use\n");
 
         irecv(pb, buf, bytes, MPI_BYTE,
-                pb->remoterank, tag, *pb->mpi.comm,
+                pb->remote.rank, tag, *pb->mpi.comm,
                 &pb->mpi.req[PB_NATOMS]);
 
         if (NEED_EXPLICIT_WAIT)
@@ -257,7 +248,7 @@ recv_natoms(PackBuf *pb)
 
     } else {
         MPI_Recv(buf, bytes, MPI_BYTE,
-                pb->remoterank, tag, *pb->mpi.comm,
+                pb->remote.rank, tag, *pb->mpi.comm,
                 MPI_STATUS_IGNORE);
 
         dbg("recv_natoms: MPI_Recv natoms=%d %s\n",
@@ -334,8 +325,9 @@ packbuf_mpi_waitn(PackBuf **pbs, int n, enum pb_req req)
         if (pb->transport != PB_MPI || !pb->in_transfer[req])
             continue;
 
+        packbuf_header_check(pb);
+
         if (pb->dir == PB_RECV) {
-            packbuf_check_header(pb, -666);
             pb->natoms = pb->data->xnatoms;
         }
 

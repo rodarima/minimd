@@ -6,7 +6,6 @@
 #include "box.h"
 #include "dom.h"
 #include "neigh.h"
-#include "trace.h"
 
 #include <math.h>
 
@@ -53,7 +52,7 @@ neigh_ghost_unpack_r(Sim *sim, Box *box, Neigh *neigh)
     packbuf_debug_switch(pb_rt, PB_READY, PB_READING);
 
     if (pb_r->natoms != 0)
-        packbuf_check_header(pb_r, box->iter);
+        packbuf_header_check(pb_r);
 
     if (pb_rt->natoms != pb_r->natoms)
         die("ghost_unpack_r: %s mismatch natoms r=%d != rt=%d (neigh natoms=%d)\n",
@@ -158,7 +157,7 @@ neigh_border_unpack_rt(Sim *sim, Box *box, Neigh *neigh)
             sim->rank, box->i, neigh->i, pb_rt->natoms);
 
     if (pb_rt->natoms != 0)
-        packbuf_check_header(pb_rt, box->iter);
+        packbuf_header_check(pb_rt);
 
     /* Set the natoms to be sent and received in the PB_R buffer */
     neigh->recv_natoms_r = pb_rt->natoms;
@@ -329,7 +328,7 @@ neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
     if (pb->natoms != 0) {
         /* Only check the header if we have some atoms, otherwise it will
          * contain garbage */
-        packbuf_check_header(pb, box->iter);
+        packbuf_header_check(pb);
         packbuf_debug_switch(pb, PB_READY, PB_UNPACKING);
 
         /* Ensure we have room to place the new local atoms */
@@ -354,11 +353,6 @@ neigh_tidy_unpack_rvt(Sim *sim, Box *box, Neigh *neigh)
         box->nlocal = n;
         packbuf_debug_switch(pb, PB_UNPACKING, PB_READY);
     }
-
-    char label[1024];
-    double t1 = MPI_Wtime();
-    sprintf(label, "box_tidy_unpack_rvt box=%d neigh=%d", box->i, neigh->i);
-    trace_record(box->i * NNEIGH + neigh->i, 0.5, t0, t1, label, "#7700ff");
 }
 
 static void

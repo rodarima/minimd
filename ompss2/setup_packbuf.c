@@ -1,4 +1,4 @@
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "log.h"
 #include "setup.h"
 #include "types.h"
@@ -11,22 +11,28 @@
 #include <stdlib.h>
 
 static int
-get_isegment(int ineigh, int dir)
+get_isegment_unsafe(int index, int dir)
 {
-    return ineigh * PB_NDIR + dir;
+    return index * PB_NDIR + dir;
+}
+
+static int
+get_isegment(Endpoint *ep)
+{
+    return get_isegment_unsafe(ep->index, ep->dir);
 }
 
 static void
-setup_gaspi_segment(Sim *sim, int ineigh, int dir, size_t nbytes)
+setup_gaspi_segment(Sim *sim, int index, int dir, size_t nbytes)
 {
     void *seg;
 
     if ((seg = calloc(1, nbytes)) == NULL)
         die("calloc of %zu bytes failed\n", nbytes);
 
-    sim->gaspi.buf[ineigh][dir] = seg;
+    sim->gaspi.buf[index][dir] = seg;
 
-    int iseg = get_isegment(ineigh, dir);
+    int iseg = get_isegment_unsafe(index, dir);
 
     CHECK(gaspi_segment_use(iseg, seg, nbytes,
                 GASPI_GROUP_ALL, GASPI_BLOCK, 0));
@@ -75,7 +81,7 @@ setup_gaspi_segments(Sim *sim)
      */
 
     Gaspi *g = &sim->gaspi;
-    g->nalloc = 1024; /* FIXME: compute */
+    g->nalloc = 10*1024; /* FIXME: compute */
     g->atomsize = NDIM * sizeof(double);
     g->pbsize = g->nalloc * g->atomsize;
     /* The slot contains the header at the beginning */
@@ -87,9 +93,9 @@ setup_gaspi_segments(Sim *sim)
     dbg("segsize=%lu slotsize=%lu nslots=%lu\n",
             g->segsize, g->slotsize, g->nslots);
 
-    for (int ineigh = 0; ineigh < NNEIGH; ineigh++) {
+    for (int index = 0; index < NNEIGH; index++) {
         for (int dir = 0; dir < PB_NDIR; dir++) {
-            setup_gaspi_segment(sim, ineigh, dir, g->segsize);
+            setup_gaspi_segment(sim, index, dir, g->segsize);
         }
     }
 
@@ -119,33 +125,48 @@ get_send_pair(Box *box, Neigh *neigh, enum pb_dir dir,
 }
 
 static int
-build_gaspi_tag(int sendibox)
+build_gaspi_tag(PackBuf *pb)
 {
-    return sendibox;
+    /* Use the source box as tag */
+    return pb->src->box;
+}
+
+static int
+get_gaspi_queue(Sim *sim, PackBuf *pb)
+{
+    /* Use the source box as queue */
+    return pb->src->box % sim->gaspi.nqueues;
+}
+
+static size_t
+get_slot_index(Endpoint *ep)
+{
+    /* Simply take the box index */
+    return ep->box;
+}
+
+static PackBufData *
+get_local_gaspi_data(Sim *sim, PackBuf *pb, size_t slot_offset)
+{
+    Endpoint *local = &pb->local;
+    void *local_seg = sim->gaspi.buf[local->index][local->dir];
+    void *slot = local_seg + slot_offset;
+    PackBufData *pbdata = slot;
+
+    return pbdata;
 }
 
 static void
-setup_packbuf_gaspi(Sim *sim, Box *box, Neigh *neigh,
-        PackBuf *pb, enum pb_type type, enum pb_dir dir)
+setup_packbuf_gaspi(Sim *sim, PackBuf *pb)
 {
-    int sendibox, sendineigh;
-    get_send_pair(box, neigh, dir, &sendibox, &sendineigh);
-
-    /* Prevent accidental use */
-    neigh = NULL;
-    box = NULL;
-
-    /* Use the send neigh index for both directions */
-    int sendiseg = get_isegment(sendineigh, PB_SEND);
-    int recviseg = get_isegment(sendineigh, PB_RECV);
-
-    int tag = build_gaspi_tag(sendibox);
-
-    size_t index = sendibox;
-    size_t slot_offset = index * sim->gaspi.slotsize;
-    int queue = sendibox % sim->gaspi.nqueues;
+    /* The tag and queue must be the same both for local and remote */
+    int tag = build_gaspi_tag(pb);
+    int queue = get_gaspi_queue(sim, pb);
 
     /*
+     * Each segment is divided into slots, indexed by the endpoint box
+     * itself.
+     *
      * segment start                          segment end
      * .                                                .
      * seg                                              .
@@ -162,23 +183,29 @@ setup_packbuf_gaspi(Sim *sim, Box *box, Neigh *neigh,
      *                          slot
      */
 
-    void *seg = sim->gaspi.buf[sendineigh][dir];
-    void *slot = seg + slot_offset;
-    PackBufData *pbdata = slot;
+    int local_iseg = get_isegment(&pb->local);
+    size_t local_slot_index = get_slot_index(&pb->local);
+    size_t local_slot_offset = local_slot_index * sim->gaspi.slotsize;
 
-    //dbg("pachbuf_gaspi_init with tag=%d\n", tag);
+    int remote_iseg = get_isegment(&pb->remote);
+    size_t remote_slot_index = get_slot_index(&pb->remote);
+    size_t remote_slot_offset = remote_slot_index * sim->gaspi.slotsize;
+
+    PackBufData *pbdata = get_local_gaspi_data(sim, pb, local_slot_offset);
+
     packbuf_gaspi_init(pb, pbdata,
-            sendiseg, slot_offset,
-            recviseg, slot_offset,
+            local_iseg, local_slot_offset,
+            remote_iseg, remote_slot_offset,
             sim->gaspi.nalloc, queue, tag);
 }
 
 static int
-build_mpi_tag(int sendineigh, enum pb_type type, enum pb_req reqtype)
+build_mpi_tag(PackBuf *pb, enum pb_req req)
 {
-    int tag = sendineigh * PB_NTYPES * PB_NREQS
-            + type * PB_NREQS
-            + reqtype;
+    Endpoint *src = pb->src;
+    int tag = src->index * PB_NTYPES * PB_NREQS
+            + src->type * PB_NREQS
+            + req;
 
     /* Ensure the tag is within the MPI standard limit */
     if (tag >= 32767) {
@@ -192,21 +219,20 @@ static void
 setup_packbuf_mpi(Sim *sim, Box *box, Neigh *neigh,
         PackBuf *pb, enum pb_type type, enum pb_dir dir)
 {
-    int sendibox, sendineigh;
-    get_send_pair(box, neigh, dir, &sendibox, &sendineigh);
-
     /* Mapping:
      *   icomm = sendbox + type
      *   tag = sendineigh + reqtype + type
      *   rank = remoterank
      */
 
-    int icomm = type;
-    MPI_Comm *comm = &sim->box[sendibox].comm[type];
+    /* Use the communicator of the source box */
+    int icomm = pb->src->box * PB_NTYPES + type;
+    MPI_Comm *comm = &sim->box[pb->src->box].comm[type];
 
+    /* Common tags for both directions */
     int tags[PB_NREQS] = {
-        [PB_BUF]    = build_mpi_tag(sendineigh, type, PB_BUF),
-        [PB_NATOMS] = build_mpi_tag(sendineigh, type, PB_NATOMS)
+        [PB_BUF]    = build_mpi_tag(pb, PB_BUF),
+        [PB_NATOMS] = build_mpi_tag(pb, PB_NATOMS)
     };
 
     packbuf_mpi_init(pb, tags, icomm, comm);
@@ -220,44 +246,14 @@ setup_packbuf_shm(Sim *sim, Box *box, Neigh *neigh,
     PackBuf *remote = NULL;
 
     if (dir == PB_RECV) {
-        int recv_idir = neigh->i;
-        int send_idir = opposite_neigh(recv_idir);
-
-        Box *send_box = neigh->box;
+        Endpoint *src = pb->src;
+        Box *src_box = &sim->box[src->box];
 
         /* The table in box->pb is not ready yet! */
-        remote = &send_box->neigh[send_idir].pb[type][PB_SEND];
+        remote = &src_box->neigh[src->index].pb[src->type][src->dir];
     }
 
     packbuf_shm_init(pb, remote);
-}
-
-static void
-setup_packbuf_header(Sim *sim, Box *box, Neigh *neigh,
-        PackBuf *pb, enum pb_type type, enum pb_dir dir)
-{
-    PackBufHeader *h = &pb->data->header;
-    if (dir == PB_SEND) {
-        h->magic = PB_MAGIC_OK;
-        h->iter = -666; /* Must be properly set each time */
-        h->srcbox = box->i;
-        h->dstbox = neigh->boxid;
-        h->senddir = neigh->i;
-        h->icomm = pb->mpi.icomm;
-    } else {
-        h->magic = PB_MAGIC_KO;
-        h->iter = -1;
-        h->srcbox = -1;
-        h->dstbox = -1;
-        h->senddir = -1;
-        h->icomm = -1;
-    }
-
-    int sendibox, sendineigh;
-    get_send_pair(box, neigh, dir, &sendibox, &sendineigh);
-
-    pb->box = box->i;
-    pb->senddir = sendineigh;
 }
 
 /** Selects which transport to use given the remote rank and the PackBuf type */
@@ -281,7 +277,7 @@ setup_packbuf_transport(Sim *sim, Box *box, Neigh *neigh,
 
     switch (transport) {
         case PB_GASPI:
-            setup_packbuf_gaspi(sim, box, neigh, pb, type, dir);
+            setup_packbuf_gaspi(sim, pb);
             break;
         case PB_MPI:
             setup_packbuf_mpi(sim, box, neigh, pb, type, dir);
@@ -292,12 +288,10 @@ setup_packbuf_transport(Sim *sim, Box *box, Neigh *neigh,
         default:
             die("bad transport\n");
     }
-
-    setup_packbuf_header(sim, box, neigh, pb, type, dir);
 }
 
 static void
-setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
+setup_packbuf_single(Sim *sim, Box *box, Neigh *neigh, int type, int dir)
 {
     /* Which PackBuf use the selection mechanism */
     int enablesel[PB_NTYPES] = {
@@ -318,22 +312,37 @@ setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
         [PB_RECV] = neigh->rank
     };
 
+    PackBuf *pb = &neigh->pb[type][dir];
+
+    Endpoint remote;
+    Endpoint local = {
+        .rank = sim->rank,
+        .box = box->i,
+        .index = neigh->i,
+        .type = type,
+        .dir = dir
+    };
+
+    endpoint_get_remote(sim, &local, &remote);
+    endpoint_set_name(&local);
+    endpoint_set_name(&remote);
+
+    packbuf_init(pb, enablesel[type], ndoubles[type], &local, &remote);
+
+    setup_packbuf_transport(sim, box, neigh, pb, type, dir);
+
+    packbuf_debug_switch(pb, PB_GARBAGE, PB_READY);
+
+    /* Set the PB pointers in the box table */
+    box->pb[type][dir][neigh->i] = pb;
+}
+
+static void
+setup_packbuf_neigh(Sim *sim, Box *box, Neigh *neigh)
+{
     for (int type = 0; type < PB_NTYPES; type++) {
         for (enum pb_dir dir = 0; dir < PB_NDIR; dir++) {
-            PackBuf *pb = &neigh->pb[type][dir];
-            //PabkBuf *pb = box_pb(box, type, dir, neigh->i);
-            packbuf_init(pb, dir, neigh->i, enablesel[type], ndoubles[type], remoterank[dir]);
-
-            sprintf(pb->name, "PackBuf[type=%s dir=%s rank=%d box=%d neigh=%d]",
-                    PB_TYPENAME(type), PB_DIRNAME(dir),
-                    sim->rank, box->i, neigh->i);
-
-            setup_packbuf_transport(sim, box, neigh, pb, type, dir);
-
-            packbuf_debug_switch(pb, PB_GARBAGE, PB_READY);
-
-            /* Set the PB pointers in the box table */
-            box->pb[type][dir][neigh->i] = pb;
+            setup_packbuf_single(sim, box, neigh, type, dir);
         }
     }
 }
@@ -390,7 +399,7 @@ dump_packbuf(Sim *sim)
                             dirname,
                             neigh->pb[type][dir].mpi.tag[PB_NATOMS],
                             neigh->pb[type][dir].mpi.tag[PB_BUF],
-                            neigh->pb[type][dir].remoterank);
+                            neigh->pb[type][dir].remote.rank);
                 }
 
                 dbg(" ------------- \n");
@@ -421,7 +430,8 @@ setup_packbuf(Sim *sim)
     if (ENABLE_DEBUG)
         dump_packbuf(sim);
 
-    test_comm(sim);
+    if (ENABLE_COMM_TEST)
+        test_comm(sim);
 }
 
 static void

@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 #define PACKBUF_INCR 2000
 
@@ -195,10 +196,91 @@ packbuf_clear(PackBuf *pb)
 }
 
 void
+packbuf_header_reset(PackBuf *pb)
+{
+    PackBufHeader *h = &pb->data->header;
+
+    h->magic = PB_MAGIC_OK;
+    h->iseq = pb->iseq;
+
+    memcpy(&h->src, pb->src, sizeof(Endpoint));
+    memcpy(&h->dst, pb->dst, sizeof(Endpoint));
+
+    /* We may want to include transport specific data in the header as
+     * well */
+}
+
+void
+packbuf_header_destroy_unsafe(PackBuf *pb)
+{
+    PackBufHeader *h = &pb->data->header;
+
+    /* Destroy the whole thing */
+    memset(h, 0xff, sizeof(*h));
+
+    h->magic = PB_MAGIC_DESTROYED;
+}
+
+void
+packbuf_header_destroy(PackBuf *pb)
+{
+    PackBufHeader *h = &pb->data->header;
+
+    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
+        die("cannot destroy header: in transfer is set %s", pb->name);
+
+    if (h->magic != PB_MAGIC_OK) {
+        die("cannot destroy header: magic is not OK (%d) %s\n",
+                h->magic, pb->name);
+    }
+
+    packbuf_header_destroy_unsafe(pb);
+}
+
+/** Ensure the header matches with the expected values */
+void
+packbuf_header_check(PackBuf *pb)
+{
+    PackBufHeader *h = &pb->data->header;
+
+    if (h->magic != PB_MAGIC_OK) {
+        die("%s wrong magic %d (expected %d)\n",
+                pb->name, h->magic, PB_MAGIC_OK);
+    }
+
+    if (!endpoint_is_same(&h->src, pb->src)) {
+        die("%s source endpoint mismatch:\n"
+                "  header:   %s\n"
+                "  expected: %s\n",
+                pb->name, h->src.name, pb->src->name);
+    }
+
+    if (!endpoint_is_same(&h->dst, pb->dst)) {
+        die("%s destination endpoint mismatch:\n"
+                "  header:   %s\n"
+                "  expected: %s\n",
+                pb->name, h->dst.name, pb->dst->name);
+    }
+
+    if (h->iseq != pb->iseq) {
+        die("%s iseq number mismatch: header %d, expected %d\n",
+                pb->name, h->iseq, pb->iseq);
+    }
+
+    dbg("%s header ok\n", pb->name);
+}
+
+void
 packbuf_send(PackBuf *pb, enum pb_req reqtype)
 {
     if (pb->in_transfer[reqtype])
         die("packbuf_send: already transferring data %s\n", pb->name);
+
+    pb->iseq++;
+    dbg("packbuf_send: increased iseq to %d for %s\n",
+            pb->iseq, pb->name);
+
+    packbuf_header_reset(pb);
 
     switch (pb->transport) {
         case PB_GASPI: packbuf_gaspi_send(pb, reqtype); break;
@@ -208,36 +290,18 @@ packbuf_send(PackBuf *pb, enum pb_req reqtype)
     }
 }
 
-static void
-destroy_header(PackBuf *pb)
-{
-    PackBufHeader *h = &pb->data->header;
-
-    if (pb->in_transfer[PB_BUF] || pb->in_transfer[PB_NATOMS])
-        die("cannot destroy header: in transfer is set %s", pb->name);
-
-    if (h->magic != PB_MAGIC_OK) {
-        die("cannot destroy header: magic is already clean %s\n",
-                pb->name);
-    }
-
-    memset(h, 0xff, sizeof(*h));
-
-    h->magic = PB_MAGIC_CLEAN;
-
-    if (pb->nalloc >= 1 && pb->atomsize >= 1) {
-        pb->data->buf[0] = 0.1234567;
-    }
-}
-
 void
 packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 {
     if (pb->in_transfer[reqtype])
         die("packbuf_recv: already transferring data %s\n", pb->name);
 
-    /* Before receiving data, destroy the data header */
-    //destroy_header(pb);
+    pb->iseq++;
+    dbg("packbuf_recv: increased iseq to %d for %s\n",
+            pb->iseq, pb->name);
+
+    /* We cannot destroy the header here, as it may be overwritten
+     * remotely by GASPI */
 
     switch (pb->transport) {
         case PB_GASPI: packbuf_gaspi_recv(pb, reqtype); break;
@@ -248,53 +312,40 @@ packbuf_recv(PackBuf *pb, enum pb_req reqtype)
 }
 
 void
-packbuf_init(PackBuf *pb, enum pb_dir dir, int ineigh, int enable_sel, int atomsize, int remoterank)
+packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
+        Endpoint *local, Endpoint *remote)
 {
     memset(pb, 0, sizeof(*pb));
 
     pb->atomsize = atomsize;
     pb->enable_sel = enable_sel;
     pb->transport = PB_BAD;
-    pb->dir = dir;
-    pb->ineigh = ineigh;
-
-    if (remoterank < 0)
-        die("packbuf_init: negative remote rank %d\n", remoterank);
-
-    pb->remoterank = remoterank;
+    pb->dir = local->dir;
+    pb->type = local->type;
     pb->data = NULL;
 
-    packbuf_switch(pb, PB_GARBAGE, PB_READY);
-}
+    memcpy(&pb->local, local, sizeof(Endpoint));
+    memcpy(&pb->remote, remote, sizeof(Endpoint));
 
-/** Ensure the header matches with the expected values */
-void
-packbuf_check_header(PackBuf *pb, int iter)
-{
-    PackBufHeader *h = &pb->data->header;
-
-    if (h->magic != PB_MAGIC_OK)
-        die("%s wrong magic %d\n", pb->name, h->magic);
-
-    if (iter != -666 && h->iter != iter)
-        die("%s iter mismatch: recv %d, expected %d\n",
-                pb->name, h->iter, iter);
-
-    if (h->dstbox != pb->box)
-        die("%s box mismatch: recv %d, expected %d\n",
-                pb->name, h->dstbox, pb->box);
-
-    if (h->senddir != pb->senddir)
-        die("%s senddir mismatch: recv %d, expected %d\n",
-                pb->name, h->senddir, pb->senddir);
-
-    if (pb->transport == PB_MPI) {
-        if (h->icomm != pb->mpi.icomm)
-            die("%s icomm mismatch: recv %d, expected %d\n",
-                    pb->name, h->icomm, pb->mpi.icomm);
+    /* Setup source/destination aliases */
+    if (pb->dir == PB_SEND) {
+        pb->src = &pb->local;
+        pb->dst = &pb->remote;
+    } else {
+        pb->dst = &pb->local;
+        pb->src = &pb->remote;
     }
 
-    dbg("%s header ok\n", pb->name);
+    sprintf(pb->name, "PackBuf{type=%s dir=%s "
+            "local={rank=%d box=%d index=%d type=%s dir=%s} "
+            "remote={rank=%d box=%d index=%d type=%s dir=%s}}",
+            PB_TYPENAME(pb->type), PB_DIRNAME(pb->dir),
+            local->rank, local->box, local->index,
+            PB_TYPENAME(local->type), PB_DIRNAME(local->dir),
+            remote->rank, remote->box, remote->index,
+            PB_TYPENAME(remote->type), PB_DIRNAME(remote->dir));
+
+    packbuf_switch(pb, PB_GARBAGE, PB_READY);
 }
 
 void
@@ -310,4 +361,31 @@ packbuf_waitn(PackBuf **pbs, int n, enum pb_req reqtype)
     for (int i = 0; i < n; i++)
         if (pbs[i]->in_transfer[reqtype])
             die("packbuf_waitn: still in transfer %s\n", pbs[i]->name);
+}
+
+/** Wait until the remote buffer can be written */
+void
+packbuf_linger(PackBuf *pb)
+{
+    switch (pb->transport) {
+        case PB_GASPI: packbuf_gaspi_linger(pb); break;
+        default: break;
+    }
+}
+
+/** Signals that the PackBuf is ready for receiving data. */
+void
+packbuf_signal(PackBuf *pb)
+{
+    if (pb->dir != PB_RECV)
+        die("packbuf_signal: should be used only in RECV buffers\n");
+
+    /* Before signaling the buffer is ready to receive data, destroy the data
+     * header */
+    packbuf_header_destroy(pb);
+
+    switch (pb->transport) {
+        case PB_GASPI: packbuf_gaspi_signal(pb); break;
+        default: break;
+    }
 }

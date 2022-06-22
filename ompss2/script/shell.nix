@@ -66,7 +66,7 @@ in
     llvmPackages.lldb
     pkgs.gdb
     rWrapper
-    oldslurm
+    #oldslurm
     tampi
     gaspi
     tagaspi

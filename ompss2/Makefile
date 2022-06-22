@@ -18,8 +18,8 @@ LIBS+=-lm
 LIBS+=-lstdc++ -l:libtampi-c.a
 LIBS+=-lGPI2 -ltagaspi
 
-CFLAGS+=-O0
-#CFLAGS+=-O3
+#CFLAGS+=-O0
+CFLAGS+=-O3
 
 CFLAGS+=-g
 LDFLAGS+=-g
@@ -36,7 +36,7 @@ CFLAGS+=-Wshadow
 #CFLAGS+=-Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=-Wno-unused-parameter
 CFLAGS+=-fdebug-default-version=4
-CFLAGS+=-fno-omit-frame-pointer
+#CFLAGS+=-fno-omit-frame-pointer
 
 #CFLAGS+=-fsanitize=address
 #LDFLAGS+=-fsanitize=address
@@ -46,24 +46,26 @@ CFLAGS+=-fno-omit-frame-pointer
 SRC=box.c \
   box_packbuf.c \
   comm.c \
-  comm_send.c \
-  comm_recv.c \
   comm_pack.c \
+  comm_recv.c \
+  comm_send.c \
+  comm_signal.c \
   comm_unpack.c \
   comm_wait.c \
+  endpoint.c \
   force.c \
   input.c \
   integrate.c \
   ljs.c \
   neigh.c \
   packbuf.c \
-  packbuf_mpi.c \
   packbuf_gaspi.c \
+  packbuf_mpi.c \
   packbuf_shm.c \
-  setup_packbuf.c \
   ref.c \
   ref_atom.c \
   safe.c \
+  setup_packbuf.c \
   test_comm.c \
   thermo.c \
   trace.c

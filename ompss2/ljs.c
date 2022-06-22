@@ -736,7 +736,7 @@ check_neighbor_coords(Sim *sim)
                     .send_dir = neigh->i,
                     .tag = pb->mpi.tag[PB_BUF],
                     .icomm = pb->mpi.icomm,
-                    .dstrank = pb->remoterank,
+                    .dstrank = pb->remote.rank,
                     .dstbox = neigh->boxid,
                     .dstbox_coord = {
                         neigh->boxcoordw[X],
@@ -751,7 +751,7 @@ check_neighbor_coords(Sim *sim)
 
                 memcpy(msend, &m, sizeof(m));
 
-                MPI_Isend(msend, sizeof(m), MPI_BYTE, pb->remoterank,
+                MPI_Isend(msend, sizeof(m), MPI_BYTE, pb->remote.rank,
                         pb->mpi.tag[PB_BUF], *pb->mpi.comm, &pb->mpi.req[PB_BUF]);
             }
         }
@@ -772,11 +772,11 @@ check_neighbor_coords(Sim *sim)
 
                 struct msg mrecv;
 
-                MPI_Recv(&mrecv, sizeof(mrecv), MPI_BYTE, pb->remoterank,
+                MPI_Recv(&mrecv, sizeof(mrecv), MPI_BYTE, pb->remote.rank,
                         pb->mpi.tag[PB_BUF], *pb->mpi.comm, MPI_STATUS_IGNORE);
 
                 struct msg mexp = {
-                    .srcrank = pb->remoterank,
+                    .srcrank = pb->remote.rank,
                     .srcbox = neigh->boxid,
                     .srcbox_coord = {
                         neigh->boxcoordw[X],
@@ -1225,8 +1225,8 @@ sim_init(Sim *sim, int argc, char *argv[])
     setup_packbuf(sim);
 
     /* Ensure neighbor coordinates are ok */
-    check_neighbor_coords(sim);
-    if (sim->rank == 0) err("neigh coords ok\n");
+    //check_neighbor_coords(sim);
+    //if (sim->rank == 0) err("neigh coords ok\n");
 
     thermo_init(sim);
 
@@ -1272,8 +1272,20 @@ sim_init(Sim *sim, int argc, char *argv[])
 
     if (sim->rank == 0) err("simulation begins now...\n");
 
-    MPI_Barrier(MPI_COMM_WORLD);
     #pragma oss taskwait /* required */
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    comm_reset_header(sim);
+
+    comm_check_header(sim);
+
+    /* Mark all recv PackBuf as ready */
+    comm_ready(sim);
+
+    #pragma oss taskwait /* required */
+
+    MPI_Barrier(MPI_COMM_WORLD);
 }
 
 /* Returns the current time in seconds since some point in the past */

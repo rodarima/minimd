@@ -1,9 +1,8 @@
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 #include "log.h"
 #include "types.h"
 #include "packbuf.h"
 #include "gaspi_check.h"
-#include "trace.h"
 
 #include <GASPI.h>
 #include <TAGASPI.h>
@@ -24,30 +23,44 @@ check_tag(int tag)
 void
 packbuf_gaspi_init(PackBuf *pb,
         PackBufData *newdata,
-        int sendseg, size_t send_offset_bytes,
-        int recvseg, size_t recv_offset_bytes,
+        int local_seg, size_t local_offset_bytes,
+        int remote_seg, size_t remote_offset_bytes,
         size_t nalloc, int queue, int tag)
 {
     PackBufGASPI *pbg = &pb->gaspi;
-    pbg->sendseg = sendseg;
-    pbg->recvseg = recvseg;
-    pbg->sendoffset = send_offset_bytes;
-    pbg->recvoffset = recv_offset_bytes;
+    pbg->local_seg = local_seg;
+    pbg->local_offset = local_offset_bytes;
+    pbg->remote_seg = remote_seg;
+    pbg->remote_offset = remote_offset_bytes;
     pbg->queue = queue;
     pbg->nid = check_tag(tag);
+
+    if (pb->dir == PB_SEND) {
+        pbg->src_seg = local_seg;
+        pbg->src_offset = local_offset_bytes;
+        pbg->dst_seg = remote_seg;
+        pbg->dst_offset = remote_offset_bytes;
+    } else {
+        pbg->src_seg = remote_seg;
+        pbg->src_offset = remote_offset_bytes;
+        pbg->dst_seg = local_seg;
+        pbg->dst_offset = local_offset_bytes;
+    }
 
     pb->nalloc = nalloc;
     pb->data = newdata;
     pb->transport = PB_GASPI;
 
+    packbuf_header_destroy_unsafe(pb);
+
     /* Append custom shm info to the name */
     char tmp[1024];
     strcpy(tmp, pb->name);
-    sprintf(pb->name, "%s[GASPI sendseg=%d recvseg=%d "
-            "sendoffset=%lu recvoffset=%lu "
+    sprintf(pb->name, "%s[GASPI local_seg=%d remote_seg=%d "
+            "local_offset=%lu remote_offset=%lu "
             "queue=%d nid=%d]", tmp,
-            pbg->sendseg, pbg->recvseg,
-            pbg->sendoffset, pbg->recvoffset,
+            pbg->local_seg, pbg->remote_seg,
+            pbg->local_offset, pbg->remote_offset,
             pbg->queue, pbg->nid);
 }
 
@@ -57,66 +70,20 @@ send_buf(PackBuf *pb)
     PackBufGASPI *pbg = &pb->gaspi;
     packbuf_switch(pb, PB_READY, PB_SENDING);
 
-//    dbg("packbuf_gaspi:send_buf: natoms=%d remoterank=%d nid=%d sendoffset=%lu recvoffset=%lu name='%s'\n",
-//            pb->natoms, pb->remoterank, pbg->nid,
-//            pbg->sendoffset, pbg->recvoffset, pb->name);
     int bytes = sizeof(*pb->data) +
         pb->natoms * pb->atomsize * sizeof(double);
 
     /* Repeat until success */
     while (1) {
         PackBufHeader *h = &pb->data->header;
-        char label[1024];
-        sprintf(label, "tagaspi_write_notify(sendseg=%d, sendoffset=%lu, remoterank=%d, \n"
-                "recvseg=%d, recvoffset=%lu, nbytes=%d, nid=%d, one=%d, queue=%d) ENTER\n"
-                "header: magic=%d iter=%d srcbox=%d senddir=%d dstbox=%d icomm=%d\n"
-                "magic=%d natoms=%d buf[0]=%e buf[1]=%e buf[1]=%e",
-                pbg->sendseg, pbg->sendoffset,
-                pb->remoterank,
-                pbg->recvseg, pbg->recvoffset,
-                bytes,
-                pbg->nid, 1,
-                pbg->queue,
-                h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm,
-                pb->data->header.magic,
-                pb->natoms,
-                pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
-
-        trace_event(pb->box * NNEIGH + pb->ineigh, label, "#33ff00");
-
-		dbg("tagaspi_write_notify(localseg=%d, localoffset=%lu, remoterank=%d, \n"
-				"  remoteseg=%d, remoteoffset=%lu, nbytes=%d, nid=%d, one=%d, queue=%d) ENTER\n"
-				"  header: magic=%d iter=%d srcbox=%d senddir=%d dstbox=%d icomm=%d\n"
-				"  magic=%d natoms=%d buf[0]=%e buf[1]=%e buf[1]=%e\n",
-				pbg->sendseg, pbg->sendoffset,
-				pb->remoterank,
-				pbg->recvseg, pbg->recvoffset,
-				bytes,
-				pbg->nid, 1,
-				pbg->queue,
-				h->magic, h->iter, h->srcbox, h->senddir, h->dstbox, h->icomm,
-				pb->data->header.magic,
-				pb->natoms,
-				pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
 
         gaspi_return_t ret = tagaspi_write_notify(
-                pbg->sendseg, pbg->sendoffset,
-                pb->remoterank,
-                pbg->recvseg, pbg->recvoffset,
+                pbg->local_seg, pbg->local_offset,
+                pb->remote.rank,
+                pbg->remote_seg, pbg->remote_offset,
                 bytes,
                 pbg->nid, 1,
                 pbg->queue);
-
-        sprintf(label, "tagaspi_write_notify(sendseg=%d, sendoffset=%lu, remoterank=%d, \n"
-                "recvseg=%d, recvoffset=%lu, count=%d, nid=%d, one=%d, queue=%d) EXIT=%d",
-                pbg->sendseg, pbg->sendoffset,
-                pb->remoterank,
-                pbg->recvseg, pbg->recvoffset,
-                bytes,
-                pbg->nid, 1,
-                pbg->queue, ret);
-
-        trace_event(pb->box * NNEIGH + pb->ineigh, label, "#00ff00");
 
         if (ret == GASPI_SUCCESS)
             break;
@@ -152,9 +119,8 @@ recv_buf(PackBuf *pb)
     /* xnatoms will be overwritten by the message */
     int recvnatoms = pb->natoms;
 
-    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d remoterank=%d nid=%d sendoffset=%lu recvoffset=%lu name='%s'\n",
-            pb->natoms, pb->remoterank, pbg->nid,
-            pbg->sendoffset, pbg->recvoffset, pb->name);
+    dbg("packbuf_gaspi_recv_buf: recvnatoms=%d name=%s\n",
+            recvnatoms, pb->name);
 
     if (recvnatoms < 0)
         die("%s: negative recvnatoms=%d\n", pb->name, recvnatoms);
@@ -167,28 +133,16 @@ recv_buf(PackBuf *pb)
 
         while (1) {
 
-            char label[1024];
-            sprintf(label, "tagaspi_notify_async_wait(seg=%d, nid=%d) ENTER\n"
-                    "magic=%d buf[0]=%e buf[1]=%e buf[2]=%e",
-                    pbg->recvseg, pbg->nid,
-                    pb->data->header.magic,
-                    pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
-            trace_event(pb->box * NNEIGH + pb->ineigh, label, "#00ffff");
-
             dbg("tagaspi_notify_async_wait(seg=%d, nid=%d)\n"
                     "  magic=%d buf[0]=%e buf[1]=%e buf[2]=%e\n",
-                    pbg->recvseg, pbg->nid,
+                    pbg->local_seg, pbg->nid,
                     pb->data->header.magic,
                     pb->data->buf[0], pb->data->buf[1], pb->data->buf[2]);
 
             gaspi_return_t ret = tagaspi_notify_async_wait(
-                    pbg->recvseg,
+                    pbg->local_seg,
                     pbg->nid,
                     GASPI_NOTIFICATION_IGNORE);
-
-            sprintf(label, "tagaspi_notify_async_wait(seg=%d, nid=%d) magic=%d EXIT=%d",
-                    pbg->recvseg, pbg->nid, pb->data->header.magic, ret);
-            trace_event(pb->box * NNEIGH + pb->ineigh, label, "#00ffff");
 
             if (ret == GASPI_SUCCESS)
                 break;
@@ -202,8 +156,8 @@ recv_buf(PackBuf *pb)
         pb->in_transfer[PB_BUF] = 1;
     }
 
-    /* We cannot check the header yet as only after the task is released we
-     * would have received the data */
+    /* We cannot check the header yet as only after the task is released
+     * we would have received the data */
 
     packbuf_switch(pb, PB_RECVING, PB_READY);
 }
@@ -216,6 +170,67 @@ packbuf_gaspi_recv(PackBuf *pb, enum pb_req reqtype)
     } else {
         recv_buf(pb);
     }
+}
+
+void
+packbuf_gaspi_signal(PackBuf *pb)
+{
+    PackBufGASPI *pbg = &pb->gaspi;
+    packbuf_switch(pb, PB_READY, PB_SENDING);
+
+    /* Only valid for recv PackBuf */
+    if (pb->dir != PB_RECV)
+        die("packbuf_gaspi_signal: only valid for PB_RECV\n");
+
+    /* Repeat until success */
+    while (1) {
+        /* This is counter-intuitive, because we are sending a message
+         * to the source endpoint to acknowledge that the receiving end
+         * is ready to receive more data. */
+        gaspi_return_t ret = tagaspi_notify(
+                pbg->src_seg, pb->remote.rank,
+                pbg->nid, 1, pbg->queue);
+
+        if (ret == GASPI_SUCCESS)
+            break;
+
+        if (ret != GASPI_QUEUE_FULL) {
+            check_gaspi(ret, "tagaspi_notify", __FILE__, __LINE__);
+        }
+    }
+
+    packbuf_switch(pb, PB_SENDING, PB_READY);
+}
+
+void
+packbuf_gaspi_linger(PackBuf *pb)
+{
+    PackBufGASPI *pbg = &pb->gaspi;
+    packbuf_switch(pb, PB_READY, PB_WAITING);
+
+    if (pb->dir != PB_SEND)
+        die("packbuf_gaspi_linger: only valid for PB_SEND\n");
+
+    while (1) {
+
+        /* FIXME: Ensure we don't receive crossed notifications from
+         * other parts of the simulation */
+
+        /* Wait for the notification in the source segment */
+        gaspi_return_t ret = tagaspi_notify_async_wait(
+                pbg->src_seg, pbg->nid,
+                GASPI_NOTIFICATION_IGNORE);
+
+        if (ret == GASPI_SUCCESS)
+            break;
+
+        if (ret != GASPI_QUEUE_FULL) {
+            check_gaspi(ret, "tagaspi_notify_async_wait",
+                    __FILE__, __LINE__);
+        }
+    }
+
+    packbuf_switch(pb, PB_WAITING, PB_READY);
 }
 
 void
@@ -234,8 +249,7 @@ packbuf_gaspi_waitn(PackBuf **pbs, int n, enum pb_req req)
 
         /* Ensure the header is sane */
         if (pb->dir == PB_RECV) {
-            // FIXME: disabled for testing
-            //packbuf_check_header(pb, -666);
+            packbuf_header_check(pb);
 
             /* No need to set natoms as we only exchange PB_BUF */
             //pb->natoms = pb->data->xnatoms;

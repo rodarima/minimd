@@ -54,8 +54,8 @@ comm_borders(Sim *sim)
     comm_wait  (sim, type, PB_SEND, PB_NATOMS);
     comm_wait  (sim, type, PB_RECV, PB_NATOMS);
 
-    comm_recv  (sim, type, PB_RECV, PB_BUF);
     comm_send  (sim, type, PB_SEND, PB_BUF);
+    comm_recv  (sim, type, PB_RECV, PB_BUF);
 
     comm_wait  (sim, type, PB_SEND, PB_BUF);
     comm_wait  (sim, type, PB_RECV, PB_BUF);
@@ -72,14 +72,13 @@ comm_ghost_position(Sim *sim)
     enum pb_type type = PB_R;
 
     comm_pack  (sim, type, PB_SEND);
-
+    comm_linger(sim, type, PB_SEND);
     comm_send  (sim, type, PB_SEND, PB_BUF);
     comm_recv  (sim, type, PB_RECV, PB_BUF);
-
     comm_wait  (sim, type, PB_SEND, PB_BUF);
     comm_wait  (sim, type, PB_RECV, PB_BUF);
-
     comm_unpack(sim, type, PB_RECV);
+    comm_signal(sim, type, PB_RECV);
 }
 
 /** Waits for all communications to finish. */
@@ -93,4 +92,10 @@ comm_waitall(Sim *sim)
             #pragma oss taskwait /* required */
         }
     }
+}
+
+void
+comm_ready(Sim *sim)
+{
+    comm_signal(sim, PB_R, PB_RECV);
 }

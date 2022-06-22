@@ -87,7 +87,8 @@ check_energy(Sim *sim)
         die("energy for iteration %d not found in reference file '%s'\n",
                 sim->iter, path);
     else
-        dbg("ref_check_energy ok iter=%d\n", sim->iter);
+        /* Always report the energy check */
+        err("ref_check_energy ok iter=%d\n", sim->iter);
 }
 
 void

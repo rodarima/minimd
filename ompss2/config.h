@@ -63,6 +63,9 @@
 /* Ensure that no ghost atom is too close to a local atom (slow) */
 //#define ENABLE_GHOST_ATOM_CHECK
 
+/* Performs a ping pong test to check communications (slow) */
+#define ENABLE_COMM_TEST 0
+
 /* Update the force following bin order instead of atom sequence */
 #define ENABLE_FORCE_BY_BINS 0
 
@@ -71,7 +74,7 @@
 
 /* Use the non-blocking mode of TAMPI, which blocks the release of the task
  * until the MPI requests have been completed */
-#define ENABLE_NONBLOCKING_TAMPI 1
+#define ENABLE_NONBLOCKING_TAMPI 0
 
 /* Use MPI_Waitall if needed */
 #define NEED_EXPLICIT_WAIT (ENABLE_NONBLOCKING_MPI && !ENABLE_NONBLOCKING_TAMPI)
@@ -81,7 +84,7 @@
 #define ENABLE_SEQUENTIAL_MPIWAIT 1
 
 /* If enabled, tagaspi will be used to exchange ghost positions */
-#define ENABLE_GASPI 1
+#define ENABLE_GASPI 0
 
 /* Wait a large delay before aborting when a problem occurs, so a
  * debugger can be attached. Also allows other aborts to trip. */

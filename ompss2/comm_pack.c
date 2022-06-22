@@ -6,7 +6,6 @@
 #include "dom.h"
 #include "neigh.h"
 #include "box.h"
-#include "trace.h"
 
 #pragma oss task label("box_ghost_pack_r") \
     in(box->r) \
@@ -81,11 +80,6 @@ box_ghost_pack_r(Sim *sim, Box *box)
 
     box_packbuf_switch(box, PB_R, PB_SEND, PB_PACKING, PB_READY);
     box_packbuf_switch(box, PB_RT, PB_SEND, PB_READING, PB_READY);
-
-    char label[1024];
-    double t1 = MPI_Wtime();
-    sprintf(label, "box_ghost_pack_r box=%d", box->i);
-    trace_record(box->i, 1.0, t0, t1, label, "#777777");
 }
 
 #pragma oss task label("neigh_border_pack_rt") \
@@ -158,11 +152,6 @@ box_border_pack_rt(Sim *sim, Box *box)
 
     dbg("rank%d.box%d: packed %d atoms\n",
             sim->rank, box->i, npacked);
-
-    char label[1024];
-    double t1 = MPI_Wtime();
-    sprintf(label, "box_border_pack_rt box=%d", box->i);
-    trace_record(box->i, 1.0, t0, t1, label, "#7777ff");
 }
 
 static void
@@ -235,11 +224,6 @@ box_tidy_pack_rvt(Sim *sim, Box *box)
             npacked, box->i, box->nlocal);
 
     box_packbuf_switch(box, PB_RVT, PB_SEND, PB_PACKING, PB_READY);
-
-    char label[1024];
-    double t1 = MPI_Wtime();
-    sprintf(label, "box_tidy_pack_rvt box=%d", box->i);
-    trace_record_span(0, (box->i + 1) * NNEIGH, t0, t1, label, "#77ff77");
 }
 
 void

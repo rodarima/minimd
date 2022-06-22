@@ -102,12 +102,6 @@ typedef struct neigh Neigh;
 
 #include "packbuf.h"
 
-typedef struct endpoint {
-    int rank;
-    int ibox;
-    int isenddir;
-} Endpoint;
-
 typedef struct link {
     Endpoint src;
     Endpoint dst;

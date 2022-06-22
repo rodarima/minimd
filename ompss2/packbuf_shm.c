@@ -17,6 +17,8 @@ packbuf_shm_init(PackBuf *pb, PackBuf *remote)
     pb->data = safe_calloc(1, sizeof(PackBufData));
     pb->nalloc = 0;
 
+    packbuf_header_destroy_unsafe(pb);
+
     char tmp[256];
     strcpy(tmp, pb->name);
 
@@ -27,7 +29,11 @@ packbuf_shm_init(PackBuf *pb, PackBuf *remote)
 void
 packbuf_shm_send(PackBuf *pb, enum pb_req reqtype)
 {
-    //die("%s: use only recv with SHM\n", pb->name);
+    /* No need to do anything, as the header is already reset in
+     * packbuf_send() */
+    packbuf_switch(pb, PB_READY, PB_SENDING);
+    packbuf_header_check(pb);
+    packbuf_switch(pb, PB_SENDING, PB_READY);
 }
 
 static void
@@ -78,6 +84,11 @@ packbuf_shm_recv(PackBuf *pb, enum pb_req reqtype)
         recv_natoms(pb);
     else
         recv_buf(pb);
+
+    /* We can already check the header here, as the transaction has just
+     * finished */
+
+    packbuf_header_check(pb);
 
     packbuf_switch(dst, PB_COPYING, PB_READY);
     packbuf_switch(src, PB_COPYING, PB_READY);

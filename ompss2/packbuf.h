@@ -4,6 +4,9 @@
 #include <mpi.h>
 #include <stdlib.h>
 
+typedef struct PackBuf PackBuf;
+
+
 /* Used to mark the status of the buffer, so we can detect concurrent
  * access to the buffer and explain what was using it before */
 enum packbuf_state {
@@ -22,8 +25,7 @@ enum packbuf_state {
 
 enum pb_magic {
     PB_MAGIC_OK = 12345,
-    PB_MAGIC_KO = 666,
-    PB_MAGIC_CLEAN = 777
+    PB_MAGIC_DESTROYED = -666
 };
 
 enum gaspi_segment_dir {
@@ -73,26 +75,31 @@ typedef struct {
 
 typedef struct {
     int nid; /* Notification id */
-    int sendseg;
-    int recvseg;
-    size_t sendoffset; /* in bytes */
-    size_t recvoffset;
+    int local_seg;
+    int remote_seg;
+    int src_seg;
+    int dst_seg;
+    size_t local_offset; /* in bytes */
+    size_t remote_offset;
+    size_t src_offset; /* Aliases (in bytes) */
+    size_t dst_offset;
     int queue;
 } PackBufGASPI;
-
-typedef struct PackBuf PackBuf;
 
 typedef struct {
     PackBuf *remote;
 } PackBufShm;
 
+#include "endpoint.h"
+
 typedef struct {
-    int magic;
-    int iter;
-    int srcbox;
-    int senddir;
-    int dstbox;
-    int icomm;
+    int magic;  /* Magic constant */
+    int iseq;   /* Iteration sequence */
+
+    /* In the exchanged header it only makes sense to talk about source
+     * and destination endpoints, rather than local/remote. */
+    Endpoint src;
+    Endpoint dst;
 } PackBufHeader;
 
 /* The data to be communicated */
@@ -112,13 +119,19 @@ typedef struct {
 } PackBufTrace;
 
 struct PackBuf {
-    int box;
-    int senddir;
+    int iseq;
 
+    /* Aliases for local endpoint dir and type */
     enum pb_dir dir;
-    int ineigh;
+    enum pb_type type;
 
-    char name[256];
+    Endpoint local;
+    Endpoint remote;
+
+    Endpoint *src;  /* Alias to the source endpoint */
+    Endpoint *dst;  /* Alias to the destination endpoint */
+
+    char name[1024];
     int natoms;     /* Number of atoms currently in the buffer */
     int nalloc;     /* Number of atoms allocated */
     int atomsize;   /* Number of doubles required per atom */
@@ -133,7 +146,6 @@ struct PackBuf {
     int enable_sel; /* If non-zero use selection for packing */
     int *sel;       /* Selection of atoms */
 
-    int remoterank;
     int in_transfer[PB_NREQS]; /* Is transferring data? */
 
     enum packbuf_state debug_state; /* Reserved for debugging purposes */
@@ -147,8 +159,10 @@ struct PackBuf {
     };
 };
 
-void packbuf_init(PackBuf *pb, enum pb_dir dir, int ineigh,
-        int enable_sel, int atomsize, int remoterank);
+#include "types.h"
+
+void packbuf_init(PackBuf *pb, int enable_sel, int atomsize,
+        Endpoint *local, Endpoint *remote);
 
 void packbuf_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
 void packbuf_debug_switch(PackBuf *pb, enum packbuf_state prev, enum packbuf_state next);
@@ -163,9 +177,15 @@ void packbuf_send(PackBuf *pb, enum pb_req req);
 void packbuf_recv(PackBuf *pb, enum pb_req req);
 void packbuf_waitn(PackBuf **pbs, int n, enum pb_req reqtype);
 
+void packbuf_linger(PackBuf *pb);
+void packbuf_signal(PackBuf *pb);
+
 size_t packbuf_data_size(size_t natoms, size_t atomdoubles);
 
-void packbuf_check_header(PackBuf *pb, int iter);
+void packbuf_header_check(PackBuf *pb);
+void packbuf_header_reset(PackBuf *pb);
+void packbuf_header_destroy(PackBuf *pb);
+void packbuf_header_destroy_unsafe(PackBuf *pb);
 
 /* MPI */
 
@@ -186,6 +206,9 @@ void packbuf_gaspi_init(PackBuf *pb, PackBufData *newdata,
 void packbuf_gaspi_send(PackBuf *pb, enum pb_req req);
 void packbuf_gaspi_recv(PackBuf *pb, enum pb_req req);
 void packbuf_gaspi_waitn(PackBuf **pbs, int n, enum pb_req req);
+
+void packbuf_gaspi_linger(PackBuf *pb);
+void packbuf_gaspi_signal(PackBuf *pb);
 
 /* SHM */
 
